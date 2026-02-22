@@ -75,6 +75,14 @@ module = [
 ]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# aiohttp ships py.typed but its internal TestClient generic parameters
+# (_Request, _ApplicationNone) produce cascading type-arg errors in test files.
+# Suppressing these codes for tests keeps the config stable without silencing
+# meaningful production-code errors.
+module = ["tests.*"]
+disable_error_code = ["type-arg", "misc", "unused-ignore"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

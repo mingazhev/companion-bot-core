@@ -1,0 +1,132 @@
+"""aiohttp route handlers for the internal HTTP service.
+
+These handlers are pure async functions; all shared state is accessed through
+``request.app`` so they can be tested without standing up a real Redis or
+running the full application.
+
+Endpoints
+---------
+POST /internal/refine/{user_id}
+    Enqueue a prompt-refinement job for the specified user.
+
+POST /internal/detect-change
+    Classify configuration-change intent in a user message and return the
+    DetectionResult as JSON.
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from typing import Any
+
+from aiohttp import web
+from pydantic import ValidationError
+
+from tdbot.behavior.detector import classify
+from tdbot.internal.schemas import DetectChangeRequest, RefineRequest, RefineResponse
+from tdbot.redis.queues import enqueue_refinement_job
+
+# Type-safe application key for the shared Redis client.
+# Using web.AppKey avoids the NotAppKeyWarning introduced in aiohttp 3.9+.
+REDIS_KEY: web.AppKey[Any] = web.AppKey("redis")
+
+
+async def handle_refine(request: web.Request) -> web.Response:
+    """POST /internal/refine/{user_id} — enqueue a refinement job.
+
+    Path parameters
+    ---------------
+    user_id : str
+        Must be a valid UUID string.
+
+    Request body (optional JSON)
+    ----------------------------
+    trigger : str
+        Source label stored in the job payload.  Defaults to "internal_api".
+
+    Responses
+    ---------
+    202 Accepted
+        ``{"queued": true, "user_id": "...", "queue_length": N}``
+    400 Bad Request
+        ``{"error": "..."}`` when ``user_id`` is not a valid UUID or the body
+        is malformed.
+    """
+    user_id_str: str = request.match_info["user_id"]
+    try:
+        user_id = uuid.UUID(user_id_str)
+    except ValueError:
+        return web.json_response(
+            {"error": f"invalid user_id: {user_id_str!r} is not a valid UUID"},
+            status=400,
+        )
+
+    body: dict[str, Any] = {}
+    if request.content_length and request.content_length > 0:
+        try:
+            raw = await request.json()
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            return web.json_response({"error": f"invalid JSON: {exc}"}, status=400)
+        if not isinstance(raw, dict):
+            return web.json_response(
+                {"error": "request body must be a JSON object"}, status=400
+            )
+        body = raw
+
+    try:
+        req = RefineRequest(**body)
+    except ValidationError as exc:
+        return web.json_response({"error": exc.errors()}, status=400)
+
+    redis = request.app[REDIS_KEY]
+    queue_length = await enqueue_refinement_job(
+        redis,
+        str(user_id),
+        {"trigger": req.trigger},
+    )
+
+    resp = RefineResponse(
+        queued=True,
+        user_id=str(user_id),
+        queue_length=queue_length,
+    )
+    return web.json_response(resp.model_dump(), status=202)
+
+
+async def handle_detect_change(request: web.Request) -> web.Response:
+    """POST /internal/detect-change — classify configuration intent.
+
+    Request body (required JSON)
+    ----------------------------
+    text : str
+        User message text to classify.  Must be non-empty.
+
+    Responses
+    ---------
+    200 OK
+        Full ``DetectionResult`` serialised as JSON.
+    400 Bad Request
+        ``{"error": "..."}`` when the body is missing, not valid JSON, or fails
+        schema validation.
+    """
+    if not request.content_length or request.content_length == 0:
+        return web.json_response({"error": "request body is required"}, status=400)
+
+    try:
+        raw = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return web.json_response({"error": f"invalid JSON: {exc}"}, status=400)
+
+    if not isinstance(raw, dict):
+        return web.json_response(
+            {"error": "request body must be a JSON object"}, status=400
+        )
+
+    try:
+        req = DetectChangeRequest(**raw)
+    except ValidationError as exc:
+        return web.json_response({"error": exc.errors()}, status=400)
+
+    result = classify(req.text)
+    return web.json_response(result.model_dump())

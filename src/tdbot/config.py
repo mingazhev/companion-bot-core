@@ -92,6 +92,18 @@ class Settings(BaseSettings):
     service_name: str = Field(default="tdbot")
     environment: str = Field(default="local", description="deployment environment tag")
 
+    # --- Internal HTTP service ---
+    internal_server_host: str = Field(
+        default="127.0.0.1",
+        description="Bind address for the internal HTTP service (not exposed externally)",
+    )
+    internal_server_port: int = Field(
+        default=8080,
+        ge=1,
+        le=65535,
+        description="TCP port for the internal HTTP service",
+    )
+
     # --- Security ---
     encrypt_sensitive_fields: bool = Field(
         default=True,

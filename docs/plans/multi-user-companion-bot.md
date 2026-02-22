@@ -88,9 +88,9 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Mark completed
 
 ### Task 11: Internal service endpoints
-- [ ] Implement `POST /internal/refine/{user_id}` to enqueue refinement job
-- [ ] Implement `POST /internal/detect-change` to classify configuration intent
-- [ ] Mark completed
+- [x] Implement `POST /internal/refine/{user_id}` to enqueue refinement job
+- [x] Implement `POST /internal/detect-change` to classify configuration intent
+- [x] Mark completed
 
 ### Task 12: Observability
 - [ ] Add p50/p95 chat latency metrics

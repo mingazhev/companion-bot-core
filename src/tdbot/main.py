@@ -8,6 +8,10 @@ or (after installing the package):
 Polling mode is used when ``TELEGRAM_WEBHOOK_HOST`` is empty (default for
 local development).  Set a non-empty ``TELEGRAM_WEBHOOK_HOST`` to switch to
 webhook mode (webhook server setup is left to the deployment layer).
+
+The internal HTTP service (``/internal/refine/{user_id}`` and
+``/internal/detect-change``) is always started on
+``INTERNAL_SERVER_HOST:INTERNAL_SERVER_PORT`` (default 127.0.0.1:8080).
 """
 
 from __future__ import annotations
@@ -15,10 +19,13 @@ from __future__ import annotations
 import asyncio
 import sys
 
+from aiohttp import web
+
 from tdbot.bot.app import build_bot, build_dispatcher
 from tdbot.config import get_settings
 from tdbot.db.engine import create_engine
 from tdbot.inference.client import ChatAPIClient
+from tdbot.internal.server import build_internal_app
 from tdbot.logging_config import configure_logging, get_logger
 from tdbot.prompt.snapshot_store import InMemorySnapshotStore
 from tdbot.redis.client import close_redis_pool, create_redis_pool
@@ -35,6 +42,8 @@ async def _run() -> None:
         environment=settings.environment,
         chat_model=settings.chat_model,
         mode="polling" if not settings.telegram_webhook_host else "webhook",
+        internal_host=settings.internal_server_host,
+        internal_port=settings.internal_server_port,
     )
 
     engine = create_engine(settings)
@@ -44,6 +53,22 @@ async def _run() -> None:
         api_key=settings.openai_api_key.get_secret_value(),
         model=settings.chat_model,
         base_url=settings.openai_base_url,
+    )
+
+    # Start the internal HTTP service.
+    internal_app = build_internal_app(redis)
+    runner = web.AppRunner(internal_app)
+    await runner.setup()
+    site = web.TCPSite(
+        runner,
+        settings.internal_server_host,
+        settings.internal_server_port,
+    )
+    await site.start()
+    log.info(
+        "internal_server_started",
+        host=settings.internal_server_host,
+        port=settings.internal_server_port,
     )
 
     try:
@@ -72,6 +97,7 @@ async def _run() -> None:
                 "Set TELEGRAM_WEBHOOK_HOST='' to use polling mode."
             )
     finally:
+        await runner.cleanup()
         await chat_client.close()
         await close_redis_pool(redis)
         await engine.dispose()
