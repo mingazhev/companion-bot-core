@@ -45,11 +45,11 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Mark completed
 
 ### Task 5: Chat inference adapter
-- [ ] Implement `generate_reply(user_context, message) -> reply, usage, safety_flags` interface
-- [ ] Build ChatGPT Chat API client with retry and exponential backoff
-- [ ] Add circuit breaker when model provider error rate crosses threshold
-- [ ] Validate model output schema
-- [ ] Mark completed
+- [x] Implement `generate_reply(user_context, message) -> reply, usage, safety_flags` interface
+- [x] Build ChatGPT Chat API client with retry and exponential backoff
+- [x] Add circuit breaker when model provider error rate crosses threshold
+- [x] Validate model output schema
+- [x] Mark completed
 
 ### Task 6: Prompt state manager
 - [ ] Implement prompt snapshot versioning (immutable snapshots, atomic active pointer)
