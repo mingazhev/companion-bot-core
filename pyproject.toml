@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tdbot"
+version = "0.1.0"
+description = "Multi-User Configurable Telegram Companion Bot"
+requires-python = ">=3.11"
+dependencies = [
+    "aiogram>=3.15,<4.0",
+    "asyncpg>=0.30.0",
+    "redis[asyncio]>=5.2.0",
+    "alembic>=1.14.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "pydantic-settings>=2.7.0",
+    "structlog>=25.1.0",
+    "httpx>=0.28.0",
+    "tenacity>=9.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.9.0",
+    "mypy>=1.14.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.0",
+    "pytest-mock>=3.14.0",
+    "types-redis>=4.6.0",
+    "asyncpg-stubs>=0.30.0",
+]
+
+[project.scripts]
+tdbot = "tdbot.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tdbot"]
+
+[tool.ruff]
+src = ["src"]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "S", "B", "A", "C4", "RET", "SIM", "TCH", "ANN"]
+ignore = [
+    "S101",    # use of assert (needed in tests)
+    "ANN401",  # Any is acceptable in structlog processor signatures
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "S"]
+# SQLAlchemy resolves Mapped[] annotations at runtime, so stdlib types
+# (datetime) used in Mapped[datetime] must remain as real imports.
+"src/tdbot/db/models.py" = ["TC003"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = false
+mypy_path = "src"
+packages = ["tdbot"]
+
+[[tool.mypy.overrides]]
+module = [
+    "aiogram.*",
+    "asyncpg.*",
+    "alembic.*",
+    "structlog.*",
+    "tenacity.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["src/tdbot"]
+omit = ["tests/*"]

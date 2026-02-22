@@ -1,3 +1,29 @@
 
 # ralphex progress logs
 .ralphex/progress/
+
+# Environment secrets — never commit
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+*.cover
+
+# IDEs
+.idea/
+.vscode/
+*.swp

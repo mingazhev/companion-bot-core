@@ -15,20 +15,20 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - `mypy .`
 
 ### Task 1: Project scaffolding and configuration
-- [ ] Initialize Python project with `aiogram 3.x`, `asyncpg`, `redis-py`, `alembic`
-- [ ] Set up environment-based secrets management (no hardcoded tokens)
-- [ ] Configure structured logging with correlation IDs
-- [ ] Add `ruff` and `mypy` to dev dependencies
-- [ ] Mark completed
+- [x] Initialize Python project with `aiogram 3.x`, `asyncpg`, `redis-py`, `alembic`
+- [x] Set up environment-based secrets management (no hardcoded tokens)
+- [x] Configure structured logging with correlation IDs
+- [x] Add `ruff` and `mypy` to dev dependencies
+- [x] Mark completed
 
 ### Task 2: Database schema and migrations
-- [ ] Create `users` table (`id`, `telegram_user_id`, `created_at`, `status`, `locale`, `timezone`)
-- [ ] Create `user_profiles` table (`user_id`, `persona_name`, `tone`, `style_constraints`, `safety_level`, `updated_at`)
-- [ ] Create `prompt_snapshots` table (`id`, `user_id`, `version`, `system_prompt`, `skill_prompts_json`, `source`, `created_at`)
-- [ ] Create `conversation_messages` table with `ttl_expires_at` column
-- [ ] Create `memory_compactions`, `behavior_change_events`, `jobs`, `audit_log` tables
-- [ ] Write Alembic migration files
-- [ ] Mark completed
+- [x] Create `users` table (`id`, `telegram_user_id`, `created_at`, `status`, `locale`, `timezone`)
+- [x] Create `user_profiles` table (`user_id`, `persona_name`, `tone`, `style_constraints`, `safety_level`, `updated_at`)
+- [x] Create `prompt_snapshots` table (`id`, `user_id`, `version`, `system_prompt`, `skill_prompts_json`, `source`, `created_at`)
+- [x] Create `conversation_messages` table with `ttl_expires_at` column
+- [x] Create `memory_compactions`, `behavior_change_events`, `jobs`, `audit_log` tables
+- [x] Write Alembic migration files
+- [x] Mark completed
 
 ### Task 3: Redis integration
 - [ ] Configure `refinement_jobs` and `retry_jobs` queue topics
