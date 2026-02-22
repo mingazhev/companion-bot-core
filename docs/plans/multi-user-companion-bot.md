@@ -1,0 +1,137 @@
+# Plan: Multi-User Configurable Telegram Companion Bot (v1)
+
+## Overview
+Production-ready Telegram bot where each user has a personalized, evolvable companion persona driven by per-user prompts.
+v1 supports prompt-based skills only (no user-executable code), detects in-chat intent to change tone/behavior, and refines/compacts per-user prompt state asynchronously.
+Chat responses use ChatGPT Chat API; prompt-refinement jobs use Codex/Claude in non-interactive mode.
+Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
+
+## Validation Commands
+- `pytest tests/unit/`
+- `pytest tests/integration/`
+- `pytest tests/security/`
+- `pytest tests/data/`
+- `ruff check .`
+- `mypy .`
+
+### Task 1: Project scaffolding and configuration
+- [ ] Initialize Python project with `aiogram 3.x`, `asyncpg`, `redis-py`, `alembic`
+- [ ] Set up environment-based secrets management (no hardcoded tokens)
+- [ ] Configure structured logging with correlation IDs
+- [ ] Add `ruff` and `mypy` to dev dependencies
+- [ ] Mark completed
+
+### Task 2: Database schema and migrations
+- [ ] Create `users` table (`id`, `telegram_user_id`, `created_at`, `status`, `locale`, `timezone`)
+- [ ] Create `user_profiles` table (`user_id`, `persona_name`, `tone`, `style_constraints`, `safety_level`, `updated_at`)
+- [ ] Create `prompt_snapshots` table (`id`, `user_id`, `version`, `system_prompt`, `skill_prompts_json`, `source`, `created_at`)
+- [ ] Create `conversation_messages` table with `ttl_expires_at` column
+- [ ] Create `memory_compactions`, `behavior_change_events`, `jobs`, `audit_log` tables
+- [ ] Write Alembic migration files
+- [ ] Mark completed
+
+### Task 3: Redis integration
+- [ ] Configure `refinement_jobs` and `retry_jobs` queue topics
+- [ ] Implement per-user and global rate limiting
+- [ ] Implement short-lived prompt context cache
+- [ ] Implement idempotency keys for Telegram update deduplication
+- [ ] Mark completed
+
+### Task 4: Telegram ingress service
+- [ ] Set up `aiogram` webhook/polling receiver
+- [ ] Implement auth and user routing
+- [ ] Register `/start`, `/profile`, `/set_tone`, `/set_persona`, `/memory_compact_now`, `/reset_persona`, `/privacy`, `/delete_my_data` command handlers
+- [ ] Wire update deduplication via Redis idempotency keys
+- [ ] Mark completed
+
+### Task 5: Chat inference adapter
+- [ ] Implement `generate_reply(user_context, message) -> reply, usage, safety_flags` interface
+- [ ] Build ChatGPT Chat API client with retry and exponential backoff
+- [ ] Add circuit breaker when model provider error rate crosses threshold
+- [ ] Validate model output schema
+- [ ] Mark completed
+
+### Task 6: Prompt state manager
+- [ ] Implement prompt snapshot versioning (immutable snapshots, atomic active pointer)
+- [ ] Build prompt merge: base system template + user persona segment + skill packs + short-term window + compacted long-term profile
+- [ ] Implement rollback to previous snapshot on user command or failed quality checks
+- [ ] Mark completed
+
+### Task 7: Behavior change detector
+- [ ] Implement intent classifier: `tone_change`, `persona_change`, `skill_add_prompt`, `skill_remove`, `safety_override_attempt`, `normal_chat`
+- [ ] Implement risk-level classification (low / medium / high) with deterministic heuristics
+- [ ] Implement confidence thresholding: below threshold defaults to normal chat + clarification question
+- [ ] Implement auto-apply for low-risk, confirm flow for medium-risk, refuse for high-risk
+- [ ] Mark completed
+
+### Task 8: Conversation orchestrator
+- [ ] Build context assembly: user profile + latest prompt snapshot + recent message window
+- [ ] Wire behavior change detector into chat flow
+- [ ] Implement confirmation dialogue state for medium-risk config changes
+- [ ] Persist response metadata and enqueue optional refinement trigger
+- [ ] Mark completed
+
+### Task 9: Refinement worker
+- [ ] Implement `refine_prompt(snapshot, recent_context) -> proposed_snapshot_delta, rationale, risk_flags` interface
+- [ ] Build Codex/Claude non-interactive refinement client
+- [ ] Implement scheduler: enqueue jobs by cadence and activity thresholds
+- [ ] Validate refinement output schema and policy; store new versioned snapshot
+- [ ] Add dead-letter queue for repeated failed jobs
+- [ ] Emit audit event and optional user-visible "profile updated" notice
+- [ ] Mark completed
+
+### Task 10: Policy guardrail layer
+- [ ] Implement prompt-injection checks
+- [ ] Implement unsafe-role-change checks
+- [ ] Implement risky capability confirmation flow
+- [ ] Add per-user rate limits and abuse throttling
+- [ ] Mark completed
+
+### Task 11: Internal service endpoints
+- [ ] Implement `POST /internal/refine/{user_id}` to enqueue refinement job
+- [ ] Implement `POST /internal/detect-change` to classify configuration intent
+- [ ] Mark completed
+
+### Task 12: Observability
+- [ ] Add p50/p95 chat latency metrics
+- [ ] Add detector precision proxy (confirmation reversals) metric
+- [ ] Add refinement success/failure rate and prompt rollback rate metrics
+- [ ] Add token usage per user/day/provider metrics
+- [ ] Add structured event logs with user and request correlation IDs
+- [ ] Add tracing spans: ingress -> detector -> prompt manager -> model adapter -> persistence
+- [ ] Mark completed
+
+### Task 13: Privacy and data controls
+- [ ] Implement configurable TTL expiration for `conversation_messages`
+- [ ] Implement `/delete_my_data` hard-delete flow (preserves audit minimality)
+- [ ] Implement PII redaction in logs
+- [ ] Encrypt sensitive fields at rest
+- [ ] Mark completed
+
+### Task 14: Unit tests
+- [ ] Test prompt merge builder correctness
+- [ ] Test detector intent mapping and risk policy transitions
+- [ ] Test snapshot versioning and rollback atomicity
+- [ ] Mark completed
+
+### Task 15: Integration tests
+- [ ] End-to-end Telegram update to response for new and existing user
+- [ ] Async refinement job updates snapshot without blocking chat
+- [ ] Confirmation flow for medium-risk changes
+- [ ] Mark completed
+
+### Task 16: Security and data tests
+- [ ] Verify prompt-injection attempts do not override policy
+- [ ] Verify unsafe capability requests are refused
+- [ ] Verify TTL expiration removes eligible conversation rows
+- [ ] Verify `/delete_my_data` removes personal records and preserves required audit minimality
+- [ ] Mark completed
+
+### Task 17: Load tests
+- [ ] Concurrent multi-user chats preserve isolation and latency SLO
+- [ ] Mark completed
+
+### Task 18: Phase 0 rollout — local dev
+- [ ] Wire fake model adapters and seed prompts for local development
+- [ ] Verify all acceptance criteria locally
+- [ ] Mark completed
