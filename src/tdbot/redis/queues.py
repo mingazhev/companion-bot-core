@@ -20,7 +20,7 @@ QUEUE_RETRY_JOBS = "retry_jobs"
 
 
 async def enqueue_refinement_job(
-    redis: Redis,
+    redis: Redis[str],
     user_id: str,
     payload: dict[str, Any],
 ) -> int:
@@ -29,12 +29,12 @@ async def enqueue_refinement_job(
     Returns the new queue length after the push.
     """
     job: dict[str, Any] = {"user_id": user_id, **payload}
-    result: int = await redis.rpush(QUEUE_REFINEMENT_JOBS, json.dumps(job))  # type: ignore[misc]
+    result: int = await redis.rpush(QUEUE_REFINEMENT_JOBS, json.dumps(job))
     return result
 
 
 async def enqueue_retry_job(
-    redis: Redis,
+    redis: Redis[str],
     user_id: str,
     payload: dict[str, Any],
 ) -> int:
@@ -43,12 +43,12 @@ async def enqueue_retry_job(
     Returns the new queue length after the push.
     """
     job: dict[str, Any] = {"user_id": user_id, **payload}
-    result: int = await redis.rpush(QUEUE_RETRY_JOBS, json.dumps(job))  # type: ignore[misc]
+    result: int = await redis.rpush(QUEUE_RETRY_JOBS, json.dumps(job))
     return result
 
 
 async def dequeue_job(
-    redis: Redis,
+    redis: Redis[str],
     queue: str,
     timeout: int = 0,
 ) -> dict[str, Any] | None:
@@ -61,14 +61,14 @@ async def dequeue_job(
     Returns:
         Decoded job dict, or ``None`` if the operation timed out.
     """
-    result: tuple[str, str] | None = await redis.blpop([queue], timeout=timeout)  # type: ignore[misc]
+    result: tuple[str, str] | None = await redis.blpop([queue], timeout=timeout)
     if result is None:
         return None
     _queue_name, raw = result
     return json.loads(raw)  # type: ignore[no-any-return]
 
 
-async def get_queue_length(redis: Redis, queue: str) -> int:
+async def get_queue_length(redis: Redis[str], queue: str) -> int:
     """Return the number of pending items in ``queue``."""
-    length: int = await redis.llen(queue)  # type: ignore[misc]
+    length: int = await redis.llen(queue)
     return length

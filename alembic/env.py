@@ -12,7 +12,7 @@ import os
 from logging.config import fileConfig
 from typing import TYPE_CHECKING
 
-from alembic import context  # type: ignore[attr-defined]
+from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 

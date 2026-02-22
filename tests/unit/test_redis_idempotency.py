@@ -26,7 +26,7 @@ FakeRedis = fakeredis.FakeAsyncRedis
 async def redis() -> AsyncGenerator[FakeRedis, None]:
     client = FakeRedis(decode_responses=True)
     yield client
-    await client.aclose()
+    await client.aclose()  # type: ignore[attr-defined]
 
 
 class TestMarkUpdateSeen:

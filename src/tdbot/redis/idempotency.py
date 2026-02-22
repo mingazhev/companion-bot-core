@@ -30,7 +30,7 @@ def _key(update_id: int) -> str:
 
 
 async def mark_update_seen(
-    redis: Redis,
+    redis: Redis[str],
     update_id: int,
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
 ) -> bool:
@@ -49,12 +49,12 @@ async def mark_update_seen(
         True  – first time this update_id has been seen; caller should process.
         False – already recorded; caller should skip (duplicate delivery).
     """
-    result: str | None = await redis.set(_key(update_id), "1", nx=True, ex=ttl_seconds)
+    result: bool | None = await redis.set(_key(update_id), "1", nx=True, ex=ttl_seconds)
     return result is not None
 
 
 async def is_update_seen(
-    redis: Redis,
+    redis: Redis[str],
     update_id: int,
 ) -> bool:
     """Return True if *update_id* has already been processed.
@@ -67,7 +67,7 @@ async def is_update_seen(
 
 
 async def clear_update_key(
-    redis: Redis,
+    redis: Redis[str],
     update_id: int,
 ) -> None:
     """Delete the idempotency key for *update_id*.

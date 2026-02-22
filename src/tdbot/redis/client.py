@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from tdbot.config import Settings
 
 
-async def create_redis_pool(settings: Settings) -> Redis:
+async def create_redis_pool(settings: Settings) -> Redis[str]:
     """Create an async Redis client backed by a connection pool.
 
     The client is configured with decode_responses=True so all keys and values
@@ -25,6 +25,6 @@ async def create_redis_pool(settings: Settings) -> Redis:
     )
 
 
-async def close_redis_pool(redis: Redis) -> None:
+async def close_redis_pool(redis: Redis[str]) -> None:
     """Close the Redis client and release all pooled connections."""
-    await redis.aclose()
+    await redis.aclose()  # type: ignore[attr-defined]

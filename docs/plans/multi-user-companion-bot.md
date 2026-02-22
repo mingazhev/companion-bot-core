@@ -38,11 +38,11 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Mark completed
 
 ### Task 4: Telegram ingress service
-- [ ] Set up `aiogram` webhook/polling receiver
-- [ ] Implement auth and user routing
-- [ ] Register `/start`, `/profile`, `/set_tone`, `/set_persona`, `/memory_compact_now`, `/reset_persona`, `/privacy`, `/delete_my_data` command handlers
-- [ ] Wire update deduplication via Redis idempotency keys
-- [ ] Mark completed
+- [x] Set up `aiogram` webhook/polling receiver
+- [x] Implement auth and user routing
+- [x] Register `/start`, `/profile`, `/set_tone`, `/set_persona`, `/memory_compact_now`, `/reset_persona`, `/privacy`, `/delete_my_data` command handlers
+- [x] Wire update deduplication via Redis idempotency keys
+- [x] Mark completed
 
 ### Task 5: Chat inference adapter
 - [ ] Implement `generate_reply(user_context, message) -> reply, usage, safety_flags` interface

@@ -33,7 +33,7 @@ def _user_key(user_id: str) -> str:
 
 
 async def check_user_rate_limit(
-    redis: Redis,
+    redis: Redis[str],
     user_id: str,
     max_requests: int,
     window_seconds: int = _DEFAULT_WINDOW_SECONDS,
@@ -70,7 +70,7 @@ async def check_user_rate_limit(
 
 
 async def check_global_rate_limit(
-    redis: Redis,
+    redis: Redis[str],
     max_rps: int,
     window_seconds: int = 1,
 ) -> bool:
@@ -101,7 +101,7 @@ async def check_global_rate_limit(
 
 
 async def get_user_request_count(
-    redis: Redis,
+    redis: Redis[str],
     user_id: str,
     window_seconds: int = _DEFAULT_WINDOW_SECONDS,
 ) -> int:
