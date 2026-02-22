@@ -28,6 +28,7 @@ dev = [
     "pytest-mock>=3.14.0",
     "types-redis>=4.6.0",
     "asyncpg-stubs>=0.30.0",
+    "fakeredis>=2.26.0",
 ]
 
 [project.scripts]
@@ -70,6 +71,7 @@ module = [
     "alembic.*",
     "structlog.*",
     "tenacity.*",
+    "fakeredis.*",
 ]
 ignore_missing_imports = true
 

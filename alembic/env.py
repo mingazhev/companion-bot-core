@@ -12,7 +12,7 @@ import os
 from logging.config import fileConfig
 from typing import TYPE_CHECKING
 
-from alembic import context
+from alembic import context  # type: ignore[attr-defined]
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -43,7 +43,7 @@ def _get_url() -> str:
     """Return the database URL from the environment, overriding alembic.ini."""
     url = os.environ.get(
         "TDBOT_DATABASE_URL",
-        os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url", "")),
+        os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url", "") or ""),
     )
     if not url:
         raise RuntimeError(

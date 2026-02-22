@@ -31,11 +31,11 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Mark completed
 
 ### Task 3: Redis integration
-- [ ] Configure `refinement_jobs` and `retry_jobs` queue topics
-- [ ] Implement per-user and global rate limiting
-- [ ] Implement short-lived prompt context cache
-- [ ] Implement idempotency keys for Telegram update deduplication
-- [ ] Mark completed
+- [x] Configure `refinement_jobs` and `retry_jobs` queue topics
+- [x] Implement per-user and global rate limiting
+- [x] Implement short-lived prompt context cache
+- [x] Implement idempotency keys for Telegram update deduplication
+- [x] Mark completed
 
 ### Task 4: Telegram ingress service
 - [ ] Set up `aiogram` webhook/polling receiver
