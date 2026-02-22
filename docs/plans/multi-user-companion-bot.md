@@ -72,13 +72,13 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Mark completed
 
 ### Task 9: Refinement worker
-- [ ] Implement `refine_prompt(snapshot, recent_context) -> proposed_snapshot_delta, rationale, risk_flags` interface
-- [ ] Build Codex/Claude non-interactive refinement client
-- [ ] Implement scheduler: enqueue jobs by cadence and activity thresholds
-- [ ] Validate refinement output schema and policy; store new versioned snapshot
-- [ ] Add dead-letter queue for repeated failed jobs
-- [ ] Emit audit event and optional user-visible "profile updated" notice
-- [ ] Mark completed
+- [x] Implement `refine_prompt(snapshot, recent_context) -> proposed_snapshot_delta, rationale, risk_flags` interface
+- [x] Build Codex/Claude non-interactive refinement client
+- [x] Implement scheduler: enqueue jobs by cadence and activity thresholds
+- [x] Validate refinement output schema and policy; store new versioned snapshot
+- [x] Add dead-letter queue for repeated failed jobs
+- [x] Emit audit event and optional user-visible "profile updated" notice
+- [x] Mark completed
 
 ### Task 10: Policy guardrail layer
 - [ ] Implement prompt-injection checks
