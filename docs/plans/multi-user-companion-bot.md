@@ -52,10 +52,10 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Mark completed
 
 ### Task 6: Prompt state manager
-- [ ] Implement prompt snapshot versioning (immutable snapshots, atomic active pointer)
-- [ ] Build prompt merge: base system template + user persona segment + skill packs + short-term window + compacted long-term profile
-- [ ] Implement rollback to previous snapshot on user command or failed quality checks
-- [ ] Mark completed
+- [x] Implement prompt snapshot versioning (immutable snapshots, atomic active pointer)
+- [x] Build prompt merge: base system template + user persona segment + skill packs + short-term window + compacted long-term profile
+- [x] Implement rollback to previous snapshot on user command or failed quality checks
+- [x] Mark completed
 
 ### Task 7: Behavior change detector
 - [ ] Implement intent classifier: `tone_change`, `persona_change`, `skill_add_prompt`, `skill_remove`, `safety_override_attempt`, `normal_chat`
