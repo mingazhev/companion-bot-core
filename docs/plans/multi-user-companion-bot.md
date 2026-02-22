@@ -58,11 +58,11 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Mark completed
 
 ### Task 7: Behavior change detector
-- [ ] Implement intent classifier: `tone_change`, `persona_change`, `skill_add_prompt`, `skill_remove`, `safety_override_attempt`, `normal_chat`
-- [ ] Implement risk-level classification (low / medium / high) with deterministic heuristics
-- [ ] Implement confidence thresholding: below threshold defaults to normal chat + clarification question
-- [ ] Implement auto-apply for low-risk, confirm flow for medium-risk, refuse for high-risk
-- [ ] Mark completed
+- [x] Implement intent classifier: `tone_change`, `persona_change`, `skill_add_prompt`, `skill_remove`, `safety_override_attempt`, `normal_chat`
+- [x] Implement risk-level classification (low / medium / high) with deterministic heuristics
+- [x] Implement confidence thresholding: below threshold defaults to normal chat + clarification question
+- [x] Implement auto-apply for low-risk, confirm flow for medium-risk, refuse for high-risk
+- [x] Mark completed
 
 ### Task 8: Conversation orchestrator
 - [ ] Build context assembly: user profile + latest prompt snapshot + recent message window
