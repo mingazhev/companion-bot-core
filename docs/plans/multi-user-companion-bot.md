@@ -81,11 +81,11 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Mark completed
 
 ### Task 10: Policy guardrail layer
-- [ ] Implement prompt-injection checks
-- [ ] Implement unsafe-role-change checks
-- [ ] Implement risky capability confirmation flow
-- [ ] Add per-user rate limits and abuse throttling
-- [ ] Mark completed
+- [x] Implement prompt-injection checks
+- [x] Implement unsafe-role-change checks
+- [x] Implement risky capability confirmation flow
+- [x] Add per-user rate limits and abuse throttling
+- [x] Mark completed
 
 ### Task 11: Internal service endpoints
 - [ ] Implement `POST /internal/refine/{user_id}` to enqueue refinement job
