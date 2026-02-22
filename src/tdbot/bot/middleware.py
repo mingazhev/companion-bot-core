@@ -117,6 +117,7 @@ class IngressMiddleware(BaseMiddleware):
             data["db_user"] = db_user
             data["db_session"] = session
             data["tg_user"] = tg_user
+            data["redis"] = self._redis
             log.debug(
                 "user_provisioned",
                 telegram_user_id=tg_user.id,

@@ -28,6 +28,8 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from tdbot.config import Settings
+    from tdbot.inference.client import ChatAPIClient
+    from tdbot.prompt.snapshot_store import SnapshotStore
 
 
 def build_bot(settings: Settings) -> Bot:
@@ -46,6 +48,8 @@ def build_dispatcher(
     settings: Settings,
     engine: AsyncEngine,
     redis: Redis[str],
+    snapshot_store: SnapshotStore | None = None,
+    chat_client: ChatAPIClient | None = None,
 ) -> Dispatcher:
     """Create and configure the aiogram :class:`~aiogram.Dispatcher`.
 
@@ -55,9 +59,11 @@ def build_dispatcher(
     - The command :data:`~tdbot.bot.handlers.router`.
 
     Args:
-        settings: Application settings (token, rate limits, etc.).
-        engine: Async SQLAlchemy engine for per-request DB sessions.
-        redis: Async Redis client for idempotency and rate limiting.
+        settings:       Application settings (token, rate limits, etc.).
+        engine:         Async SQLAlchemy engine for per-request DB sessions.
+        redis:          Async Redis client for idempotency and rate limiting.
+        snapshot_store: Prompt snapshot store injected into message handlers.
+        chat_client:    Inference API client injected into message handlers.
 
     Returns:
         A fully configured :class:`~aiogram.Dispatcher` ready for polling or
@@ -67,4 +73,10 @@ def build_dispatcher(
     middleware = IngressMiddleware(settings=settings, engine=engine, redis=redis)
     dp.update.outer_middleware(middleware)
     dp.include_router(router)
+    # Expose shared resources to all handlers via workflow_data
+    if snapshot_store is not None:
+        dp["snapshot_store"] = snapshot_store
+    if chat_client is not None:
+        dp["chat_client"] = chat_client
+    dp["settings"] = settings
     return dp

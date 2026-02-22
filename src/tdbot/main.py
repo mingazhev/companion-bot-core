@@ -18,7 +18,9 @@ import sys
 from tdbot.bot.app import build_bot, build_dispatcher
 from tdbot.config import get_settings
 from tdbot.db.engine import create_engine
+from tdbot.inference.client import ChatAPIClient
 from tdbot.logging_config import configure_logging, get_logger
+from tdbot.prompt.snapshot_store import InMemorySnapshotStore
 from tdbot.redis.client import close_redis_pool, create_redis_pool
 
 
@@ -37,10 +39,22 @@ async def _run() -> None:
 
     engine = create_engine(settings)
     redis = await create_redis_pool(settings)
+    snapshot_store = InMemorySnapshotStore()
+    chat_client = ChatAPIClient(
+        api_key=settings.openai_api_key.get_secret_value(),
+        model=settings.chat_model,
+        base_url=settings.openai_base_url,
+    )
 
     try:
         bot = build_bot(settings)
-        dp = build_dispatcher(settings, engine=engine, redis=redis)
+        dp = build_dispatcher(
+            settings,
+            engine=engine,
+            redis=redis,
+            snapshot_store=snapshot_store,
+            chat_client=chat_client,
+        )
 
         if not settings.telegram_webhook_host:
             log.info("starting_polling")
@@ -58,6 +72,7 @@ async def _run() -> None:
                 "Set TELEGRAM_WEBHOOK_HOST='' to use polling mode."
             )
     finally:
+        await chat_client.close()
         await close_redis_pool(redis)
         await engine.dispose()
         log.info("tdbot stopped")

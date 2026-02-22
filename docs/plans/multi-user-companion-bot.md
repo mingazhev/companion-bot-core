@@ -65,11 +65,11 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Mark completed
 
 ### Task 8: Conversation orchestrator
-- [ ] Build context assembly: user profile + latest prompt snapshot + recent message window
-- [ ] Wire behavior change detector into chat flow
-- [ ] Implement confirmation dialogue state for medium-risk config changes
-- [ ] Persist response metadata and enqueue optional refinement trigger
-- [ ] Mark completed
+- [x] Build context assembly: user profile + latest prompt snapshot + recent message window
+- [x] Wire behavior change detector into chat flow
+- [x] Implement confirmation dialogue state for medium-risk config changes
+- [x] Persist response metadata and enqueue optional refinement trigger
+- [x] Mark completed
 
 ### Task 9: Refinement worker
 - [ ] Implement `refine_prompt(snapshot, recent_context) -> proposed_snapshot_delta, rationale, risk_flags` interface

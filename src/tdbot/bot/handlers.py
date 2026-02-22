@@ -23,15 +23,21 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
 
 from tdbot.logging_config import get_logger
+from tdbot.orchestrator import process_message
 
 if TYPE_CHECKING:
     from aiogram.types import Message
+    from redis.asyncio import Redis
+    from sqlalchemy.ext.asyncio import AsyncSession
 
+    from tdbot.config import Settings
     from tdbot.db.models import User
+    from tdbot.inference.client import ChatAPIClient
+    from tdbot.prompt.snapshot_store import SnapshotStore
 
 log = get_logger(__name__)
 
@@ -211,3 +217,39 @@ async def cmd_delete_my_data(message: Message, db_user: User) -> None:
         "Your request has been recorded and will be processed shortly."
     )
     log.info("delete_my_data_requested", internal_user_id=str(db_user.id))
+
+
+# --------------------------------------------------------------------------- #
+# Regular message handler (orchestrator entry point)
+# --------------------------------------------------------------------------- #
+
+
+@router.message(F.text)
+async def handle_message(
+    message: Message,
+    db_user: User,
+    db_session: AsyncSession,
+    redis: Redis[str],
+    snapshot_store: SnapshotStore,
+    chat_client: ChatAPIClient,
+    settings: Settings,
+) -> None:
+    """Route non-command text messages through the conversation orchestrator."""
+    text = message.text or ""
+    reply = await process_message(
+        user_id=db_user.id,
+        message_text=text,
+        session=db_session,
+        snapshot_store=snapshot_store,
+        redis=redis,
+        chat_client=chat_client,
+        model=settings.chat_model,
+        conversation_ttl_seconds=settings.conversation_ttl_seconds,
+        refinement_activity_threshold=settings.refinement_activity_threshold,
+    )
+    await message.answer(reply)
+    log.info(
+        "message_handled",
+        internal_user_id=str(db_user.id),
+        reply_length=len(reply),
+    )
