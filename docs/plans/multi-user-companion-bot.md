@@ -132,6 +132,6 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Mark completed
 
 ### Task 18: Phase 0 rollout — local dev
-- [ ] Wire fake model adapters and seed prompts for local development
-- [ ] Verify all acceptance criteria locally
-- [ ] Mark completed
+- [x] Wire fake model adapters and seed prompts for local development
+- [x] Verify all acceptance criteria locally
+- [x] Mark completed

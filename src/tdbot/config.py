@@ -114,6 +114,15 @@ class Settings(BaseSettings):
         description="32-byte Fernet key for field-level encryption (empty → auto-generate)",
     )
 
+    # --- Local development ---
+    use_fake_adapters: bool = Field(
+        default=False,
+        description=(
+            "Replace real model API clients with FakeChatAPIClient so the bot "
+            "runs locally without valid OpenAI credentials. Never enable in production."
+        ),
+    )
+
 
 # Module-level singleton — lazily created on first call to get_settings().
 # Tests can monkey-patch `tdbot.config._settings` with a pre-built instance

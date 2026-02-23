@@ -24,6 +24,7 @@ from aiohttp import web
 from tdbot.bot.app import build_bot, build_dispatcher
 from tdbot.config import get_settings
 from tdbot.db.engine import create_engine
+from tdbot.dev.fake_client import FakeChatAPIClient
 from tdbot.inference.client import ChatAPIClient
 from tdbot.internal.server import build_internal_app
 from tdbot.logging_config import configure_logging, get_logger
@@ -49,11 +50,19 @@ async def _run() -> None:
     engine = create_engine(settings)
     redis = await create_redis_pool(settings)
     snapshot_store = InMemorySnapshotStore()
-    chat_client = ChatAPIClient(
-        api_key=settings.openai_api_key.get_secret_value(),
-        model=settings.chat_model,
-        base_url=settings.openai_base_url,
-    )
+
+    if settings.use_fake_adapters:
+        log.warning(
+            "fake_adapters_enabled",
+            reason="USE_FAKE_ADAPTERS=true — no real model API calls will be made",
+        )
+        chat_client: ChatAPIClient = FakeChatAPIClient(model=settings.chat_model)
+    else:
+        chat_client = ChatAPIClient(
+            api_key=settings.openai_api_key.get_secret_value(),
+            model=settings.chat_model,
+            base_url=settings.openai_base_url,
+        )
 
     # Start the internal HTTP service.
     internal_app = build_internal_app(redis)
