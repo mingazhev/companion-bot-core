@@ -121,11 +121,11 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Mark completed
 
 ### Task 16: Security and data tests
-- [ ] Verify prompt-injection attempts do not override policy
-- [ ] Verify unsafe capability requests are refused
-- [ ] Verify TTL expiration removes eligible conversation rows
-- [ ] Verify `/delete_my_data` removes personal records and preserves required audit minimality
-- [ ] Mark completed
+- [x] Verify prompt-injection attempts do not override policy
+- [x] Verify unsafe capability requests are refused
+- [x] Verify TTL expiration removes eligible conversation rows
+- [x] Verify `/delete_my_data` removes personal records and preserves required audit minimality
+- [x] Mark completed
 
 ### Task 17: Load tests
 - [ ] Concurrent multi-user chats preserve isolation and latency SLO
