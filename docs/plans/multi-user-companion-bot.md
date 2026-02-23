@@ -109,10 +109,10 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Mark completed
 
 ### Task 14: Unit tests
-- [ ] Test prompt merge builder correctness
-- [ ] Test detector intent mapping and risk policy transitions
-- [ ] Test snapshot versioning and rollback atomicity
-- [ ] Mark completed
+- [x] Test prompt merge builder correctness
+- [x] Test detector intent mapping and risk policy transitions
+- [x] Test snapshot versioning and rollback atomicity
+- [x] Mark completed
 
 ### Task 15: Integration tests
 - [ ] End-to-end Telegram update to response for new and existing user
