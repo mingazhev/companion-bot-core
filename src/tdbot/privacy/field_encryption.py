@@ -29,7 +29,6 @@ data encrypted with an ephemeral key cannot be recovered after a restart).
 
 from __future__ import annotations
 
-import warnings
 from typing import TYPE_CHECKING
 
 import structlog
@@ -59,13 +58,11 @@ class FieldEncryptor:
         if key_bytes:
             self._fernet = Fernet(key_bytes)
         else:
-            generated = Fernet.generate_key()
-            self._fernet = Fernet(generated)
-            warnings.warn(
-                "FIELD_ENCRYPTION_KEY is empty; using an ephemeral key. "
-                "Encrypted data will be unreadable after restart. "
-                "Set FIELD_ENCRYPTION_KEY for production deployments.",
-                stacklevel=2,
+            raise RuntimeError(
+                "FIELD_ENCRYPTION_KEY is required when encrypt_sensitive_fields=True. "
+                "Generate a key with: python -c \"from cryptography.fernet import Fernet; "
+                "print(Fernet.generate_key().decode())\". "
+                "Encrypted data cannot be recovered if the key is lost or ephemeral."
             )
 
     # ------------------------------------------------------------------

@@ -215,15 +215,17 @@ async def cmd_delete_my_data(
     message: Message,
     db_user: User,
     db_session: AsyncSession,
+    redis: Redis[str],
 ) -> None:
     """Hard-delete all personal data for the user.
 
     Deletes conversation history, profile, persona snapshots, jobs, and
     behavior-change events.  The audit log entry is preserved with a
-    null user_id (audit minimality requirement).
+    null user_id (audit minimality requirement).  Redis keys scoped to
+    the user are also removed.
     """
     user_id_str = str(db_user.id)
-    await hard_delete_user(db_user.id, db_session)
+    await hard_delete_user(db_user.id, db_session, redis)
     await message.answer(
         "Your personal data has been permanently deleted.\n\n"
         "Conversation history, profile settings, and persona data have been removed. "

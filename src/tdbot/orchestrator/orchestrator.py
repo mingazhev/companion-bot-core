@@ -293,7 +293,6 @@ async def process_message(
                 risk_level=detection.risk_level,
                 confidence=detection.confidence,
             )
-            CHAT_LATENCY.labels(model=model).observe(time.perf_counter() - pipeline_start)
             return _REFUSE_MSG
 
         if action == "confirm":
@@ -307,7 +306,6 @@ async def process_message(
                 user_id=user_id_str,
                 intent=detection.intent,
             )
-            CHAT_LATENCY.labels(model=model).observe(time.perf_counter() - pipeline_start)
             return _CONFIRM_TEMPLATE.format(intent=detection.intent.replace("_", " "))
 
         # ------------------------------------------------------------------

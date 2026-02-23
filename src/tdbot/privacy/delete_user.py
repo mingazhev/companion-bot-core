@@ -13,8 +13,11 @@ performs a hard delete that:
 3. The ``audit_log`` rows referencing this user have ``ON DELETE SET NULL``,
    so they are preserved with ``user_id = NULL`` — the minimal audit trail
    required for compliance.
+4. Redis keys scoped to the internal user_id are deleted so that a
+   re-registering user does not inherit stale state (e.g. pending change,
+   abuse block, activity counter).
 
-The caller is responsible for committing the transaction.
+The caller is responsible for committing the database transaction.
 """
 
 from __future__ import annotations
@@ -28,12 +31,24 @@ from tdbot.db.models import AuditLog, User
 if TYPE_CHECKING:
     import uuid
 
+    from redis.asyncio import Redis
     from sqlalchemy.ext.asyncio import AsyncSession
+
+# Redis key prefixes that are scoped to the internal user UUID.
+_REDIS_KEY_PREFIXES = (
+    "pending_change",
+    "activity_count",
+    "refinement:notice",
+    "refinement:last_scheduled",
+    "abuse:violations",
+    "abuse:block",
+)
 
 
 async def hard_delete_user(
     user_id: uuid.UUID,
     session: AsyncSession,
+    redis: Redis[str] | None = None,
 ) -> None:
     """Remove all personal data for *user_id*, preserving minimal audit trail.
 
@@ -41,6 +56,9 @@ async def hard_delete_user(
         user_id: Internal UUID of the user to delete.
         session: An active :class:`~sqlalchemy.ext.asyncio.AsyncSession`.
                  The caller is responsible for committing the transaction.
+        redis:   Optional Redis client.  When provided, all Redis keys scoped
+                 to *user_id* are deleted so a re-registering user does not
+                 inherit stale state.
 
     The function is idempotent: if the user row does not exist the DELETE is
     a no-op and no exception is raised.
@@ -59,3 +77,11 @@ async def hard_delete_user(
     #         data rows; ON DELETE SET NULL preserves the audit entry above
     #         (with user_id becoming NULL).
     await session.execute(delete(User).where(User.id == user_id))
+
+    # Step 3: Remove Redis keys scoped to the internal user UUID so that a
+    #         user who re-registers does not inherit stale pending changes,
+    #         abuse blocks, or activity counters from their previous account.
+    if redis is not None:
+        user_id_str = str(user_id)
+        keys = [f"{prefix}:{user_id_str}" for prefix in _REDIS_KEY_PREFIXES]
+        await redis.delete(*keys)

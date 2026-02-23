@@ -140,13 +140,13 @@ def test_apply_delta_preserves_user_id() -> None:
 
 
 async def test_check_notice_returns_false_when_not_set() -> None:
-    redis = fakeredis.FakeRedis()
+    redis = fakeredis.FakeRedis(decode_responses=True)
     result = await check_and_clear_user_notice(redis, "user-123")
     assert result is False
 
 
 async def test_check_notice_returns_true_and_clears() -> None:
-    redis = fakeredis.FakeRedis()
+    redis = fakeredis.FakeRedis(decode_responses=True)
     await redis.set("refinement:notice:user-123", "1")
     assert await check_and_clear_user_notice(redis, "user-123") is True
     # Second call should return False (key was cleared)

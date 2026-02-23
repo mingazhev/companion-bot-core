@@ -177,7 +177,7 @@ async def test_memory_compact_now_replies() -> None:
     await cmd_memory_compact_now(msg, user)
     msg.answer.assert_called_once()
     text: str = msg.answer.call_args[0][0]
-    assert "compact" in text.lower() or "summarised" in text.lower()
+    assert "compaction" in text.lower()
 
 
 # --------------------------------------------------------------------------- #
@@ -192,7 +192,7 @@ async def test_reset_persona_replies() -> None:
     await cmd_reset_persona(msg, user)
     msg.answer.assert_called_once()
     text: str = msg.answer.call_args[0][0]
-    assert "reset" in text.lower() or "default" in text.lower()
+    assert "been reset" in text.lower()
 
 
 # --------------------------------------------------------------------------- #
@@ -220,7 +220,13 @@ async def test_delete_my_data_replies() -> None:
     db_session = AsyncMock()
     db_session.add = MagicMock()
     db_session.execute = AsyncMock()
-    await cmd_delete_my_data(msg, user, db_session)
+    redis = AsyncMock()
+    redis.delete = AsyncMock()
+    await cmd_delete_my_data(msg, user, db_session, redis)
+    # Verify the DB delete statement was actually executed
+    db_session.execute.assert_awaited()
+    # Verify Redis keys were cleaned up
+    redis.delete.assert_awaited_once()
     msg.answer.assert_called_once()
     text: str = msg.answer.call_args[0][0]
-    assert "delete" in text.lower() or "deletion" in text.lower()
+    assert "deleted" in text.lower()

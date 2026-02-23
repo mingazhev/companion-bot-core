@@ -106,18 +106,23 @@ class TestFieldEncryptorDisabled:
 
 
 class TestFieldEncryptorEphemeral:
-    """Tests with enabled=True but no key (ephemeral auto-generated key)."""
+    """Tests for enabled=True with no key — now raises RuntimeError."""
 
-    def test_ephemeral_key_warns(self) -> None:
-        with pytest.warns(UserWarning, match="FIELD_ENCRYPTION_KEY is empty"):
-            enc = FieldEncryptor(None, enabled=True)
-        assert enc.is_enabled is True
+    def test_missing_key_raises(self) -> None:
+        with pytest.raises(RuntimeError, match="FIELD_ENCRYPTION_KEY is required"):
+            FieldEncryptor(None, enabled=True)
 
-    def test_ephemeral_key_roundtrip(self) -> None:
-        with pytest.warns(UserWarning):
-            enc = FieldEncryptor(None, enabled=True)
-        plaintext = "ephemeral data"
-        assert enc.decrypt(enc.encrypt(plaintext)) == plaintext
+    def test_from_settings_enabled_without_key_raises(self) -> None:
+        settings = Settings(  # type: ignore[call-arg]
+            telegram_bot_token=SecretStr("1234567890:AAFakeToken"),
+            database_url=SecretStr("postgresql+asyncpg://u:p@h/db"),
+            redis_url=SecretStr("redis://localhost/0"),
+            openai_api_key=SecretStr("sk-fake"),
+            encrypt_sensitive_fields=True,
+            field_encryption_key=SecretStr(""),
+        )
+        with pytest.raises(RuntimeError, match="FIELD_ENCRYPTION_KEY is required"):
+            FieldEncryptor.from_settings(settings)
 
 
 class TestFromSettings:

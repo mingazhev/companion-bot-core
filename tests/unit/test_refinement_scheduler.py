@@ -6,6 +6,7 @@ import time
 from unittest.mock import patch
 
 import fakeredis.aioredis as fakeredis
+import pytest
 
 from tdbot.redis.queues import QUEUE_REFINEMENT_JOBS, get_queue_length
 from tdbot.refinement.scheduler import (
@@ -128,4 +129,3 @@ async def test_enqueue_if_cadence_due_records_timestamp_after_enqueue() -> None:
     assert abs(time.time() - float(raw)) < 5
 
 
-import pytest  # noqa: E402

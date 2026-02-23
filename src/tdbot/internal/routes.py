@@ -63,9 +63,14 @@ async def handle_refine(request: web.Request) -> web.Response:
         )
 
     body: dict[str, Any] = {}
-    if request.content_length and request.content_length > 0:
+    # Read the body when present; Content-Length may be absent for chunked transfers.
+    try:
+        raw_bytes = await request.read()
+    except Exception as exc:
+        return web.json_response({"error": f"failed to read body: {exc}"}, status=400)
+    if raw_bytes:
         try:
-            raw = await request.json()
+            raw = json.loads(raw_bytes)
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             return web.json_response({"error": f"invalid JSON: {exc}"}, status=400)
         if not isinstance(raw, dict):
@@ -110,11 +115,16 @@ async def handle_detect_change(request: web.Request) -> web.Response:
         ``{"error": "..."}`` when the body is missing, not valid JSON, or fails
         schema validation.
     """
-    if not request.content_length or request.content_length == 0:
+    # Read body unconditionally; Content-Length may be absent for chunked transfers.
+    try:
+        raw_bytes = await request.read()
+    except Exception as exc:
+        return web.json_response({"error": f"failed to read body: {exc}"}, status=400)
+    if not raw_bytes:
         return web.json_response({"error": "request body is required"}, status=400)
 
     try:
-        raw = await request.json()
+        raw = json.loads(raw_bytes)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         return web.json_response({"error": f"invalid JSON: {exc}"}, status=400)
 

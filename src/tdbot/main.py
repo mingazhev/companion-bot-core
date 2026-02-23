@@ -88,7 +88,6 @@ async def _run() -> None:
     async def _run_ttl_sweeper() -> None:
         """Periodically delete expired conversation_messages rows."""
         while True:
-            await asyncio.sleep(3600)  # run once per hour
             try:
                 async with get_async_session(engine) as session:
                     deleted = await sweep_expired_messages(session)
@@ -97,6 +96,7 @@ async def _run() -> None:
                 raise
             except Exception:
                 log.exception("ttl_sweep_error")
+            await asyncio.sleep(3600)  # wait one hour between sweeps
 
     try:
         bot = build_bot(settings)
