@@ -115,10 +115,10 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Mark completed
 
 ### Task 15: Integration tests
-- [ ] End-to-end Telegram update to response for new and existing user
-- [ ] Async refinement job updates snapshot without blocking chat
-- [ ] Confirmation flow for medium-risk changes
-- [ ] Mark completed
+- [x] End-to-end Telegram update to response for new and existing user
+- [x] Async refinement job updates snapshot without blocking chat
+- [x] Confirmation flow for medium-risk changes
+- [x] Mark completed
 
 ### Task 16: Security and data tests
 - [ ] Verify prompt-injection attempts do not override policy
