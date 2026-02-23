@@ -17,6 +17,7 @@ dependencies = [
     "structlog>=25.1.0",
     "httpx>=0.28.0",
     "tenacity>=9.0.0",
+    "prometheus-client>=0.21.0",
 ]
 
 [project.optional-dependencies]
@@ -72,6 +73,7 @@ module = [
     "structlog.*",
     "tenacity.*",
     "fakeredis.*",
+    "prometheus_client.*",
 ]
 ignore_missing_imports = true
 

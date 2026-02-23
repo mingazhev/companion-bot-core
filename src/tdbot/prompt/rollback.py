@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from tdbot.metrics import PROMPT_ROLLBACKS
 from tdbot.prompt.schemas import SnapshotRecord
 
 if TYPE_CHECKING:
@@ -35,12 +36,16 @@ class RollbackError(Exception):
 async def rollback_to_previous(
     store: SnapshotStore,
     user_id: uuid.UUID,
+    *,
+    reason: str = "user_command",
 ) -> SnapshotRecord:
     """Roll back the active snapshot one step to the previous version.
 
     Args:
         store:   Snapshot store holding the user's snapshot history.
         user_id: Target user.
+        reason:  Reason label for the rollback metric
+                 (``"user_command"``, ``"quality_check"``, or ``"manual"``).
 
     Returns:
         The newly created rollback ``SnapshotRecord`` (now active).
@@ -67,7 +72,7 @@ async def rollback_to_previous(
             "cannot roll back further"
         )
 
-    return await _apply_rollback(store, user_id, target)
+    return await _apply_rollback(store, user_id, target, reason=reason)
 
 
 async def rollback_to_version(
@@ -75,6 +80,7 @@ async def rollback_to_version(
     user_id: uuid.UUID,
     *,
     target_version: int,
+    reason: str = "manual",
 ) -> SnapshotRecord:
     """Roll back the active snapshot to a specific historical version.
 
@@ -82,6 +88,8 @@ async def rollback_to_version(
         store:          Snapshot store holding the user's snapshot history.
         user_id:        Target user.
         target_version: Exact version number to restore.
+        reason:         Reason label for the rollback metric
+                        (``"user_command"``, ``"quality_check"``, or ``"manual"``).
 
     Returns:
         The newly created rollback ``SnapshotRecord`` (now active).
@@ -95,13 +103,15 @@ async def rollback_to_version(
         raise RollbackError(
             f"Snapshot version {target_version} not found for user {user_id}"
         )
-    return await _apply_rollback(store, user_id, target)
+    return await _apply_rollback(store, user_id, target, reason=reason)
 
 
 async def _apply_rollback(
     store: SnapshotStore,
     user_id: uuid.UUID,
     target: SnapshotRecord,
+    *,
+    reason: str,
 ) -> SnapshotRecord:
     """Create a rollback snapshot from *target* and make it the active snapshot."""
     new_version = await store.next_version(user_id)
@@ -114,4 +124,5 @@ async def _apply_rollback(
     )
     await store.save(rollback_snap)
     await store.set_active(user_id, rollback_snap.id)
+    PROMPT_ROLLBACKS.labels(reason=reason).inc()
     return rollback_snap

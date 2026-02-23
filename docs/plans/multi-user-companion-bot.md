@@ -93,13 +93,13 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Mark completed
 
 ### Task 12: Observability
-- [ ] Add p50/p95 chat latency metrics
-- [ ] Add detector precision proxy (confirmation reversals) metric
-- [ ] Add refinement success/failure rate and prompt rollback rate metrics
-- [ ] Add token usage per user/day/provider metrics
-- [ ] Add structured event logs with user and request correlation IDs
-- [ ] Add tracing spans: ingress -> detector -> prompt manager -> model adapter -> persistence
-- [ ] Mark completed
+- [x] Add p50/p95 chat latency metrics
+- [x] Add detector precision proxy (confirmation reversals) metric
+- [x] Add refinement success/failure rate and prompt rollback rate metrics
+- [x] Add token usage per user/day/provider metrics
+- [x] Add structured event logs with user and request correlation IDs
+- [x] Add tracing spans: ingress -> detector -> prompt manager -> model adapter -> persistence
+- [x] Mark completed
 
 ### Task 13: Privacy and data controls
 - [ ] Implement configurable TTL expiration for `conversation_messages`

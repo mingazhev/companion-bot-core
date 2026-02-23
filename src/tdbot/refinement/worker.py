@@ -13,6 +13,7 @@ Public surface:
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -22,6 +23,7 @@ from sqlalchemy import update as sql_update
 from tdbot.db.engine import get_async_session
 from tdbot.db.models import AuditLog, Job
 from tdbot.logging_config import get_logger
+from tdbot.metrics import REFINEMENT_JOBS
 from tdbot.orchestrator.context_loader import load_recent_messages
 from tdbot.prompt.merge_builder import build_system_prompt
 from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
@@ -133,6 +135,7 @@ async def process_one_job(
         return
 
     user_id_str = str(user_id)
+    job_start = time.perf_counter()
     log.info("refinement_job_started", user_id=user_id_str, attempt=attempt)
 
     # --- Create DB Job row ---
@@ -260,6 +263,16 @@ async def process_one_job(
                 user_id=user_id_str,
                 error=str(exc),
             )
+
+        REFINEMENT_JOBS.labels(status=final_status).inc()
+        elapsed_ms = round((time.perf_counter() - job_start) * 1000, 2)
+        log.info(
+            "refinement_job_finished",
+            user_id=user_id_str,
+            status=final_status,
+            attempt=attempt,
+            elapsed_ms=elapsed_ms,
+        )
 
 
 async def run_worker(

@@ -11,7 +11,7 @@ Features
 
 from __future__ import annotations
 
-import logging
+import time
 from typing import Any, cast
 
 import httpx
@@ -24,8 +24,9 @@ from tenacity import (
 
 from tdbot.inference.circuit_breaker import CircuitBreaker
 from tdbot.inference.schemas import ChatMessage, OpenAIResponse
+from tdbot.logging_config import get_logger
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 _RETRYABLE_STATUS: frozenset[int] = frozenset({429, 500, 502, 503, 504})
 
@@ -134,6 +135,7 @@ class ChatAPIClient:
         """
         payload = [{"role": m.role, "content": m.content} for m in messages]
 
+        call_start = time.perf_counter()
         raw = cast(
             "dict[str, Any]",
             await self._circuit_breaker.call(
@@ -143,4 +145,13 @@ class ChatAPIClient:
                 temperature,
             ),
         )
-        return OpenAIResponse.model_validate(raw)
+        elapsed_ms = round((time.perf_counter() - call_start) * 1000, 2)
+        response = OpenAIResponse.model_validate(raw)
+        log.info(
+            "model_api_call_completed",
+            model=self._model,
+            elapsed_ms=elapsed_ms,
+            prompt_tokens=response.usage.prompt_tokens,
+            completion_tokens=response.usage.completion_tokens,
+        )
+        return response

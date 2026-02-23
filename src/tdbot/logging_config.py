@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import sys
 import uuid
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from typing import TYPE_CHECKING, Any, cast
 
 import structlog
@@ -54,7 +54,29 @@ def get_correlation_id() -> str:
 
 
 # ---------------------------------------------------------------------------
-# structlog processor that injects the correlation ID
+# Span-ID context variable (used by tdbot.tracing)
+# ---------------------------------------------------------------------------
+
+_span_id: ContextVar[str] = ContextVar("span_id", default="")
+
+
+def bind_span_id(sid: str) -> Token[str]:
+    """Set the active span ID and return a reset token for later restoration."""
+    return _span_id.set(sid)
+
+
+def reset_span_id(token: Token[str]) -> None:
+    """Restore the span ID to its value before :func:`bind_span_id` was called."""
+    _span_id.reset(token)
+
+
+def get_span_id() -> str:
+    """Return the current span ID (empty string when not inside a span)."""
+    return _span_id.get()
+
+
+# ---------------------------------------------------------------------------
+# structlog processors that inject correlation and span IDs
 # ---------------------------------------------------------------------------
 
 
@@ -66,6 +88,17 @@ def _inject_correlation_id(
     cid = _correlation_id.get()
     if cid:
         event_dict["correlation_id"] = cid
+    return event_dict
+
+
+def _inject_span_id(
+    _logger: Any,
+    _method: str,
+    event_dict: structlog.types.EventDict,
+) -> structlog.types.EventDict:
+    sid = _span_id.get()
+    if sid:
+        event_dict["span_id"] = sid
     return event_dict
 
 
@@ -85,6 +118,7 @@ def configure_logging(settings: Settings) -> None:
     shared_processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
         _inject_correlation_id,
+        _inject_span_id,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
         structlog.processors.TimeStamper(fmt="iso", utc=True),

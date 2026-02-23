@@ -21,6 +21,7 @@ manager); the handlers below respond correctly and log the intent.
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 from aiogram import F, Router
@@ -28,6 +29,7 @@ from aiogram.filters import Command, CommandObject
 
 from tdbot.logging_config import get_logger
 from tdbot.orchestrator import process_message
+from tdbot.tracing import span
 
 if TYPE_CHECKING:
     from aiogram.types import Message
@@ -235,21 +237,28 @@ async def handle_message(
     settings: Settings,
 ) -> None:
     """Route non-command text messages through the conversation orchestrator."""
+    user_id_str = str(db_user.id)
     text = message.text or ""
-    reply = await process_message(
-        user_id=db_user.id,
-        message_text=text,
-        session=db_session,
-        snapshot_store=snapshot_store,
-        redis=redis,
-        chat_client=chat_client,
-        model=settings.chat_model,
-        conversation_ttl_seconds=settings.conversation_ttl_seconds,
-        refinement_activity_threshold=settings.refinement_activity_threshold,
-    )
-    await message.answer(reply)
+    ingress_start = time.perf_counter()
+
+    async with span("ingress.handle_message", user_id=user_id_str):
+        reply = await process_message(
+            user_id=db_user.id,
+            message_text=text,
+            session=db_session,
+            snapshot_store=snapshot_store,
+            redis=redis,
+            chat_client=chat_client,
+            model=settings.chat_model,
+            conversation_ttl_seconds=settings.conversation_ttl_seconds,
+            refinement_activity_threshold=settings.refinement_activity_threshold,
+        )
+        await message.answer(reply)
+
+    elapsed_ms = round((time.perf_counter() - ingress_start) * 1000, 2)
     log.info(
         "message_handled",
-        internal_user_id=str(db_user.id),
+        internal_user_id=user_id_str,
         reply_length=len(reply),
+        elapsed_ms=elapsed_ms,
     )
