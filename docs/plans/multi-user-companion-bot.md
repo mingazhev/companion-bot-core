@@ -128,8 +128,8 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Mark completed
 
 ### Task 17: Load tests
-- [ ] Concurrent multi-user chats preserve isolation and latency SLO
-- [ ] Mark completed
+- [x] Concurrent multi-user chats preserve isolation and latency SLO
+- [x] Mark completed
 
 ### Task 18: Phase 0 rollout — local dev
 - [ ] Wire fake model adapters and seed prompts for local development
