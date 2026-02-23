@@ -32,10 +32,13 @@ from __future__ import annotations
 import warnings
 from typing import TYPE_CHECKING
 
+import structlog
 from cryptography.fernet import Fernet, InvalidToken
 
 if TYPE_CHECKING:
     from tdbot.config import Settings
+
+_log = structlog.get_logger(__name__)
 
 
 class FieldEncryptor:
@@ -116,4 +119,8 @@ class FieldEncryptor:
         try:
             return self.decrypt(value)
         except InvalidToken:
+            _log.warning(
+                "field_decryption_failed",
+                reason="InvalidToken — possible key mismatch or unencrypted legacy row",
+            )
             return default

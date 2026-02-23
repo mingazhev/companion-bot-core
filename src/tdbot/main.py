@@ -23,13 +23,15 @@ from aiohttp import web
 
 from tdbot.bot.app import build_bot, build_dispatcher
 from tdbot.config import get_settings
-from tdbot.db.engine import create_engine
+from tdbot.db.engine import create_engine, get_async_session
 from tdbot.dev.fake_client import FakeChatAPIClient
 from tdbot.inference.client import ChatAPIClient
 from tdbot.internal.server import build_internal_app
 from tdbot.logging_config import configure_logging, get_logger
+from tdbot.privacy.ttl_sweeper import sweep_expired_messages
 from tdbot.prompt.snapshot_store import InMemorySnapshotStore
 from tdbot.redis.client import close_redis_pool, create_redis_pool
+from tdbot.refinement.worker import run_worker
 
 
 async def _run() -> None:
@@ -80,6 +82,22 @@ async def _run() -> None:
         port=settings.internal_server_port,
     )
 
+    worker_task: asyncio.Task[None] | None = None
+    sweeper_task: asyncio.Task[None] | None = None
+
+    async def _run_ttl_sweeper() -> None:
+        """Periodically delete expired conversation_messages rows."""
+        while True:
+            await asyncio.sleep(3600)  # run once per hour
+            try:
+                async with get_async_session(engine) as session:
+                    deleted = await sweep_expired_messages(session)
+                log.info("ttl_sweep_done", deleted=deleted)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("ttl_sweep_error")
+
     try:
         bot = build_bot(settings)
         dp = build_dispatcher(
@@ -88,6 +106,20 @@ async def _run() -> None:
             redis=redis,
             snapshot_store=snapshot_store,
             chat_client=chat_client,
+        )
+
+        worker_task = asyncio.create_task(
+            run_worker(
+                redis=redis,
+                snapshot_store=snapshot_store,
+                chat_client=chat_client,
+                engine=engine,
+            ),
+            name="refinement_worker",
+        )
+        sweeper_task = asyncio.create_task(
+            _run_ttl_sweeper(),
+            name="ttl_sweeper",
         )
 
         if not settings.telegram_webhook_host:
@@ -106,6 +138,12 @@ async def _run() -> None:
                 "Set TELEGRAM_WEBHOOK_HOST='' to use polling mode."
             )
     finally:
+        if worker_task is not None:
+            worker_task.cancel()
+            await asyncio.gather(worker_task, return_exceptions=True)
+        if sweeper_task is not None:
+            sweeper_task.cancel()
+            await asyncio.gather(sweeper_task, return_exceptions=True)
         await runner.cleanup()
         await chat_client.close()
         await close_redis_pool(redis)

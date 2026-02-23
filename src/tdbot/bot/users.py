@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 
 from tdbot.db.models import User
 
@@ -21,14 +22,18 @@ if TYPE_CHECKING:
 async def get_or_create_user(session: AsyncSession, telegram_user_id: int) -> User:
     """Return the existing :class:`User` row for *telegram_user_id*, creating it if absent.
 
+    Uses an upsert (INSERT … ON CONFLICT DO NOTHING) to avoid a race condition
+    when two concurrent requests arrive for the same new user.
+
     The caller is responsible for committing the enclosing transaction.
     """
+    stmt = (
+        insert(User)
+        .values(telegram_user_id=telegram_user_id)
+        .on_conflict_do_nothing(index_elements=["telegram_user_id"])
+    )
+    await session.execute(stmt)
     result = await session.execute(
         select(User).where(User.telegram_user_id == telegram_user_id)
     )
-    user = result.scalar_one_or_none()
-    if user is None:
-        user = User(telegram_user_id=telegram_user_id)
-        session.add(user)
-        await session.flush()
-    return user
+    return result.scalar_one()

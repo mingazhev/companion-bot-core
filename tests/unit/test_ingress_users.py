@@ -11,47 +11,59 @@ from tdbot.bot.users import get_or_create_user
 from tdbot.db.models import User
 
 
-def _make_session(existing_user: User | None) -> MagicMock:
-    """Return a mock AsyncSession with scalar_one_or_none returning *existing_user*.
+def _make_session(returned_user: User) -> MagicMock:
+    """Return a mock AsyncSession that yields *returned_user* on the final SELECT.
 
-    Uses MagicMock for the session (matching SQLAlchemy's sync methods like .add())
-    and an AsyncMock only for .execute() which is async.
+    The new implementation issues:
+      1. INSERT … ON CONFLICT DO NOTHING  (first execute call)
+      2. SELECT … WHERE telegram_user_id = ?  (second execute call)
+
+    The first execute returns a generic result (its value is unused).
+    The second execute returns a result whose scalar_one() is *returned_user*.
     """
     session = MagicMock()
-    execute_result = MagicMock()
-    execute_result.scalar_one_or_none.return_value = existing_user
-    session.execute = AsyncMock(return_value=execute_result)
-    session.flush = AsyncMock()
+
+    insert_result = MagicMock()  # result of the upsert — not inspected
+
+    select_result = MagicMock()
+    select_result.scalar_one.return_value = returned_user
+
+    session.execute = AsyncMock(side_effect=[insert_result, select_result])
     return session
 
 
 @pytest.mark.asyncio
 async def test_returns_existing_user() -> None:
-    """If the user already exists, return it without inserting."""
+    """If the user already exists, the SELECT returns it after the no-op upsert."""
     existing = User(telegram_user_id=111)
     existing.id = uuid.uuid4()
     session = _make_session(existing)
 
     result = await get_or_create_user(session, telegram_user_id=111)
     assert result is existing
+    assert session.execute.await_count == 2
+    # session.add should never be called — upsert is via execute
     session.add.assert_not_called()
-    session.flush.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_creates_user_when_not_found() -> None:
-    """If no user exists, insert a new one and flush."""
-    session = _make_session(None)
+    """When upsert inserts a new row, the subsequent SELECT returns the new user."""
+    new_user = User(telegram_user_id=999)
+    new_user.id = uuid.uuid4()
+    session = _make_session(new_user)
 
     result = await get_or_create_user(session, telegram_user_id=999)
-    assert result.telegram_user_id == 999
-    session.add.assert_called_once_with(result)
-    session.flush.assert_called_once()
+    assert result is new_user
+    assert session.execute.await_count == 2
 
 
 @pytest.mark.asyncio
 async def test_created_user_has_correct_telegram_id() -> None:
-    """Newly created user has the telegram_user_id we passed in."""
-    session = _make_session(None)
+    """Returned user has the telegram_user_id that was passed in."""
+    user = User(telegram_user_id=42)
+    user.id = uuid.uuid4()
+    session = _make_session(user)
+
     result = await get_or_create_user(session, telegram_user_id=42)
     assert result.telegram_user_id == 42

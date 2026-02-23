@@ -80,7 +80,6 @@ _REFUSE_MSG = (
 )
 _CHANGE_APPLIED_MSG = "Done! I've recorded your preference and will adapt accordingly."
 _CHANGE_CANCELLED_MSG = "No problem, keeping things as they are."
-_LOW_RISK_APPLIED_MSG = "Got it! I'll adjust as requested."
 
 _CONFIRM_TEMPLATE = (
     "You'd like to change {intent}. This is a moderate setting change. "
@@ -216,7 +215,7 @@ async def process_message(
         # ------------------------------------------------------------------
         pending = await get_pending_change(redis, user_id_str)
         if pending is not None:
-            normalized = message_text.strip().lower()
+            normalized = message_text.strip().lower().rstrip(".,!?;:")
             if normalized in _CONFIRM_WORDS:
                 await _record_behavior_event(
                     session,
@@ -294,6 +293,7 @@ async def process_message(
                 risk_level=detection.risk_level,
                 confidence=detection.confidence,
             )
+            CHAT_LATENCY.labels(model=model).observe(time.perf_counter() - pipeline_start)
             return _REFUSE_MSG
 
         if action == "confirm":
@@ -307,6 +307,7 @@ async def process_message(
                 user_id=user_id_str,
                 intent=detection.intent,
             )
+            CHAT_LATENCY.labels(model=model).observe(time.perf_counter() - pipeline_start)
             return _CONFIRM_TEMPLATE.format(intent=detection.intent.replace("_", " "))
 
         # ------------------------------------------------------------------

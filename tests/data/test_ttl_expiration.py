@@ -76,8 +76,8 @@ class TestSweepTargetsCorrectTable:
         session = AsyncMock()
         stmt = await _capture_statement(session)
         sql = str(stmt.compile(compile_kwargs={"literal_binds": False})).lower()
-        # A WHERE clause is present if the SQL contains "where" or a bind param
-        assert "where" in sql or ":ttl" in sql or "ttl_expires_at" in sql
+        # A WHERE clause is always required; check explicitly for the keyword
+        assert "where" in sql
 
 
 # ---------------------------------------------------------------------------
@@ -174,9 +174,10 @@ class TestSweepSQLSemantics:
         session = AsyncMock()
         stmt = await _capture_statement(session)
         sql = str(stmt.compile(compile_kwargs={"literal_binds": False})).lower()
-        # Must reference ttl_expires_at (IS NOT NULL is enforced by SQLAlchemy
-        # when we use .isnot(None) or similar; both forms appear in compiled SQL)
-        assert "ttl_expires_at" in sql
+        # IS NOT NULL guard must be present so rows without a TTL are never deleted
+        assert "is not null" in sql
+        # Past-timestamp comparison must be present
+        assert "ttl_expires_at" in sql and "now" in sql
 
     async def test_delete_statement_is_a_delete(self) -> None:
         session = AsyncMock()

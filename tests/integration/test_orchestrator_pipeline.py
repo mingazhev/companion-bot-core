@@ -137,7 +137,7 @@ async def test_e2e_new_user_receives_ai_reply() -> None:
 
     assert reply == "I'm here to help!"
     # New user has no snapshot — active pointer stays unset
-    assert store._active.get(user_id) is None
+    assert await store.get_active(user_id) is None
     # Both user and assistant messages were persisted
     assert session.add.call_count == 2
 
