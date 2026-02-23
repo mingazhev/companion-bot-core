@@ -41,6 +41,8 @@ if TYPE_CHECKING:
     from tdbot.inference.client import ChatAPIClient
     from tdbot.prompt.snapshot_store import SnapshotStore
 
+from tdbot.privacy.delete_user import hard_delete_user
+
 log = get_logger(__name__)
 
 router = Router(name="commands")
@@ -209,16 +211,25 @@ async def cmd_privacy(message: Message) -> None:
 
 
 @router.message(Command("delete_my_data"))
-async def cmd_delete_my_data(message: Message, db_user: User) -> None:
-    """Initiate the hard-delete flow for all personal data."""
-    # Full deletion pipeline deferred to Task 13 (Privacy and data controls).
+async def cmd_delete_my_data(
+    message: Message,
+    db_user: User,
+    db_session: AsyncSession,
+) -> None:
+    """Hard-delete all personal data for the user.
+
+    Deletes conversation history, profile, persona snapshots, jobs, and
+    behavior-change events.  The audit log entry is preserved with a
+    null user_id (audit minimality requirement).
+    """
+    user_id_str = str(db_user.id)
+    await hard_delete_user(db_user.id, db_session)
     await message.answer(
-        "Data deletion requested.\n\n"
-        "All your personal data (messages, profile, and settings) will be permanently "
-        "deleted. This action cannot be undone.\n\n"
-        "Your request has been recorded and will be processed shortly."
+        "Your personal data has been permanently deleted.\n\n"
+        "Conversation history, profile settings, and persona data have been removed. "
+        "This action cannot be undone."
     )
-    log.info("delete_my_data_requested", internal_user_id=str(db_user.id))
+    log.info("delete_my_data_completed", internal_user_id=user_id_str)
 
 
 # --------------------------------------------------------------------------- #

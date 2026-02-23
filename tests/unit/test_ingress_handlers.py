@@ -217,7 +217,10 @@ async def test_privacy_mentions_delete() -> None:
 async def test_delete_my_data_replies() -> None:
     msg = _make_message()
     user = _make_user()
-    await cmd_delete_my_data(msg, user)
+    db_session = AsyncMock()
+    db_session.add = MagicMock()
+    db_session.execute = AsyncMock()
+    await cmd_delete_my_data(msg, user, db_session)
     msg.answer.assert_called_once()
     text: str = msg.answer.call_args[0][0]
     assert "delete" in text.lower() or "deletion" in text.lower()

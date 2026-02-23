@@ -102,11 +102,11 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Mark completed
 
 ### Task 13: Privacy and data controls
-- [ ] Implement configurable TTL expiration for `conversation_messages`
-- [ ] Implement `/delete_my_data` hard-delete flow (preserves audit minimality)
-- [ ] Implement PII redaction in logs
-- [ ] Encrypt sensitive fields at rest
-- [ ] Mark completed
+- [x] Implement configurable TTL expiration for `conversation_messages`
+- [x] Implement `/delete_my_data` hard-delete flow (preserves audit minimality)
+- [x] Implement PII redaction in logs
+- [x] Encrypt sensitive fields at rest
+- [x] Mark completed
 
 ### Task 14: Unit tests
 - [ ] Test prompt merge builder correctness

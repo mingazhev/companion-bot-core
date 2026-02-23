@@ -26,6 +26,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
+from tdbot.privacy.pii_redactor import redact_pii
+
 if TYPE_CHECKING:
     from tdbot.config import Settings
 
@@ -119,6 +121,7 @@ def configure_logging(settings: Settings) -> None:
         structlog.contextvars.merge_contextvars,
         _inject_correlation_id,
         _inject_span_id,
+        redact_pii,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
