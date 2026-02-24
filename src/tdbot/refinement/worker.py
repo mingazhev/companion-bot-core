@@ -54,13 +54,13 @@ _NOTICE_KEY_PREFIX = "refinement:notice"
 _NOTICE_TTL_SECONDS = 86400  # 24 hours
 
 
-async def _set_user_notice(redis: Redis[str], user_id: str) -> None:
+async def _set_user_notice(redis: Redis, user_id: str) -> None:
     """Set a flag in Redis so the bot can surface a 'profile updated' notice."""
     key = f"{_NOTICE_KEY_PREFIX}:{user_id}"
     await redis.set(key, "1", ex=_NOTICE_TTL_SECONDS)
 
 
-async def check_and_clear_user_notice(redis: Redis[str], user_id: str) -> bool:
+async def check_and_clear_user_notice(redis: Redis, user_id: str) -> bool:
     """Return True (and clear) if a refinement notice is pending for *user_id*.
 
     Call this after each bot reply to inform the user when their profile has
@@ -105,7 +105,7 @@ def _apply_delta(snapshot: SnapshotRecord, proposed_delta: SnapshotDelta) -> Sna
 async def process_one_job(
     job_data: dict[str, Any],
     *,
-    redis: Redis[str],
+    redis: Redis,
     snapshot_store: SnapshotStore,
     chat_client: ChatAPIClient,
     engine: AsyncEngine,
@@ -166,7 +166,8 @@ async def process_one_job(
         snapshot = await snapshot_store.get_active(user_id)
         if snapshot is None:
             log.info("refinement_skipped_no_snapshot", user_id=user_id_str)
-            return  # final_status stays "done"
+            final_status = "skipped"
+            return
 
         # --- Load recent messages ---
         async with get_async_session(engine) as session:
@@ -277,7 +278,7 @@ async def process_one_job(
 
 async def run_worker(
     *,
-    redis: Redis[str],
+    redis: Redis,
     snapshot_store: SnapshotStore,
     chat_client: ChatAPIClient,
     engine: AsyncEngine,

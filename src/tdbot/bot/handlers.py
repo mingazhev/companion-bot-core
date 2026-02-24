@@ -21,6 +21,7 @@ manager); the handlers below respond correctly and log the intent.
 
 from __future__ import annotations
 
+import html
 import time
 from typing import TYPE_CHECKING
 
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
     from tdbot.prompt.snapshot_store import SnapshotStore
 
 from tdbot.privacy.delete_user import hard_delete_user
+from tdbot.refinement.worker import check_and_clear_user_notice
 
 log = get_logger(__name__)
 
@@ -152,7 +154,7 @@ async def cmd_set_persona(
         await message.answer("Persona name must be 64 characters or fewer.")
         return
     # Full DB persistence deferred to Task 6.
-    await message.answer(f"Persona name set to '{name}'.")
+    await message.answer(f"Persona name set to '{html.escape(name)}'.")
     log.info("set_persona", internal_user_id=str(db_user.id), persona_name=name)
 
 
@@ -215,7 +217,7 @@ async def cmd_delete_my_data(
     message: Message,
     db_user: User,
     db_session: AsyncSession,
-    redis: Redis[str],
+    redis: Redis,
 ) -> None:
     """Hard-delete all personal data for the user.
 
@@ -225,7 +227,7 @@ async def cmd_delete_my_data(
     the user are also removed.
     """
     user_id_str = str(db_user.id)
-    await hard_delete_user(db_user.id, db_session, redis)
+    await hard_delete_user(db_user.id, db_session, redis, telegram_user_id=db_user.telegram_user_id)
     await message.answer(
         "Your personal data has been permanently deleted.\n\n"
         "Conversation history, profile settings, and persona data have been removed. "
@@ -244,7 +246,7 @@ async def handle_message(
     message: Message,
     db_user: User,
     db_session: AsyncSession,
-    redis: Redis[str],
+    redis: Redis,
     snapshot_store: SnapshotStore,
     chat_client: ChatAPIClient,
     settings: Settings,
@@ -267,6 +269,13 @@ async def handle_message(
             refinement_activity_threshold=settings.refinement_activity_threshold,
         )
         await message.answer(reply)
+
+        # Surface "profile updated" notice if the refinement worker finished
+        # updating this user's prompt snapshot since their last message.
+        if await check_and_clear_user_notice(redis, user_id_str):
+            await message.answer(
+                "Your conversation profile has been updated based on recent interactions."
+            )
 
     elapsed_ms = round((time.perf_counter() - ingress_start) * 1000, 2)
     log.info(

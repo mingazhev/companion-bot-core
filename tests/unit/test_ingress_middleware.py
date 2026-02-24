@@ -192,3 +192,34 @@ async def test_per_user_rate_limit_drops_excess() -> None:
     result = await run_update(update_id=301)
     assert result is None
     handler.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_global_rate_limit_drops_excess() -> None:
+    """When the global RPS cap is saturated, excess updates are dropped."""
+    redis = fakeredis.FakeRedis(decode_responses=True)
+    # Cap of 1 RPS so the second request in the same second is dropped
+    settings = _make_settings(rate_limit_global_rps=1)
+    engine = MagicMock()
+    middleware = IngressMiddleware(settings=settings, engine=engine, redis=redis)
+
+    db_user = _make_db_user()
+    handler = AsyncMock(return_value=None)
+
+    async def run_update(update_id: int) -> Any:
+        with patch("tdbot.bot.middleware.get_async_session") as mock_cm, patch(
+            "tdbot.bot.middleware.get_or_create_user", return_value=db_user
+        ):
+            sess = AsyncMock()
+            sess.__aenter__ = AsyncMock(return_value=sess)
+            sess.__aexit__ = AsyncMock(return_value=False)
+            mock_cm.return_value = sess
+            return await middleware(handler, _make_update(update_id=update_id), {})
+
+    # First request — within global cap
+    await run_update(update_id=500)
+    # All subsequent requests in the same time window exceed the cap and are dropped
+    handler.reset_mock()
+    results = [await run_update(update_id=500 + i + 1) for i in range(5)]
+    assert all(r is None for r in results)
+    handler.assert_not_called()

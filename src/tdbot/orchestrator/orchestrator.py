@@ -146,7 +146,7 @@ async def _persist_messages(
 
 
 async def _maybe_enqueue_refinement(
-    redis: Redis[str],
+    redis: Redis,
     user_id: UUID,
     activity_threshold: int,
 ) -> None:
@@ -182,7 +182,7 @@ async def process_message(
     message_text: str,
     session: AsyncSession,
     snapshot_store: SnapshotStore,
-    redis: Redis[str],
+    redis: Redis,
     chat_client: ChatAPIClient,
     model: str = "gpt-4o-mini",
     conversation_ttl_seconds: int = 604800,
@@ -232,6 +232,9 @@ async def process_message(
                     user_id=user_id_str,
                     intent=pending.detection_result.intent,
                 )
+                CHAT_LATENCY.labels(model=model).observe(
+                    time.perf_counter() - pipeline_start
+                )
                 return _CHANGE_APPLIED_MSG
 
             if normalized in _CANCEL_WORDS:
@@ -251,6 +254,9 @@ async def process_message(
                     "behavior_change_cancelled",
                     user_id=user_id_str,
                     intent=pending.detection_result.intent,
+                )
+                CHAT_LATENCY.labels(model=model).observe(
+                    time.perf_counter() - pipeline_start
                 )
                 return _CHANGE_CANCELLED_MSG
 
@@ -293,6 +299,9 @@ async def process_message(
                 risk_level=detection.risk_level,
                 confidence=detection.confidence,
             )
+            CHAT_LATENCY.labels(model=model).observe(
+                time.perf_counter() - pipeline_start
+            )
             return _REFUSE_MSG
 
         if action == "confirm":
@@ -305,6 +314,9 @@ async def process_message(
                 "behavior_change_pending_confirmation",
                 user_id=user_id_str,
                 intent=detection.intent,
+            )
+            CHAT_LATENCY.labels(model=model).observe(
+                time.perf_counter() - pipeline_start
             )
             return _CONFIRM_TEMPLATE.format(intent=detection.intent.replace("_", " "))
 

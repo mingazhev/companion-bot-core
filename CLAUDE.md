@@ -28,6 +28,8 @@ src/tdbot/
 - DB session lifecycle: `get_async_session(engine)` is an async context manager that opens a `session.begin()` block and commits on clean exit. Each call creates a new `async_sessionmaker` — construct the factory once in startup code to avoid overhead.
 - Middleware injection: `IngressMiddleware` injects `db_user`, `db_session`, `tg_user`, and `redis` into the aiogram handler data dict via the middleware pattern.
 - Fake adapter mode: `USE_FAKE_ADAPTERS=true` replaces `ChatAPIClient` with `FakeChatAPIClient`. `InMemorySnapshotStore` is always used. Seed personas from `dev/seeds.py`.
+- User provisioning: `get_or_create_user(session, telegram_user_id)` in `bot/users.py` uses a PostgreSQL upsert (`INSERT … ON CONFLICT DO NOTHING` on `telegram_user_id`) followed by a SELECT. This is race-condition-safe for concurrent first messages. The caller (`IngressMiddleware`) is responsible for committing the enclosing transaction.
+- Internal route body parsing: always use `await request.read()` to read the request body; do not rely on `Content-Length`. This supports chunked transfer encoding. Parse JSON manually from the raw bytes with `json.loads()`. See `internal/routes.py` for the reference pattern.
 
 ## Build and test commands
 
@@ -48,6 +50,7 @@ tdbot                       # run the bot
 - Prometheus metrics: `metrics.py` defines all counters and histograms. `GET /metrics` on the internal service exposes them.
 - Tracing: `from tdbot.tracing import span, sync_span` — creates structlog-annotated spans propagated via `contextvars`. Not OpenTelemetry.
 - Structured logging: always use `log = get_logger(__name__)` from `tdbot.logging_config`, never stdlib `logging` directly.
+- `CHAT_LATENCY` is recorded only for requests that reach the model inference call (`auto_apply` and `pass_through` actions) and for all early-exit paths (refuse, confirm, pending-change confirmation/cancellation). Do not skip latency recording on new early-exit paths.
 
 ## Redis key layout
 
@@ -65,7 +68,7 @@ tdbot                       # run the bot
 ## Known incomplete features (explicitly deferred)
 
 - `/set_tone`, `/set_persona`, `/reset_persona` — handlers respond but do not persist to DB (deferred to prompt state manager task)
-- `/memory_compact_now` — handler responds but does not enqueue a job (deferred to refinement worker integration)
+- `/memory_compact_now` — handler acknowledges the command but does not enqueue a job into `refinement_jobs`. The refinement worker is running and processes jobs queued via the activity threshold or `/internal/refine`; the gap is only in the command handler path.
 - Webhook mode — raises `NotImplementedError`; only polling is functional
 - Field-level encryption — `FieldEncryptor` is implemented but not wired to any DB read/write path
 - Policy guardrails — `policy/guardrails.py` and `policy/abuse_throttle.py` exist but are not called from the orchestrator

@@ -8,7 +8,7 @@ the Telegram bot polling loop::
     app = build_internal_app(redis)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", settings.internal_server_port)
+    site = web.TCPSite(runner, settings.internal_server_host, settings.internal_server_port)
     await site.start()
     ...
     await runner.cleanup()
@@ -83,7 +83,7 @@ async def _handle_metrics(_request: web.Request) -> web.Response:
     return web.Response(body=body, headers={"Content-Type": CONTENT_TYPE_LATEST})
 
 
-def build_internal_app(redis: Redis[str]) -> web.Application:  # type: ignore[type-arg]
+def build_internal_app(redis: Redis) -> web.Application:  # type: ignore[type-arg]
     """Create and return the internal aiohttp :class:`web.Application`.
 
     The ``redis`` client is stored on the application object so route handlers

@@ -7,7 +7,9 @@ A production-grade Telegram bot that gives each user a personalized, evolvable A
 - aiogram 3.x handles Telegram updates (polling mode)
 - Behavior detector classifies intent on every message (tone change, persona change, safety override)
 - Orchestrator assembles per-user prompt context and calls the model
-- Refinement worker runs in the background: dequeues jobs, calls a refinement model, and evolves the user's prompt snapshot
+- Refinement worker and TTL sweeper run as asyncio background tasks within the same process as the bot (not separate processes). Stopping the bot stops both.
+- Refinement worker dequeues jobs, calls a refinement model, and evolves the user's prompt snapshot
+- TTL sweeper runs once at startup (to clear rows that expired while the bot was offline), then every hour
 - Internal aiohttp service exposes `/internal/refine/{user_id}` and `/internal/detect-change` for operator use
 - PostgreSQL stores user data with cascading deletes; Redis handles rate limiting, idempotency, queues, and ephemeral state
 
@@ -92,7 +94,7 @@ Seed personas available: `friendly` (default), `professional`, `concise`, and sk
 | `/memory_compact_now` | Request immediate prompt refinement |
 | `/reset_persona` | Reset persona and tone to defaults |
 | `/privacy` | Data retention summary |
-| `/delete_my_data` | Permanently delete all personal data |
+| `/delete_my_data` | Permanently delete all personal data (DB rows + Redis keys including rate limits, pending changes, abuse blocks) |
 
 ## Internal HTTP API
 

@@ -322,7 +322,7 @@ class Job(Base):
         String(32),
         nullable=False,
         default="pending",
-        comment="pending | running | done | failed | dead_letter",
+        comment="pending | running | done | skipped | failed | dead_letter",
     )
     payload_json: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
