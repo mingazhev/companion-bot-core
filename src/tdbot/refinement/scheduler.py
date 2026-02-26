@@ -80,8 +80,10 @@ async def enqueue_if_cadence_due(
 ) -> bool:
     """Enqueue a refinement job if the cadence interval has elapsed.
 
-    Atomically checks the cadence, enqueues the job, and records the timestamp
-    so subsequent calls within the interval are skipped.
+    Checks the cadence, enqueues the job, and records the timestamp so
+    subsequent calls within the interval are skipped.  Note: the check-
+    then-act sequence is **not** atomic; concurrent callers may both pass
+    the cadence check and enqueue duplicate jobs.
 
     Args:
         redis:            Async Redis client.

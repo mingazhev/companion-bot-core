@@ -282,8 +282,13 @@ async def handle_message(
         try:
             for i in range(0, len(reply), _TG_MSG_LIMIT):
                 await message.answer(reply[i : i + _TG_MSG_LIMIT], parse_mode=None)
-        except Exception:
-            log.warning("reply_send_failed", internal_user_id=user_id_str, reply_length=len(reply))
+        except Exception as exc:
+            log.warning(
+                "reply_send_failed",
+                internal_user_id=user_id_str,
+                reply_length=len(reply),
+                error=str(exc),
+            )
 
         # Surface "profile updated" notice if the refinement worker finished
         # updating this user's prompt snapshot since their last message.
