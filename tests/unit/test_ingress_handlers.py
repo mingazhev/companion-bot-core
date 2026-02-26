@@ -234,7 +234,10 @@ async def test_delete_my_data_replies() -> None:
     db_session.execute = AsyncMock()
     redis = AsyncMock()
     redis.delete = AsyncMock()
-    await cmd_delete_my_data(msg, user, db_session, redis)
+    snapshot_store = AsyncMock()
+    await cmd_delete_my_data(msg, user, db_session, redis, snapshot_store)
+    # Verify snapshot store cleanup
+    snapshot_store.delete_for_user.assert_awaited_once_with(user.id)
     # Verify the DB delete statement was actually executed
     db_session.execute.assert_awaited()
     # Verify Redis keys were cleaned up
@@ -253,7 +256,8 @@ async def test_delete_my_data_cleans_correct_redis_keys() -> None:
     db_session.execute = AsyncMock()
     redis = AsyncMock()
     redis.delete = AsyncMock()
-    await cmd_delete_my_data(msg, user, db_session, redis)
+    snapshot_store = AsyncMock()
+    await cmd_delete_my_data(msg, user, db_session, redis, snapshot_store)
     deleted_keys: tuple[str, ...] = redis.delete.call_args[0]
     user_id_str = str(user.id)
     # All internal-UUID-scoped keys must reference the user's UUID

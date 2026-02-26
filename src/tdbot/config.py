@@ -124,6 +124,16 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         return self
 
+    @model_validator(mode="after")
+    def _validate_internal_host(self) -> Settings:
+        if self.internal_server_host in ("0.0.0.0", "::"):  # noqa: S104
+            msg = (
+                "internal_server_host must not be 0.0.0.0 or :: — "
+                "internal routes have no authentication"
+            )
+            raise ValueError(msg)
+        return self
+
     # --- Local development ---
     use_fake_adapters: bool = Field(
         default=False,

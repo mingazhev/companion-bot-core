@@ -29,6 +29,10 @@ if TYPE_CHECKING:
 
     from tdbot.config import Settings
 
+# Cache sessionmaker instances per engine to avoid re-creating the factory on
+# every call.  Keyed by engine id() so distinct engines get their own factory.
+_session_factories: dict[int, async_sessionmaker[AsyncSession]] = {}
+
 
 def create_engine(settings: Settings) -> AsyncEngine:
     """Create and return an async SQLAlchemy engine configured from *settings*."""
@@ -42,9 +46,19 @@ def create_engine(settings: Settings) -> AsyncEngine:
     )
 
 
+def _get_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """Return the cached sessionmaker for *engine*, creating it on first call."""
+    key = id(engine)
+    factory = _session_factories.get(key)
+    if factory is None:
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        _session_factories[key] = factory
+    return factory
+
+
 @asynccontextmanager
 async def get_async_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
     """Async context manager that yields a transactional :class:`AsyncSession`."""
-    factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    factory = _get_session_factory(engine)
     async with factory() as session, session.begin():
         yield session

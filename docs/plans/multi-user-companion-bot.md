@@ -11,6 +11,7 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - `pytest tests/integration/`
 - `pytest tests/security/`
 - `pytest tests/data/`
+- `pytest tests/load/`
 - `ruff check .`
 - `mypy .`
 
@@ -55,6 +56,8 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Implement prompt snapshot versioning (immutable snapshots, atomic active pointer)
 - [x] Build prompt merge: base system template + user persona segment + skill packs + short-term window + compacted long-term profile
 - [x] Implement rollback to previous snapshot on user command or failed quality checks
+- [ ] Wire /set_tone, /set_persona, /reset_persona to persist changes to DB
+- [ ] Implement DB-backed SnapshotStore (InMemorySnapshotStore is used in all modes)
 - [x] Mark completed
 
 ### Task 7: Behavior change detector
@@ -62,6 +65,7 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Implement risk-level classification (low / medium / high) with deterministic heuristics
 - [x] Implement confidence thresholding: below threshold defaults to normal chat + clarification question
 - [x] Implement auto-apply for low-risk, confirm flow for medium-risk, refuse for high-risk
+- [ ] Apply detected behavior changes to the prompt snapshot (currently records events but does not update the snapshot)
 - [x] Mark completed
 
 ### Task 8: Conversation orchestrator
@@ -74,7 +78,9 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 ### Task 9: Refinement worker
 - [x] Implement `refine_prompt(snapshot, recent_context) -> proposed_snapshot_delta, rationale, risk_flags` interface
 - [x] Build Codex/Claude non-interactive refinement client
-- [x] Implement scheduler: enqueue jobs by cadence and activity thresholds
+- [x] Implement scheduler: enqueue jobs by activity thresholds
+- [ ] Wire cadence-based scheduling into a production code path (refinement/scheduler.py exists but is not called)
+- [ ] Wire /memory_compact_now to enqueue a refinement job (handler acknowledges but does not enqueue)
 - [x] Validate refinement output schema and policy; store new versioned snapshot
 - [x] Add dead-letter queue for repeated failed jobs
 - [x] Emit audit event and optional user-visible "profile updated" notice
@@ -85,6 +91,7 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Implement unsafe-role-change checks
 - [x] Implement risky capability confirmation flow
 - [x] Add per-user rate limits and abuse throttling
+- [ ] Wire guardrails and abuse throttle into the orchestrator pipeline (modules exist but are not called)
 - [x] Mark completed
 
 ### Task 11: Internal service endpoints
@@ -105,7 +112,7 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Implement configurable TTL expiration for `conversation_messages`
 - [x] Implement `/delete_my_data` hard-delete flow (preserves audit minimality)
 - [x] Implement PII redaction in logs
-- [x] Encrypt sensitive fields at rest
+- [ ] Wire field encryption into DB read/write paths (FieldEncryptor is implemented but not wired)
 - [x] Mark completed
 
 ### Task 14: Unit tests

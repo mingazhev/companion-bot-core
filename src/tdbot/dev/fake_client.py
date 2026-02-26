@@ -77,8 +77,11 @@ class FakeChatAPIClient(ChatAPIClient):
 
     def __init__(self, model: str = "fake-model") -> None:
         # Skip super().__init__ to avoid creating a real httpx.AsyncClient
-        # pointed at api.openai.com.  We only need _model for log messages.
+        # pointed at api.openai.com.  Set sentinel values for parent attributes
+        # so that accidental access raises a clear error instead of AttributeError.
         self._model = model
+        self._circuit_breaker = None  # type: ignore[assignment]
+        self._http = None  # type: ignore[assignment]
 
     def _is_refinement_call(self, messages: list[ChatMessage]) -> bool:
         """Return True when the system prompt contains the refinement marker."""

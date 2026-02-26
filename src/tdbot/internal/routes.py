@@ -61,7 +61,7 @@ async def handle_refine(request: web.Request) -> web.Response:
         user_id = uuid.UUID(user_id_str)
     except ValueError:
         return web.json_response(
-            {"error": f"invalid user_id: {user_id_str!r} is not a valid UUID"},
+            {"error": "invalid user_id: not a valid UUID"},
             status=400,
         )
 

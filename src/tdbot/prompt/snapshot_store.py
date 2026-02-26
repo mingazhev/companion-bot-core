@@ -64,6 +64,10 @@ class SnapshotStore(Protocol):
         """
         ...
 
+    async def delete_for_user(self, user_id: uuid.UUID) -> None:
+        """Remove all snapshots and the active pointer for *user_id*."""
+        ...
+
 
 class InMemorySnapshotStore:
     """In-memory snapshot store for unit testing.
@@ -119,3 +123,10 @@ class InMemorySnapshotStore:
             self._snapshots[sid].version for sid in ids if sid in self._snapshots
         ]
         return max(versions, default=0) + 1
+
+    async def delete_for_user(self, user_id: uuid.UUID) -> None:
+        """Remove all snapshots and the active pointer for *user_id*."""
+        ids = self._user_index.pop(user_id, [])
+        for sid in ids:
+            self._snapshots.pop(sid, None)
+        self._active.pop(user_id, None)

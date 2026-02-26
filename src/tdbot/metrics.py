@@ -24,7 +24,7 @@ Metric catalogue
 
 ``tdbot_refinement_jobs_total``
     Counter.  Cumulative refinement job completions by final status.
-    Labels: ``status`` (``done`` | ``failed`` | ``dead_letter``).
+    Labels: ``status`` (``done`` | ``failed`` | ``dead_letter`` | ``skipped``).
 
 ``tdbot_prompt_rollbacks_total``
     Counter.  Cumulative prompt snapshot rollbacks.

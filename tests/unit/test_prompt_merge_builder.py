@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tdbot.prompt.merge_builder import _SECTION_SEP, build_system_prompt
+from tdbot.prompt.merge_builder import SECTION_SEP, build_system_prompt
 from tdbot.prompt.schemas import PromptComponents
 
 # ---------------------------------------------------------------------------
@@ -165,12 +165,12 @@ def test_sections_separated_by_separator() -> None:
         persona_segment="persona",
     )
     result = build_system_prompt(c)
-    assert _SECTION_SEP in result
+    assert SECTION_SEP in result
 
 
 def test_single_section_no_separator() -> None:
     result = build_system_prompt(_base_only("only-base"))
-    assert _SECTION_SEP not in result
+    assert SECTION_SEP not in result
 
 
 # ---------------------------------------------------------------------------

@@ -126,5 +126,6 @@ alembic history          # view migration history
 ## Known limitations
 
 - Webhook mode is not implemented (raises `NotImplementedError` on startup)
-- Field-level encryption (`ENCRYPT_SENSITIVE_FIELDS=true`) requires `FIELD_ENCRYPTION_KEY` to be set; starting without it raises `RuntimeError`
+- Field-level encryption (`FieldEncryptor`) is implemented but not wired into any DB read/write path. The `ENCRYPT_SENSITIVE_FIELDS` and `FIELD_ENCRYPTION_KEY` settings exist but have no effect at runtime.
 - `/set_tone`, `/set_persona`, and `/reset_persona` acknowledge the command but do not yet persist changes to the database (deferred to prompt state manager)
+- `/memory_compact_now` acknowledges the command but does not enqueue a refinement job. Refinement is triggered only via the activity threshold or the `/internal/refine` endpoint.

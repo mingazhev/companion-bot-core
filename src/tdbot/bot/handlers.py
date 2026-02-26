@@ -220,16 +220,18 @@ async def cmd_delete_my_data(
     db_user: User,
     db_session: AsyncSession,
     redis: Redis,
+    snapshot_store: SnapshotStore,
 ) -> None:
     """Hard-delete all personal data for the user.
 
     Deletes conversation history, profile, persona snapshots, jobs, and
     behavior-change events.  The audit log entry is preserved with a
     null user_id (audit minimality requirement).  Redis keys scoped to
-    the user are also removed.
+    the user are also removed.  In-memory snapshot data is also purged.
     """
     user_id_str = str(db_user.id)
     await hard_delete_user(db_user.id, db_session, redis, telegram_user_id=db_user.telegram_user_id)
+    await snapshot_store.delete_for_user(db_user.id)
     log.info("delete_my_data_completed", internal_user_id=user_id_str)
     try:
         await message.answer(

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from tdbot.prompt.schemas import PromptComponents
 
 # Visible separator between prompt sections — easy to scan in debug logs.
-_SECTION_SEP = "\n\n---\n\n"
+SECTION_SEP = "\n\n---\n\n"
 
 
 def extract_base_template(compiled_prompt: str) -> str:
@@ -30,7 +30,7 @@ def extract_base_template(compiled_prompt: str) -> str:
     The base template is the first section before any ``---`` separator.
     This is the inverse of the first step in :func:`build_system_prompt`.
     """
-    return compiled_prompt.split(_SECTION_SEP, 1)[0].strip()
+    return compiled_prompt.split(SECTION_SEP, 1)[0].strip()
 
 
 def extract_section(compiled_prompt: str, header: str) -> str:
@@ -41,7 +41,7 @@ def extract_section(compiled_prompt: str, header: str) -> str:
     header line).  Returns an empty string when the section is absent.
     """
     prefix = f"[{header}]\n"
-    for block in compiled_prompt.split(_SECTION_SEP):
+    for block in compiled_prompt.split(SECTION_SEP):
         if block.startswith(prefix):
             return block[len(prefix):].strip()
     return ""
@@ -77,4 +77,4 @@ def build_system_prompt(components: PromptComponents) -> str:
     if components.short_term_window.strip():
         sections.append(f"[Recent Context]\n{components.short_term_window.strip()}")
 
-    return _SECTION_SEP.join(sections)
+    return SECTION_SEP.join(sections)
