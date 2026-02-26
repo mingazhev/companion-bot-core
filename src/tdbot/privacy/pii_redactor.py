@@ -37,6 +37,7 @@ _PII_FIELDS: frozenset[str] = frozenset(
         "style_constraints",  # free-text style constraints
         "reply",          # model-generated reply text
         "persona_name",   # user-chosen persona name
+        "tone",           # user-chosen tone (encrypted at rest)
     }
 )
 

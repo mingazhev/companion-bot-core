@@ -431,6 +431,9 @@ async def test_process_message_enqueues_refinement_at_threshold() -> None:
         enqueued_calls.append(payload)
         return 1
 
+    async def _noop_cadence(*args: object, **kwargs: object) -> bool:
+        return False
+
     with patch(
         "tdbot.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
@@ -440,6 +443,9 @@ async def test_process_message_enqueues_refinement_at_threshold() -> None:
     ), patch(
         "tdbot.orchestrator.orchestrator.enqueue_refinement_job",
         side_effect=fake_enqueue,
+    ), patch(
+        "tdbot.orchestrator.orchestrator.enqueue_if_cadence_due",
+        side_effect=_noop_cadence,
     ):
         # Call process_message exactly at the activity threshold
         for _ in range(3):

@@ -251,25 +251,15 @@ async def test_list_for_user_returns_records_newest_first() -> None:
 
 
 @pytest.mark.asyncio
-async def test_delete_for_user_cleans_db_and_redis() -> None:
-    store, engine, redis = _make_store()
+async def test_delete_for_user_cleans_redis_keys() -> None:
+    """delete_for_user only removes Redis keys; DB rows are cascade-deleted."""
+    store, _engine, redis = _make_store()
     user_id = uuid.uuid4()
     redis.delete = AsyncMock()
 
-    mock_session = AsyncMock()
-    mock_session.execute = AsyncMock()
+    await store.delete_for_user(user_id)
 
-    with patch("tdbot.prompt.postgres_store.get_async_session") as mock_get_session:
-        ctx = AsyncMock()
-        ctx.__aenter__ = AsyncMock(return_value=mock_session)
-        ctx.__aexit__ = AsyncMock(return_value=False)
-        mock_get_session.return_value = ctx
-
-        await store.delete_for_user(user_id)
-
-    # DB delete was executed
-    mock_session.execute.assert_awaited_once()
-    # Redis keys cleaned
+    # Only Redis keys are cleaned (DB rows rely on ON DELETE CASCADE).
     redis.delete.assert_awaited_once_with(
         f"prompt:active:{user_id}",
         f"prompt:version:{user_id}",

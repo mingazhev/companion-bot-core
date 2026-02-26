@@ -24,6 +24,9 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 _LAST_SCHEDULED_KEY_PREFIX = "refinement:last_scheduled"
+# Must match the guard key used by _maybe_enqueue_refinement in the orchestrator.
+_REFINEMENT_GUARD_PREFIX = "refinement:pending"
+_REFINEMENT_GUARD_TTL = 600  # 10 minutes
 
 
 def _last_scheduled_key(user_id: str) -> str:
@@ -80,10 +83,13 @@ async def enqueue_if_cadence_due(
 ) -> bool:
     """Enqueue a refinement job if the cadence interval has elapsed.
 
-    Checks the cadence, enqueues the job, and records the timestamp so
-    subsequent calls within the interval are skipped.  Note: the check-
-    then-act sequence is **not** atomic; concurrent callers may both pass
-    the cadence check and enqueue duplicate jobs.
+    Checks the cadence **and** the shared ``refinement:pending`` guard so
+    that a cadence-triggered job is not enqueued when an activity-threshold
+    job is already in flight.
+
+    Note: the check-then-act sequence between the cadence read and the
+    guard SET-NX is **not** fully atomic; concurrent callers may still
+    slip through, but the guard makes duplicates far less likely.
 
     Args:
         redis:            Async Redis client.
@@ -92,9 +98,17 @@ async def enqueue_if_cadence_due(
 
     Returns:
         True if a job was enqueued; False if the cadence interval has not yet
-        elapsed.
+        elapsed or a refinement job is already in flight.
     """
     if not await should_schedule_by_cadence(redis, user_id, cadence_seconds):
+        return False
+
+    # Acquire the shared guard so activity-threshold and cadence triggers
+    # cannot enqueue concurrently.
+    guard_key = f"{_REFINEMENT_GUARD_PREFIX}:{user_id}"
+    acquired = await redis.set(guard_key, "1", nx=True, ex=_REFINEMENT_GUARD_TTL)
+    if not acquired:
+        log.debug("refinement_cadence_skipped_guard", user_id=user_id)
         return False
 
     await enqueue_refinement_job(redis, user_id, {"trigger": "cadence"})

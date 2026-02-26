@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from tdbot.db.engine import get_async_session
 from tdbot.db.models import PromptSnapshot
@@ -123,11 +123,15 @@ class PostgresSnapshotStore:
     # -- cleanup ------------------------------------------------------------ #
 
     async def delete_for_user(self, user_id: UUID) -> None:
-        """Remove all snapshots from PostgreSQL and Redis keys for *user_id*."""
-        async with get_async_session(self._engine) as session:
-            await session.execute(
-                delete(PromptSnapshot).where(PromptSnapshot.user_id == user_id)
-            )
+        """Remove Redis keys for *user_id*.
+
+        DB rows are cascade-deleted when the ``User`` row is removed by
+        :func:`~tdbot.privacy.delete_user.hard_delete_user`, so this method
+        only cleans up the Redis active-pointer and version-counter keys.
+        Opening a separate DB session here would deadlock when the caller
+        already holds a ``FOR UPDATE`` lock on the user row within an
+        uncommitted transaction.
+        """
         await self._redis.delete(
             f"prompt:active:{user_id}",
             f"prompt:version:{user_id}",

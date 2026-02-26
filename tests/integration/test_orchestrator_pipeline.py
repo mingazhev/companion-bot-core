@@ -642,6 +642,17 @@ async def test_activity_threshold_enqueues_refinement_job() -> None:
     client = _make_mock_client("Reply!")
     threshold = 3
 
+    # Pre-set the cadence timestamp so the cadence scheduler does not fire
+    # on the first message and steal the refinement:pending guard from the
+    # activity-threshold trigger.
+    import time
+
+    await redis.set(
+        f"refinement:last_scheduled:{user_id}",
+        str(time.time()),
+        ex=7200,
+    )
+
     for i in range(threshold):
         await process_message(
             user_id=user_id,
