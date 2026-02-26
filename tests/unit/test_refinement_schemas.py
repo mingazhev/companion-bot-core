@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import uuid
-
 from tdbot.refinement.schemas import (
-    RefinementJob,
     RefinementResult,
     RefinementRiskFlag,
     SnapshotDelta,
@@ -91,32 +88,12 @@ def test_refinement_result_model_validate_with_risk_flags() -> None:
 
 
 # ---------------------------------------------------------------------------
-# RefinementJob
-# ---------------------------------------------------------------------------
-
-
-def test_refinement_job_defaults() -> None:
-    job = RefinementJob(user_id=uuid.uuid4())
-    assert job.attempt == 0
-    assert job.extra == {}
-    assert job.job_id is not None
-    assert job.triggered_at is not None
-
-
-def test_refinement_job_with_attempt() -> None:
-    user_id = uuid.uuid4()
-    job = RefinementJob(user_id=user_id, attempt=2)
-    assert job.attempt == 2
-    assert job.user_id == user_id
-
-
-# ---------------------------------------------------------------------------
 # RefinementRiskFlag
 # ---------------------------------------------------------------------------
 
 
 def test_risk_flag_string_values() -> None:
-    assert RefinementRiskFlag.PROMPT_INJECTION == "prompt_injection"
-    assert RefinementRiskFlag.UNSAFE_ROLE_CHANGE == "unsafe_role_change"
-    assert RefinementRiskFlag.POLICY_VIOLATION == "policy_violation"
-    assert RefinementRiskFlag.SCHEMA_VIOLATION == "schema_violation"
+    assert RefinementRiskFlag.PROMPT_INJECTION.value == "prompt_injection"
+    assert RefinementRiskFlag.UNSAFE_ROLE_CHANGE.value == "unsafe_role_change"
+    assert RefinementRiskFlag.POLICY_VIOLATION.value == "policy_violation"
+    assert RefinementRiskFlag.SCHEMA_VIOLATION.value == "schema_violation"

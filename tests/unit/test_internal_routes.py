@@ -112,7 +112,7 @@ class TestRefineEndpoint:
         )
         assert resp.status == 400
         body = await resp.json()
-        assert "invalid JSON" in body["error"]
+        assert "not valid JSON" in body["error"]
 
     async def test_non_object_json_body_returns_400(self, client: _TC) -> None:
         user_id = str(uuid.uuid4())
@@ -227,7 +227,7 @@ class TestDetectChangeEndpoint:
         )
         assert resp.status == 400
         body = await resp.json()
-        assert "invalid JSON" in body["error"]
+        assert "not valid JSON" in body["error"]
 
     async def test_non_object_body_returns_400(self, client: _TC) -> None:
         resp = await client.post(

@@ -45,13 +45,13 @@ def _make_pending(original: str = "Make me more formal") -> PendingChange:
 # ---------------------------------------------------------------------------
 
 
-def test_pending_change_to_dict_round_trips() -> None:
+def test_pending_change_json_round_trips() -> None:
     original = "Change my name to Alex"
     detection = _make_detection(intent="persona_change", confidence=0.75)
     pending = PendingChange(detection_result=detection, original_message=original)
 
-    data = pending.to_dict()
-    restored = PendingChange.from_dict(data)
+    json_bytes = pending.model_dump_json()
+    restored = PendingChange.model_validate_json(json_bytes)
 
     assert restored.original_message == original
     assert restored.detection_result.intent == "persona_change"
@@ -59,7 +59,7 @@ def test_pending_change_to_dict_round_trips() -> None:
     assert restored.detection_result.action == "confirm"
 
 
-def test_pending_change_from_dict_preserves_all_fields() -> None:
+def test_pending_change_model_dump_preserves_all_fields() -> None:
     detection = _make_detection(
         intent="tone_change",
         risk_level="low",
@@ -67,7 +67,7 @@ def test_pending_change_from_dict_preserves_all_fields() -> None:
         action="auto_apply",
     )
     pending = PendingChange(detection_result=detection, original_message="be friendlier")
-    restored = PendingChange.from_dict(pending.to_dict())
+    restored = PendingChange.model_validate(pending.model_dump())
 
     assert restored.detection_result.intent == "tone_change"
     assert restored.detection_result.risk_level == "low"

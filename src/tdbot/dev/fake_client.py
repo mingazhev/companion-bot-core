@@ -76,10 +76,9 @@ class FakeChatAPIClient(ChatAPIClient):
     """
 
     def __init__(self, model: str = "fake-model") -> None:
-        # Call super with a dummy key so the parent sets _model, _circuit_breaker,
-        # and _http correctly.  _http is a real httpx.AsyncClient but is never
-        # used because we override chat_completion entirely.
-        super().__init__(api_key="dev-fake-key", model=model)
+        # Skip super().__init__ to avoid creating a real httpx.AsyncClient
+        # pointed at api.openai.com.  We only need _model for log messages.
+        self._model = model
 
     def _is_refinement_call(self, messages: list[ChatMessage]) -> bool:
         """Return True when the system prompt contains the refinement marker."""
@@ -115,8 +114,7 @@ class FakeChatAPIClient(ChatAPIClient):
         return _make_openai_response(f"[Dev mode] Echo: {user_content}")
 
     async def close(self) -> None:
-        """Close the underlying HTTP client (inherited from parent)."""
-        await super().close()
+        """No-op — no real HTTP client to close."""
 
     async def __aenter__(self) -> FakeChatAPIClient:
         """Support async context manager protocol."""

@@ -6,7 +6,7 @@ runtime via environment variables or a `.env` file (never committed).
 
 from __future__ import annotations
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -106,13 +106,23 @@ class Settings(BaseSettings):
 
     # --- Security ---
     encrypt_sensitive_fields: bool = Field(
-        default=True,
+        default=False,
         description="Encrypt user-facing PII fields at rest",
     )
     field_encryption_key: SecretStr = Field(
         default=SecretStr(""),
         description="32-byte Fernet key for field-level encryption (empty → auto-generate)",
     )
+
+    @model_validator(mode="after")
+    def _validate_pool_bounds(self) -> Settings:
+        if self.database_pool_max < self.database_pool_min:
+            msg = (
+                f"database_pool_max ({self.database_pool_max}) must be >= "
+                f"database_pool_min ({self.database_pool_min})"
+            )
+            raise ValueError(msg)
+        return self
 
     # --- Local development ---
     use_fake_adapters: bool = Field(

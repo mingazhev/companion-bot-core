@@ -63,6 +63,7 @@ tdbot                       # run the bot
 - `refinement:last_scheduled:{user_uuid}` — timestamp of last cadence-triggered refinement
 - `abuse:violations:{user_uuid}` — sorted set of violation timestamps
 - `abuse:block:{user_uuid}` — block flag with TTL
+- `prompt_cache:{user_uuid}` — cached prompt snapshot (5-minute TTL); not yet wired into context loader
 - `refinement_jobs` / `retry_jobs` — Redis list queues for the worker
 
 ## Known incomplete features (explicitly deferred)

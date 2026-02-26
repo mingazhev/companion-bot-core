@@ -13,8 +13,9 @@ Redis key schema
 
 from __future__ import annotations
 
-import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+from pydantic import BaseModel
 
 from tdbot.behavior.schemas import DetectionResult
 
@@ -25,30 +26,11 @@ _KEY_PREFIX = "pending_change"
 _TTL_SECONDS = 300  # 5 minutes
 
 
-class PendingChange:
-    """A medium-risk detection result awaiting user confirmation.
+class PendingChange(BaseModel):
+    """A medium-risk detection result awaiting user confirmation."""
 
-    Args:
-        detection_result: The classified detection from the behavior detector.
-        original_message: The raw user message that triggered detection.
-    """
-
-    def __init__(self, detection_result: DetectionResult, original_message: str) -> None:
-        self.detection_result = detection_result
-        self.original_message = original_message
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "detection_result": self.detection_result.model_dump(),
-            "original_message": self.original_message,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> PendingChange:
-        return cls(
-            detection_result=DetectionResult.model_validate(data["detection_result"]),
-            original_message=data["original_message"],
-        )
+    detection_result: DetectionResult
+    original_message: str
 
 
 def _key(user_id: str) -> str:
@@ -56,23 +38,23 @@ def _key(user_id: str) -> str:
 
 
 async def set_pending_change(
-    redis: Redis[str],
+    redis: Redis,
     user_id: str,
     change: PendingChange,
     ttl: int = _TTL_SECONDS,
 ) -> None:
     """Persist *change* for *user_id* with an expiry of *ttl* seconds."""
-    await redis.set(_key(user_id), json.dumps(change.to_dict()), ex=ttl)
+    await redis.set(_key(user_id), change.model_dump_json(), ex=ttl)
 
 
-async def get_pending_change(redis: Redis[str], user_id: str) -> PendingChange | None:
+async def get_pending_change(redis: Redis, user_id: str) -> PendingChange | None:
     """Return the pending change for *user_id*, or ``None`` if none exists."""
     raw = await redis.get(_key(user_id))
     if raw is None:
         return None
-    return PendingChange.from_dict(json.loads(raw))
+    return PendingChange.model_validate_json(raw)
 
 
-async def clear_pending_change(redis: Redis[str], user_id: str) -> None:
+async def clear_pending_change(redis: Redis, user_id: str) -> None:
     """Remove the pending change key for *user_id* (idempotent)."""
     await redis.delete(_key(user_id))

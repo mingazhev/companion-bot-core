@@ -25,7 +25,10 @@ from pydantic import ValidationError
 
 from tdbot.behavior.detector import classify
 from tdbot.internal.schemas import DetectChangeRequest, RefineRequest, RefineResponse
+from tdbot.logging_config import get_logger
 from tdbot.redis.queues import enqueue_refinement_job
+
+log = get_logger(__name__)
 
 # Type-safe application key for the shared Redis client.
 # Using web.AppKey avoids the NotAppKeyWarning introduced in aiohttp 3.9+.
@@ -67,12 +70,14 @@ async def handle_refine(request: web.Request) -> web.Response:
     try:
         raw_bytes = await request.read()
     except Exception as exc:
-        return web.json_response({"error": f"failed to read body: {exc}"}, status=400)
+        log.warning("refine_read_body_failed", error=str(exc))
+        return web.json_response({"error": "failed to read request body"}, status=400)
     if raw_bytes:
         try:
             raw = json.loads(raw_bytes)
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            return web.json_response({"error": f"invalid JSON: {exc}"}, status=400)
+            log.warning("refine_invalid_json", error=str(exc))
+            return web.json_response({"error": "request body is not valid JSON"}, status=400)
         if not isinstance(raw, dict):
             return web.json_response(
                 {"error": "request body must be a JSON object"}, status=400
@@ -119,14 +124,16 @@ async def handle_detect_change(request: web.Request) -> web.Response:
     try:
         raw_bytes = await request.read()
     except Exception as exc:
-        return web.json_response({"error": f"failed to read body: {exc}"}, status=400)
+        log.warning("detect_change_read_body_failed", error=str(exc))
+        return web.json_response({"error": "failed to read request body"}, status=400)
     if not raw_bytes:
         return web.json_response({"error": "request body is required"}, status=400)
 
     try:
         raw = json.loads(raw_bytes)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        return web.json_response({"error": f"invalid JSON: {exc}"}, status=400)
+        log.warning("detect_change_invalid_json", error=str(exc))
+        return web.json_response({"error": "request body is not valid JSON"}, status=400)
 
     if not isinstance(raw, dict):
         return web.json_response(

@@ -83,7 +83,7 @@ async def _handle_metrics(_request: web.Request) -> web.Response:
     return web.Response(body=body, headers={"Content-Type": CONTENT_TYPE_LATEST})
 
 
-def build_internal_app(redis: Redis) -> web.Application:  # type: ignore[type-arg]
+def build_internal_app(redis: Redis) -> web.Application:
     """Create and return the internal aiohttp :class:`web.Application`.
 
     The ``redis`` client is stored on the application object so route handlers

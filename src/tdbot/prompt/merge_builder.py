@@ -24,6 +24,15 @@ if TYPE_CHECKING:
 _SECTION_SEP = "\n\n---\n\n"
 
 
+def extract_base_template(compiled_prompt: str) -> str:
+    """Extract the base system template from a fully compiled prompt.
+
+    The base template is the first section before any ``---`` separator.
+    This is the inverse of the first step in :func:`build_system_prompt`.
+    """
+    return compiled_prompt.split(_SECTION_SEP, 1)[0].strip()
+
+
 def build_system_prompt(components: PromptComponents) -> str:
     """Merge all prompt *components* into a single system-prompt string.
 

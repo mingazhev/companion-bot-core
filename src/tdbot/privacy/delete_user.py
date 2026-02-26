@@ -42,23 +42,30 @@ _REDIS_KEY_PREFIXES = (
     "refinement:last_scheduled",
     "abuse:violations",
     "abuse:block",
+    "prompt_cache",
 )
+
+# Redis key prefixes scoped to the Telegram user ID (not internal UUID).
+_REDIS_TELEGRAM_KEY_PREFIXES = ("rate_limit:user",)
 
 
 async def hard_delete_user(
     user_id: uuid.UUID,
     session: AsyncSession,
-    redis: Redis[str] | None = None,
+    redis: Redis | None = None,
+    telegram_user_id: int | None = None,
 ) -> None:
     """Remove all personal data for *user_id*, preserving minimal audit trail.
 
     Args:
-        user_id: Internal UUID of the user to delete.
-        session: An active :class:`~sqlalchemy.ext.asyncio.AsyncSession`.
-                 The caller is responsible for committing the transaction.
-        redis:   Optional Redis client.  When provided, all Redis keys scoped
-                 to *user_id* are deleted so a re-registering user does not
-                 inherit stale state.
+        user_id:          Internal UUID of the user to delete.
+        session:          An active :class:`~sqlalchemy.ext.asyncio.AsyncSession`.
+                          The caller is responsible for committing the transaction.
+        redis:            Optional Redis client.  When provided, all Redis keys scoped
+                          to *user_id* are deleted so a re-registering user does not
+                          inherit stale state.
+        telegram_user_id: Optional Telegram user ID.  When provided alongside *redis*,
+                          the per-user rate-limit key is also removed.
 
     The function is idempotent: if the user row does not exist the DELETE is
     a no-op and no exception is raised.
@@ -84,4 +91,8 @@ async def hard_delete_user(
     if redis is not None:
         user_id_str = str(user_id)
         keys = [f"{prefix}:{user_id_str}" for prefix in _REDIS_KEY_PREFIXES]
+        if telegram_user_id is not None:
+            keys += [
+                f"{prefix}:{telegram_user_id}" for prefix in _REDIS_TELEGRAM_KEY_PREFIXES
+            ]
         await redis.delete(*keys)

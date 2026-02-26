@@ -25,7 +25,7 @@ from tdbot.db.models import AuditLog, Job
 from tdbot.logging_config import get_logger
 from tdbot.metrics import REFINEMENT_JOBS
 from tdbot.orchestrator.context_loader import load_recent_messages
-from tdbot.prompt.merge_builder import build_system_prompt
+from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template
 from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
 from tdbot.redis.queues import (
     QUEUE_REFINEMENT_JOBS,
@@ -88,7 +88,7 @@ def _apply_delta(snapshot: SnapshotRecord, proposed_delta: SnapshotDelta) -> Sna
         else {k: str(v) for k, v in snapshot.skill_prompts_json.items()}
     )
     components = PromptComponents(
-        base_system_template=snapshot.system_prompt,
+        base_system_template=extract_base_template(snapshot.system_prompt),
         persona_segment=proposed_delta.persona_segment or "",
         skill_packs=new_skill_packs,
         long_term_profile=proposed_delta.long_term_profile or "",

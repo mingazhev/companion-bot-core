@@ -4,15 +4,11 @@ Public surface:
     RefinementRiskFlag  — risk signals reported by the refinement model
     SnapshotDelta       — proposed incremental change to the active snapshot
     RefinementResult    — full output from the non-interactive model call
-    RefinementJob       — envelope for a dequeued Redis job item
 """
 
 from __future__ import annotations
 
-import uuid
-from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -55,17 +51,4 @@ class RefinementResult(BaseModel):
     risk_flags: list[RefinementRiskFlag] = Field(
         default_factory=list,
         description="Risk signals raised by the model",
-    )
-
-
-class RefinementJob(BaseModel):
-    """Envelope for a refinement job item dequeued from Redis."""
-
-    user_id: uuid.UUID
-    job_id: uuid.UUID = Field(default_factory=uuid.uuid4)
-    triggered_at: datetime = Field(default_factory=lambda: datetime.now(tz=UTC))
-    attempt: int = Field(default=0, ge=0)
-    extra: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Original queue payload fields (trigger, count, etc.)",
     )
