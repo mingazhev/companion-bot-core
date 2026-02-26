@@ -47,7 +47,7 @@ def build_bot(settings: Settings) -> Bot:
 def build_dispatcher(
     settings: Settings,
     engine: AsyncEngine,
-    redis: Redis[str],
+    redis: Redis,
     snapshot_store: SnapshotStore | None = None,
     chat_client: ChatAPIClient | None = None,
 ) -> Dispatcher:

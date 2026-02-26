@@ -23,7 +23,7 @@ from aiogram import BaseMiddleware
 
 from tdbot.bot.users import get_or_create_user
 from tdbot.db.engine import get_async_session
-from tdbot.logging_config import get_logger
+from tdbot.logging_config import bind_correlation_id, get_logger
 from tdbot.redis.idempotency import mark_update_seen
 from tdbot.redis.rate_limit import check_global_rate_limit, check_user_rate_limit
 
@@ -48,7 +48,7 @@ class IngressMiddleware(BaseMiddleware):
         redis: Async Redis client for idempotency keys and rate limit counters.
     """
 
-    def __init__(self, settings: Settings, engine: AsyncEngine, redis: Redis[str]) -> None:
+    def __init__(self, settings: Settings, engine: AsyncEngine, redis: Redis) -> None:
         self._settings = settings
         self._engine = engine
         self._redis = redis
@@ -60,6 +60,10 @@ class IngressMiddleware(BaseMiddleware):
         data: dict[str, Any],
     ) -> Any:
         update_id = event.update_id
+
+        # Bind the Telegram update_id as the correlation ID so all log records
+        # within this request carry a consistent identifier.
+        bind_correlation_id(str(update_id))
 
         # ------------------------------------------------------------------ #
         # Gate 1 — Idempotency: drop updates we have already processed.

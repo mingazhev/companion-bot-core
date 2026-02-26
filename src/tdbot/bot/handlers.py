@@ -52,6 +52,8 @@ router = Router(name="commands")
 _VALID_TONES: frozenset[str] = frozenset(
     {"friendly", "professional", "playful", "neutral", "casual"}
 )
+# Telegram limits plain-text messages to 4096 characters.
+_TG_MSG_LIMIT = 4096
 
 
 # --------------------------------------------------------------------------- #
@@ -271,7 +273,9 @@ async def handle_message(
             conversation_ttl_seconds=settings.conversation_ttl_seconds,
             refinement_activity_threshold=settings.refinement_activity_threshold,
         )
-        await message.answer(reply, parse_mode=None)
+        # Split if the reply exceeds Telegram's message-length limit.
+        for i in range(0, len(reply), _TG_MSG_LIMIT):
+            await message.answer(reply[i : i + _TG_MSG_LIMIT], parse_mode=None)
 
         # Surface "profile updated" notice if the refinement worker finished
         # updating this user's prompt snapshot since their last message.

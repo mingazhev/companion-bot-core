@@ -310,10 +310,10 @@ async def test_process_message_confirm_yes_applies_change() -> None:
     assert reply == _CHANGE_APPLIED_MSG
     # Pending change should be cleared
     assert await get_pending_change(redis, str(user_id)) is None
-    # BehaviorChangeEvent recorded as applied=False (not yet wired), confirmed=True
+    # BehaviorChangeEvent recorded as applied=True, confirmed=True
     session.add.assert_called_once()
     added = session.add.call_args[0][0]
-    assert added.applied is False
+    assert added.applied is True
     assert added.confirmed is True
 
 

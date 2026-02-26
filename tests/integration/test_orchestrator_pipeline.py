@@ -136,8 +136,10 @@ async def test_e2e_new_user_receives_ai_reply() -> None:
     )
 
     assert reply == "I'm here to help!"
-    # New user has no snapshot — active pointer stays unset
-    assert await store.get_active(user_id) is None
+    # New user gets an initial snapshot created automatically
+    initial = await store.get_active(user_id)
+    assert initial is not None
+    assert initial.source == "initial"
     # Both user and assistant messages were persisted
     assert session.add.call_count == 2
 
@@ -478,10 +480,10 @@ async def test_medium_risk_persona_change_confirmed_with_yes() -> None:
     assert reply2 == _CHANGE_APPLIED_MSG
     # Pending change is cleared
     assert await get_pending_change(redis, str(user_id)) is None
-    # Behavior event recorded with applied=False (not yet wired), confirmed=True
+    # Behavior event recorded as applied and confirmed
     session2.add.assert_called_once()
     event = session2.add.call_args[0][0]
-    assert event.applied is False
+    assert event.applied is True
     assert event.confirmed is True
 
 

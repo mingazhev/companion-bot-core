@@ -59,10 +59,16 @@ async def _run() -> None:
             reason="USE_FAKE_ADAPTERS=true — no real model API calls will be made",
         )
         chat_client: ChatAPIClient = FakeChatAPIClient(model=settings.chat_model)
+        refinement_client: ChatAPIClient = FakeChatAPIClient(model=settings.refinement_model)
     else:
         chat_client = ChatAPIClient(
             api_key=settings.openai_api_key.get_secret_value(),
             model=settings.chat_model,
+            base_url=settings.openai_base_url,
+        )
+        refinement_client = ChatAPIClient(
+            api_key=settings.openai_api_key.get_secret_value(),
+            model=settings.refinement_model,
             base_url=settings.openai_base_url,
         )
 
@@ -112,7 +118,7 @@ async def _run() -> None:
             run_worker(
                 redis=redis,
                 snapshot_store=snapshot_store,
-                chat_client=chat_client,
+                chat_client=refinement_client,
                 engine=engine,
             ),
             name="refinement_worker",
@@ -146,6 +152,7 @@ async def _run() -> None:
             await asyncio.gather(sweeper_task, return_exceptions=True)
         await runner.cleanup()
         await chat_client.close()
+        await refinement_client.close()
         await close_redis_pool(redis)
         await engine.dispose()
         log.info("tdbot stopped")

@@ -15,7 +15,7 @@ from sqlalchemy import select
 from tdbot.db.models import ConversationMessage
 from tdbot.inference.schemas import ChatMessage, UserContext
 from tdbot.prompt.merge_builder import build_system_prompt
-from tdbot.prompt.schemas import PromptComponents
+from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -100,6 +100,17 @@ async def load_user_context(
     else:
         components = PromptComponents(base_system_template=_DEFAULT_SYSTEM_TEMPLATE)
         system_prompt = build_system_prompt(components)
+        # Persist an initial snapshot so the refinement worker has a base to
+        # build on.  Without this, the worker always skips new users.
+        version = await snapshot_store.next_version(user_id)
+        initial = SnapshotRecord(
+            user_id=user_id,
+            version=version,
+            system_prompt=system_prompt,
+            source="initial",
+        )
+        await snapshot_store.save(initial)
+        await snapshot_store.set_active(user_id, initial.id)
 
     history = await load_recent_messages(session, user_id, limit=20)
 

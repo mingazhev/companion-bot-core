@@ -29,7 +29,7 @@ def _key(user_id: str) -> str:
 
 
 async def cache_prompt(
-    redis: Redis[str],
+    redis: Redis,
     user_id: str,
     prompt_data: dict[str, Any],
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
@@ -46,7 +46,7 @@ async def cache_prompt(
 
 
 async def get_cached_prompt(
-    redis: Redis[str],
+    redis: Redis,
     user_id: str,
 ) -> dict[str, Any] | None:
     """Return the cached prompt context for *user_id*, or None on a miss.
@@ -61,7 +61,7 @@ async def get_cached_prompt(
 
 
 async def invalidate_prompt_cache(
-    redis: Redis[str],
+    redis: Redis,
     user_id: str,
 ) -> None:
     """Remove the cached prompt for *user_id*.
@@ -73,7 +73,7 @@ async def invalidate_prompt_cache(
 
 
 async def extend_prompt_cache_ttl(
-    redis: Redis[str],
+    redis: Redis,
     user_id: str,
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
 ) -> bool:

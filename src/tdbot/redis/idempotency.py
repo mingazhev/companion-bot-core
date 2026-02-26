@@ -30,7 +30,7 @@ def _key(update_id: int) -> str:
 
 
 async def mark_update_seen(
-    redis: Redis[str],
+    redis: Redis,
     update_id: int,
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
 ) -> bool:
@@ -54,7 +54,7 @@ async def mark_update_seen(
 
 
 async def is_update_seen(
-    redis: Redis[str],
+    redis: Redis,
     update_id: int,
 ) -> bool:
     """Return True if *update_id* has already been processed.
@@ -67,7 +67,7 @@ async def is_update_seen(
 
 
 async def clear_update_key(
-    redis: Redis[str],
+    redis: Redis,
     update_id: int,
 ) -> None:
     """Delete the idempotency key for *update_id*.

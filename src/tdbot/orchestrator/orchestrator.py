@@ -221,7 +221,7 @@ async def process_message(
                     session,
                     user_id,
                     pending.detection_result,
-                    applied=False,
+                    applied=True,
                     confirmed=True,
                 )
                 await clear_pending_change(redis, user_id_str)
@@ -359,7 +359,7 @@ async def process_message(
                 session,
                 user_id,
                 detection,
-                applied=False,
+                applied=True,
                 confirmed=False,
             )
             log.info(

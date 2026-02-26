@@ -58,7 +58,7 @@ async def rollback_to_previous(
     if active is None:
         raise RollbackError("No active snapshot to roll back from")
 
-    history = await store.list_for_user(user_id, limit=10_000)
+    history = await store.list_for_user(user_id, limit=100)
     # history is newest-first; find the first entry with a strictly lower version
     target: SnapshotRecord | None = None
     for snap in history:
@@ -97,7 +97,7 @@ async def rollback_to_version(
     Raises:
         RollbackError: When *target_version* does not exist for this user.
     """
-    history = await store.list_for_user(user_id, limit=10_000)
+    history = await store.list_for_user(user_id, limit=100)
     target = next((s for s in history if s.version == target_version), None)
     if target is None:
         raise RollbackError(

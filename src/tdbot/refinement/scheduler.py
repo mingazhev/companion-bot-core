@@ -31,7 +31,7 @@ def _last_scheduled_key(user_id: str) -> str:
 
 
 async def should_schedule_by_cadence(
-    redis: Redis[str],
+    redis: Redis,
     user_id: str,
     cadence_seconds: int,
 ) -> bool:
@@ -52,7 +52,7 @@ async def should_schedule_by_cadence(
 
 
 async def record_refinement_scheduled(
-    redis: Redis[str],
+    redis: Redis,
     user_id: str,
     cadence_seconds: int,
 ) -> None:
@@ -74,7 +74,7 @@ async def record_refinement_scheduled(
 
 
 async def enqueue_if_cadence_due(
-    redis: Redis[str],
+    redis: Redis,
     user_id: str,
     cadence_seconds: int,
 ) -> bool:

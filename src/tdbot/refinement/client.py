@@ -11,19 +11,19 @@ Public surface:
 from __future__ import annotations
 
 import json
-import logging
 from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
 from tdbot.inference.schemas import ChatMessage
+from tdbot.logging_config import get_logger
 from tdbot.refinement.schemas import RefinementResult
 
 if TYPE_CHECKING:
     from tdbot.inference.client import ChatAPIClient
     from tdbot.prompt.schemas import SnapshotRecord
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 # Maximum recent messages to include in the refinement context.
 _MAX_CONTEXT_MESSAGES = 30

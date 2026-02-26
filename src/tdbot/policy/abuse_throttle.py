@@ -51,7 +51,7 @@ def _block_key(user_id: str) -> str:
     return f"{_BLOCK_PREFIX}{user_id}"
 
 
-async def is_user_abuse_blocked(redis: Redis[str], user_id: str) -> bool:
+async def is_user_abuse_blocked(redis: Redis, user_id: str) -> bool:
     """Return True if the user is currently in an active abuse-block period.
 
     Args:
@@ -66,7 +66,7 @@ async def is_user_abuse_blocked(redis: Redis[str], user_id: str) -> bool:
 
 
 async def record_policy_violation(
-    redis: Redis[str],
+    redis: Redis,
     user_id: str,
     *,
     violation_window_seconds: int = _VIOLATION_WINDOW_SECONDS,
@@ -113,7 +113,7 @@ async def record_policy_violation(
 
 
 async def get_violation_count(
-    redis: Redis[str],
+    redis: Redis,
     user_id: str,
     *,
     violation_window_seconds: int = _VIOLATION_WINDOW_SECONDS,
@@ -141,7 +141,7 @@ async def get_violation_count(
     return int(results[1])
 
 
-async def clear_abuse_block(redis: Redis[str], user_id: str) -> None:
+async def clear_abuse_block(redis: Redis, user_id: str) -> None:
     """Remove the active abuse block for *user_id* (e.g. for admin intervention).
 
     Args:
