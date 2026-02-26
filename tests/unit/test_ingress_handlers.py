@@ -292,7 +292,7 @@ async def test_handle_message_sends_reply() -> None:
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
     mock_process.assert_awaited_once()
-    msg.answer.assert_called_once_with("Hello back")
+    msg.answer.assert_called_once_with("Hello back", parse_mode=None)
 
 
 @pytest.mark.asyncio
@@ -338,4 +338,4 @@ async def test_handle_message_no_notice_when_not_set() -> None:
     ):
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
-    msg.answer.assert_called_once_with("Goodbye")
+    msg.answer.assert_called_once_with("Goodbye", parse_mode=None)

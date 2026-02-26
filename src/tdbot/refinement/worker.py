@@ -25,7 +25,7 @@ from tdbot.db.models import AuditLog, Job
 from tdbot.logging_config import get_logger
 from tdbot.metrics import REFINEMENT_JOBS
 from tdbot.orchestrator.context_loader import load_recent_messages
-from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template
+from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template, extract_section
 from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
 from tdbot.redis.queues import (
     QUEUE_REFINEMENT_JOBS,
@@ -87,11 +87,20 @@ def _apply_delta(snapshot: SnapshotRecord, proposed_delta: SnapshotDelta) -> Sna
         if proposed_delta.skill_packs is not None
         else {k: str(v) for k, v in snapshot.skill_prompts_json.items()}
     )
+    existing_prompt = snapshot.system_prompt
     components = PromptComponents(
-        base_system_template=extract_base_template(snapshot.system_prompt),
-        persona_segment=proposed_delta.persona_segment or "",
+        base_system_template=extract_base_template(existing_prompt),
+        persona_segment=(
+            proposed_delta.persona_segment
+            if proposed_delta.persona_segment is not None
+            else extract_section(existing_prompt, "Persona")
+        ),
         skill_packs=new_skill_packs,
-        long_term_profile=proposed_delta.long_term_profile or "",
+        long_term_profile=(
+            proposed_delta.long_term_profile
+            if proposed_delta.long_term_profile is not None
+            else extract_section(existing_prompt, "Long-term Profile")
+        ),
     )
     return SnapshotRecord(
         user_id=snapshot.user_id,

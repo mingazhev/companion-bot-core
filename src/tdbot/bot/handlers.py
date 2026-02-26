@@ -119,7 +119,7 @@ async def cmd_set_tone(
         return
     if tone not in _VALID_TONES:
         await message.answer(
-            f"Unknown tone '{tone}'.\n"
+            f"Unknown tone '{html.escape(tone)}'.\n"
             f"Valid tones: {', '.join(sorted(_VALID_TONES))}"
         )
         return
@@ -268,7 +268,7 @@ async def handle_message(
             conversation_ttl_seconds=settings.conversation_ttl_seconds,
             refinement_activity_threshold=settings.refinement_activity_threshold,
         )
-        await message.answer(reply)
+        await message.answer(reply, parse_mode=None)
 
         # Surface "profile updated" notice if the refinement worker finished
         # updating this user's prompt snapshot since their last message.

@@ -33,6 +33,20 @@ def extract_base_template(compiled_prompt: str) -> str:
     return compiled_prompt.split(_SECTION_SEP, 1)[0].strip()
 
 
+def extract_section(compiled_prompt: str, header: str) -> str:
+    """Extract the body of a named section from a compiled prompt.
+
+    Looks for a section starting with ``[header]\\n`` among the ``---``
+    separated blocks and returns its body text (everything after the
+    header line).  Returns an empty string when the section is absent.
+    """
+    prefix = f"[{header}]\n"
+    for block in compiled_prompt.split(_SECTION_SEP):
+        if block.startswith(prefix):
+            return block[len(prefix):].strip()
+    return ""
+
+
 def build_system_prompt(components: PromptComponents) -> str:
     """Merge all prompt *components* into a single system-prompt string.
 
