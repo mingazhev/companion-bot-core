@@ -51,6 +51,11 @@ log = get_logger(__name__)
 # Maximum number of processing attempts before a job is dead-lettered.
 MAX_ATTEMPTS = 3
 
+# Maximum number of circuit-breaker re-enqueues before a job is dead-lettered.
+# During a sustained provider outage, the worker polls every ~30 seconds,
+# so 20 retries ≈ 10 minutes of back-off before giving up.
+MAX_CIRCUIT_BREAKER_RETRIES = 20
+
 # Redis key for the per-user "profile updated" notice.
 _NOTICE_KEY_PREFIX = "refinement:notice"
 _NOTICE_TTL_SECONDS = 86400  # 24 hours
@@ -238,14 +243,26 @@ async def process_one_job(
         # incrementing the attempt counter so this transient condition does not
         # burn through retries.  The worker's 30-second poll timeout on the
         # primary queue provides a natural back-off before the job is retried.
-        await enqueue_refinement_job(redis, user_id_str, job_data)
-        final_status = "failed"
-        error_msg = "circuit breaker open"
-        log.warning(
-            "refinement_job_deferred_circuit_open",
-            user_id=user_id_str,
-            attempt=attempt,
-        )
+        cb_retries = int(job_data.get("cb_retries", 0)) + 1
+        if cb_retries > MAX_CIRCUIT_BREAKER_RETRIES:
+            final_status = "dead_letter"
+            error_msg = "circuit breaker open — max retries exhausted"
+            log.error(
+                "refinement_job_dead_lettered_circuit_open",
+                user_id=user_id_str,
+                cb_retries=cb_retries,
+            )
+        else:
+            cb_payload = {**job_data, "cb_retries": cb_retries}
+            await enqueue_refinement_job(redis, user_id_str, cb_payload)
+            final_status = "failed"
+            error_msg = "circuit breaker open"
+            log.warning(
+                "refinement_job_deferred_circuit_open",
+                user_id=user_id_str,
+                attempt=attempt,
+                cb_retries=cb_retries,
+            )
 
     except Exception as exc:  # noqa: BLE001
         error_msg = str(exc)
