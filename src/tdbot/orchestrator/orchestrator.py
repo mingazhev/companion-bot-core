@@ -323,80 +323,85 @@ async def process_message(
         # ------------------------------------------------------------------
         # Step 4 — Build context and generate reply (auto_apply / pass_through)
         # ------------------------------------------------------------------
-        async with span("prompt_manager.load_context", user_id=user_id_str):
-            user_context = await load_user_context(
-                session, snapshot_store, user_id, max_tokens
+        # Wrap Steps 4-7 in try/finally so CHAT_LATENCY is always recorded,
+        # even when an unhandled exception occurs mid-pipeline.
+        try:
+            async with span("prompt_manager.load_context", user_id=user_id_str):
+                user_context = await load_user_context(
+                    session, snapshot_store, user_id, max_tokens
+                )
+
+            try:
+                async with span("model_adapter.generate_reply", user_id=user_id_str):
+                    inference_reply = await generate_reply(
+                        chat_client, user_context, message_text
+                    )
+            except CircuitBreakerOpen:
+                log.error("circuit_breaker_open_during_chat", user_id=user_id_str)
+                return _CIRCUIT_OPEN_MSG
+
+            reply_text = inference_reply.reply
+
+            # Record token usage metrics (noqa: S106 — not a password, metric label)
+            TOKENS_USED.labels(
+                provider="openai", model=model, token_type="prompt"  # noqa: S106
+            ).inc(inference_reply.usage.prompt_tokens)
+            TOKENS_USED.labels(
+                provider="openai", model=model, token_type="completion"  # noqa: S106
+            ).inc(inference_reply.usage.completion_tokens)
+            TOKENS_USED.labels(
+                provider="openai", model=model, token_type="total"  # noqa: S106
+            ).inc(inference_reply.usage.total_tokens)
+
+            # ------------------------------------------------------------------
+            # Step 5 — Record behavior event for auto-applied changes
+            # ------------------------------------------------------------------
+            if action == "auto_apply":
+                await _record_behavior_event(
+                    session,
+                    user_id,
+                    detection,
+                    applied=True,
+                    confirmed=False,
+                )
+                log.info(
+                    "behavior_change_auto_applied",
+                    user_id=user_id_str,
+                    intent=detection.intent,
+                )
+
+            # ------------------------------------------------------------------
+            # Step 6 — Persist conversation messages
+            # ------------------------------------------------------------------
+            async with span("persistence.save_messages", user_id=user_id_str):
+                await _persist_messages(
+                    session=session,
+                    user_id=user_id,
+                    user_text=message_text,
+                    assistant_text=reply_text,
+                    tokens_used=inference_reply.usage.total_tokens,
+                    model=model,
+                    ttl_seconds=conversation_ttl_seconds,
+                )
+
+            # ------------------------------------------------------------------
+            # Step 7 — Enqueue optional refinement trigger
+            # ------------------------------------------------------------------
+            await _maybe_enqueue_refinement(redis, user_id, refinement_activity_threshold)
+
+            log.info(
+                "chat_pipeline_completed",
+                user_id=user_id_str,
+                model=model,
+                elapsed_ms=round(
+                    (time.perf_counter() - pipeline_start) * 1000, 2
+                ),
+                prompt_tokens=inference_reply.usage.prompt_tokens,
+                completion_tokens=inference_reply.usage.completion_tokens,
             )
 
-        try:
-            async with span("model_adapter.generate_reply", user_id=user_id_str):
-                inference_reply = await generate_reply(chat_client, user_context, message_text)
-        except CircuitBreakerOpen:
-            log.error("circuit_breaker_open_during_chat", user_id=user_id_str)
+            return reply_text
+        finally:
             CHAT_LATENCY.labels(model=model).observe(
                 time.perf_counter() - pipeline_start
             )
-            return _CIRCUIT_OPEN_MSG
-
-        reply_text = inference_reply.reply
-
-        # Record token usage metrics (noqa: S106 — not a password, metric label)
-        TOKENS_USED.labels(
-            provider="openai", model=model, token_type="prompt"  # noqa: S106
-        ).inc(inference_reply.usage.prompt_tokens)
-        TOKENS_USED.labels(
-            provider="openai", model=model, token_type="completion"  # noqa: S106
-        ).inc(inference_reply.usage.completion_tokens)
-        TOKENS_USED.labels(
-            provider="openai", model=model, token_type="total"  # noqa: S106
-        ).inc(inference_reply.usage.total_tokens)
-
-        # ------------------------------------------------------------------
-        # Step 5 — Record behavior event for auto-applied changes
-        # ------------------------------------------------------------------
-        if action == "auto_apply":
-            await _record_behavior_event(
-                session,
-                user_id,
-                detection,
-                applied=True,
-                confirmed=False,
-            )
-            log.info(
-                "behavior_change_auto_applied",
-                user_id=user_id_str,
-                intent=detection.intent,
-            )
-
-        # ------------------------------------------------------------------
-        # Step 6 — Persist conversation messages
-        # ------------------------------------------------------------------
-        async with span("persistence.save_messages", user_id=user_id_str):
-            await _persist_messages(
-                session=session,
-                user_id=user_id,
-                user_text=message_text,
-                assistant_text=reply_text,
-                tokens_used=inference_reply.usage.total_tokens,
-                model=model,
-                ttl_seconds=conversation_ttl_seconds,
-            )
-
-        # ------------------------------------------------------------------
-        # Step 7 — Enqueue optional refinement trigger
-        # ------------------------------------------------------------------
-        await _maybe_enqueue_refinement(redis, user_id, refinement_activity_threshold)
-
-        # Record end-to-end chat latency
-        elapsed = time.perf_counter() - pipeline_start
-        CHAT_LATENCY.labels(model=model).observe(elapsed)
-        log.info(
-            "chat_pipeline_completed",
-            user_id=user_id_str,
-            model=model,
-            elapsed_ms=round(elapsed * 1000, 2),
-            prompt_tokens=inference_reply.usage.prompt_tokens,
-            completion_tokens=inference_reply.usage.completion_tokens,
-        )
-
-        return reply_text

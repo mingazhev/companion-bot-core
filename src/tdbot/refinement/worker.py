@@ -164,6 +164,7 @@ async def process_one_job(
             )
     except Exception as exc:  # noqa: BLE001
         log.error("refinement_job_db_create_failed", user_id=user_id_str, error=str(exc))
+        REFINEMENT_JOBS.labels(status="failed").inc()
         return
 
     # State variables updated throughout the try block.

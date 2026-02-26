@@ -95,7 +95,7 @@ async def cmd_profile(message: Message, db_user: User) -> None:
         "Persona and tone settings will be shown here once configured.",
         "Use /set_tone and /set_persona to customise.",
     ]
-    await message.answer("\n".join(lines))
+    await message.answer("\n".join(lines), parse_mode=None)
     log.info("cmd_profile", internal_user_id=str(db_user.id))
 
 
