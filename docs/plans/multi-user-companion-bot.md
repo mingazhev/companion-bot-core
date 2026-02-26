@@ -91,7 +91,7 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Implement unsafe-role-change checks
 - [x] Implement risky capability confirmation flow
 - [x] Add per-user rate limits and abuse throttling
-- [ ] Wire guardrails and abuse throttle into the orchestrator pipeline (modules exist but are not called)
+- [x] Wire guardrails and abuse throttle into the orchestrator pipeline (modules exist but are not called)
 - [x] Mark completed
 
 ### Task 11: Internal service endpoints

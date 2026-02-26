@@ -70,7 +70,6 @@ tdbot                       # run the bot
 
 - Webhook mode — raises `NotImplementedError`; only polling is functional
 - Field-level encryption — `FieldEncryptor` is implemented but not wired to any DB read/write path
-- Policy guardrails — `policy/guardrails.py` and `policy/abuse_throttle.py` exist but are not called from the orchestrator
 
 ## Security notes
 

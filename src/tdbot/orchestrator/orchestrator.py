@@ -2,6 +2,10 @@
 
 Flow per incoming user message
 -------------------------------
+0a. Check Redis for an active abuse block; if blocked, return block message.
+0b. Run policy guardrails (prompt injection, unsafe role change, risky
+    capability). If any fires, record a violation, potentially trigger an
+    abuse block, and return the guardrail's refusal message.
 1. Check Redis for a pending medium-risk confirmation.
    - If present and user replies "yes" → record event as confirmed + applied,
      clear pending state, enqueue optional refinement trigger.
@@ -41,6 +45,7 @@ from tdbot.metrics import (
     BEHAVIOR_CHANGE_REVERSALS,
     CHAT_LATENCY,
     DETECTOR_CLASSIFICATIONS,
+    GUARDRAIL_BLOCKS,
     TOKENS_USED,
 )
 from tdbot.orchestrator.context_loader import load_user_context
@@ -49,6 +54,16 @@ from tdbot.orchestrator.dialogue_state import (
     clear_pending_change,
     get_pending_change,
     set_pending_change,
+)
+from tdbot.policy.abuse_throttle import (
+    ABUSE_BLOCK_MESSAGE,
+    is_user_abuse_blocked,
+    record_policy_violation,
+)
+from tdbot.policy.guardrails import (
+    check_prompt_injection,
+    check_risky_capability,
+    check_unsafe_role_change,
 )
 from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template, extract_section
 from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
@@ -527,6 +542,41 @@ async def process_message(
     pipeline_start = time.perf_counter()
 
     async with span("orchestrator.process_message", user_id=user_id_str):
+        # ------------------------------------------------------------------
+        # Step 0a — Check if user is abuse-blocked
+        # ------------------------------------------------------------------
+        if await is_user_abuse_blocked(redis, user_id_str):
+            log.warning("abuse_block_active", user_id=user_id_str)
+            CHAT_LATENCY.labels(model=model).observe(
+                time.perf_counter() - pipeline_start
+            )
+            return ABUSE_BLOCK_MESSAGE
+
+        # ------------------------------------------------------------------
+        # Step 0b — Run policy guardrails on raw message text
+        # ------------------------------------------------------------------
+        for guardrail_check in (
+            check_prompt_injection,
+            check_unsafe_role_change,
+            check_risky_capability,
+        ):
+            result = guardrail_check(message_text)
+            if not result.allowed:
+                GUARDRAIL_BLOCKS.labels(
+                    violation=result.violation or "unknown"
+                ).inc()
+                await record_policy_violation(redis, user_id_str)
+                log.warning(
+                    "guardrail_blocked",
+                    user_id=user_id_str,
+                    violation=result.violation,
+                    confidence=result.confidence,
+                )
+                CHAT_LATENCY.labels(model=model).observe(
+                    time.perf_counter() - pipeline_start
+                )
+                return result.reason or _REFUSE_MSG
+
         # ------------------------------------------------------------------
         # Step 1 — Check for a pending medium-risk confirmation dialogue
         # ------------------------------------------------------------------

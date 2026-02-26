@@ -108,6 +108,16 @@ TOKENS_USED: Counter = Counter(
 )
 
 # ---------------------------------------------------------------------------
+# Policy guardrail layer
+# ---------------------------------------------------------------------------
+
+GUARDRAIL_BLOCKS: Counter = Counter(
+    "tdbot_guardrail_blocks_total",
+    "Messages blocked by the policy guardrail layer.",
+    labelnames=["violation"],
+)
+
+# ---------------------------------------------------------------------------
 # Internal HTTP service
 # ---------------------------------------------------------------------------
 
