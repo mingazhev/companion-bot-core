@@ -294,9 +294,9 @@ async def test_process_message_confirm_yes_applies_change() -> None:
     store = InMemorySnapshotStore()
     client = MagicMock()
 
-    # Seed a pending change
+    # Seed a pending change (message must match a _PERSONA_PATTERNS regex)
     detection = _make_detection(intent="persona_change", risk_level="medium", action="confirm")
-    pending = PendingChange(detection_result=detection, original_message="Call me Alex")
+    pending = PendingChange(detection_result=detection, original_message="Your name is Alex")
     await set_pending_change(redis, str(user_id), pending)
 
     reply = await process_message(

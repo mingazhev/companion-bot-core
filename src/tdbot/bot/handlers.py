@@ -182,9 +182,9 @@ async def cmd_profile(
     tone_display = "(not set)"
     if profile is not None:
         if profile.persona_name:
-            persona_display = enc.decrypt(profile.persona_name)
+            persona_display = enc.decrypt_safe(profile.persona_name, default=profile.persona_name)
         if profile.tone:
-            tone_display = enc.decrypt(profile.tone)
+            tone_display = enc.decrypt_safe(profile.tone, default=profile.tone)
 
     lines = [
         f"Telegram ID: {db_user.telegram_user_id}",
@@ -271,6 +271,10 @@ async def cmd_set_persona(
         return
     if len(name) > 64:
         await message.answer("Persona name must be 64 characters or fewer.")
+        return
+    # Reject control characters (newlines, tabs, etc.) to prevent prompt injection.
+    if any(c < " " for c in name):
+        await message.answer("Persona name must not contain control characters.")
         return
     profile = await _get_or_create_profile(db_session, db_user.id)
     # Decrypt existing tone for prompt building before encrypting new persona name.

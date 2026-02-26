@@ -199,7 +199,11 @@ async def _apply_behavior_change(
         profile.tone = enc.encrypt(tone)
         await session.flush()
         # Decrypt existing persona_name (may be encrypted in DB) for prompt building.
-        raw_persona = enc.decrypt_safe(profile.persona_name) if profile.persona_name else None
+        raw_persona = (
+            enc.decrypt_safe(profile.persona_name, default=profile.persona_name)
+            if profile.persona_name
+            else None
+        )
         await _rebuild_snapshot(snapshot_store, user_id, raw_persona, tone)
         log.info(
             "behavior_change_snapshot_updated",
@@ -222,7 +226,7 @@ async def _apply_behavior_change(
         profile.persona_name = enc.encrypt(name)
         await session.flush()
         # Decrypt existing tone (may be encrypted in DB) for prompt building.
-        raw_tone = enc.decrypt_safe(profile.tone) if profile.tone else None
+        raw_tone = enc.decrypt_safe(profile.tone, default=profile.tone) if profile.tone else None
         await _rebuild_snapshot(snapshot_store, user_id, name, raw_tone)
         log.info(
             "behavior_change_snapshot_updated",
@@ -612,14 +616,7 @@ async def process_message(
         if pending is not None:
             normalized = message_text.strip().lower().rstrip(".,!?;:")
             if normalized in _CONFIRM_WORDS:
-                await _record_behavior_event(
-                    session,
-                    user_id,
-                    pending.detection_result,
-                    applied=True,
-                    confirmed=True,
-                )
-                await _apply_behavior_change(
+                applied = await _apply_behavior_change(
                     intent=pending.detection_result.intent,
                     message_text=pending.original_message,
                     user_id=user_id,
@@ -627,18 +624,30 @@ async def process_message(
                     snapshot_store=snapshot_store,
                     encryptor=encryptor,
                 )
+                await _record_behavior_event(
+                    session,
+                    user_id,
+                    pending.detection_result,
+                    applied=applied,
+                    confirmed=True,
+                )
                 await clear_pending_change(redis, user_id_str)
-                await _maybe_enqueue_refinement(redis, user_id, refinement_activity_threshold)
+                if applied:
+                    await _maybe_enqueue_refinement(redis, user_id, refinement_activity_threshold)
                 BEHAVIOR_CHANGE_CONFIRMATIONS.labels(outcome="confirmed").inc()
                 log.info(
                     "behavior_change_confirmed",
                     user_id=user_id_str,
                     intent=pending.detection_result.intent,
+                    applied=applied,
                 )
                 CHAT_LATENCY.labels(model=model).observe(
                     time.perf_counter() - pipeline_start
                 )
-                return _CHANGE_APPLIED_MSG
+                return _CHANGE_APPLIED_MSG if applied else (
+                    "I understood your confirmation but couldn't extract"
+                    " the setting from your original message."
+                )
 
             if normalized in _CANCEL_WORDS:
                 await _record_behavior_event(
@@ -761,20 +770,20 @@ async def process_message(
             # Step 5 — Record behavior event for auto-applied changes
             # ------------------------------------------------------------------
             if action == "auto_apply":
-                await _record_behavior_event(
-                    session,
-                    user_id,
-                    detection,
-                    applied=True,
-                    confirmed=False,
-                )
-                await _apply_behavior_change(
+                applied = await _apply_behavior_change(
                     intent=detection.intent,
                     message_text=message_text,
                     user_id=user_id,
                     session=session,
                     snapshot_store=snapshot_store,
                     encryptor=encryptor,
+                )
+                await _record_behavior_event(
+                    session,
+                    user_id,
+                    detection,
+                    applied=applied,
+                    confirmed=False,
                 )
                 log.info(
                     "behavior_change_auto_applied",

@@ -207,6 +207,16 @@ async def process_one_job(
 
         # --- Apply delta and store new snapshot ---
         new_snap = _apply_delta(snapshot, result.proposed_delta)
+
+        # Skip save if the delta produced no effective change.
+        if (
+            new_snap.system_prompt == snapshot.system_prompt
+            and new_snap.skill_prompts_json == snapshot.skill_prompts_json
+        ):
+            log.info("refinement_job_noop", user_id=user_id_str)
+            final_status = "completed"
+            return
+
         new_version = await snapshot_store.next_version(user_id)
         new_snap = new_snap.model_copy(update={"version": new_version})
         await snapshot_store.save(new_snap)
