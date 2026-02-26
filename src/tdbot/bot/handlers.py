@@ -6,17 +6,14 @@ by :class:`~tdbot.bot.middleware.IngressMiddleware`.
 
 Commands implemented here
 -------------------------
-- /start              — welcome message
-- /profile            — show current user settings
-- /set_tone           — update response tone
-- /set_persona        — update persona name
-- /memory_compact_now — trigger memory compaction job
-- /reset_persona      — reset persona to defaults
-- /privacy            — display privacy policy summary
-- /delete_my_data     — initiate hard-delete flow
-
-Full DB writes for tone/persona changes are deferred to Task 6 (Prompt state
-manager); the handlers below respond correctly and log the intent.
+- /start              \u2014 welcome message
+- /profile            \u2014 show current user settings
+- /set_tone           \u2014 update response tone (persists to DB + rebuilds snapshot)
+- /set_persona        \u2014 update persona name (persists to DB + rebuilds snapshot)
+- /memory_compact_now \u2014 trigger memory compaction job
+- /reset_persona      \u2014 restore default persona (persists to DB + rebuilds snapshot)
+- /privacy            \u2014 display privacy policy summary
+- /delete_my_data     \u2014 initiate hard-delete flow
 """
 
 from __future__ import annotations
@@ -27,12 +24,18 @@ from typing import TYPE_CHECKING
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
+from sqlalchemy import select
 
+from tdbot.db.models import UserProfile
 from tdbot.logging_config import get_logger
 from tdbot.orchestrator import process_message
+from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template, extract_section
+from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
 from tdbot.tracing import span
 
 if TYPE_CHECKING:
+    import uuid
+
     from aiogram.types import Message
     from redis.asyncio import Redis
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,6 +58,85 @@ _VALID_TONES: frozenset[str] = frozenset(
 # Telegram limits plain-text messages to 4096 characters.
 _TG_MSG_LIMIT = 4096
 
+# Default system template for new users (matches context_loader).
+_DEFAULT_SYSTEM_TEMPLATE = "You are a helpful, friendly companion."
+
+
+# --------------------------------------------------------------------------- #
+# Profile / snapshot helpers
+# --------------------------------------------------------------------------- #
+
+
+async def _get_or_create_profile(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+) -> UserProfile:
+    """Fetch the user's profile row, creating one if it doesn't exist."""
+    result = await session.execute(
+        select(UserProfile).where(UserProfile.user_id == user_id)
+    )
+    profile = result.scalar_one_or_none()
+    if profile is None:
+        profile = UserProfile(user_id=user_id)
+        session.add(profile)
+        await session.flush()
+    return profile
+
+
+def _build_persona_segment(
+    persona_name: str | None,
+    tone: str | None,
+) -> str:
+    """Build the persona section content from profile fields."""
+    parts: list[str] = []
+    if persona_name:
+        parts.append(f"Name: {persona_name}")
+    if tone:
+        parts.append(f"Tone: {tone}")
+    return "\n".join(parts)
+
+
+async def _rebuild_and_save_snapshot(
+    snapshot_store: SnapshotStore,
+    user_id: uuid.UUID,
+    persona_name: str | None,
+    tone: str | None,
+) -> None:
+    """Build a new prompt snapshot reflecting updated profile and set it active."""
+    current = await snapshot_store.get_active(user_id)
+
+    raw_skills: dict[str, object] = {}
+    if current is not None:
+        base_template = extract_base_template(current.system_prompt)
+        skill_packs: dict[str, str] = {
+            k: str(v) for k, v in current.skill_prompts_json.items()
+        }
+        long_term_profile = extract_section(current.system_prompt, "Long-term Profile")
+        raw_skills = dict(current.skill_prompts_json)
+    else:
+        base_template = _DEFAULT_SYSTEM_TEMPLATE
+        skill_packs = {}
+        long_term_profile = ""
+
+    components = PromptComponents(
+        base_system_template=base_template,
+        persona_segment=_build_persona_segment(persona_name, tone),
+        skill_packs=skill_packs,
+        long_term_profile=long_term_profile,
+    )
+    system_prompt = build_system_prompt(components)
+
+    version = await snapshot_store.next_version(user_id)
+    record = SnapshotRecord(
+        user_id=user_id,
+        version=version,
+        system_prompt=system_prompt,
+        skill_prompts_json=raw_skills,
+        source="user_command",
+    )
+    await snapshot_store.save(record)
+    await snapshot_store.set_active(user_id, record.id)
+
 
 # --------------------------------------------------------------------------- #
 # /start
@@ -67,13 +149,13 @@ async def cmd_start(message: Message, db_user: User) -> None:
     await message.answer(
         "Hello! I am your personal companion bot.\n\n"
         "Available commands:\n"
-        "/profile — view your current settings\n"
-        "/set_tone <tone> — adjust my tone (friendly, professional, playful…)\n"
-        "/set_persona <name> — give me a persona name\n"
-        "/memory_compact_now — compress your conversation history\n"
-        "/reset_persona — restore default persona\n"
-        "/privacy — privacy policy summary\n"
-        "/delete_my_data — permanently delete all your data"
+        "/profile \u2014 view your current settings\n"
+        "/set_tone <tone> \u2014 adjust my tone (friendly, professional, playful\u2026)\n"
+        "/set_persona <name> \u2014 give me a persona name\n"
+        "/memory_compact_now \u2014 compress your conversation history\n"
+        "/reset_persona \u2014 restore default persona\n"
+        "/privacy \u2014 privacy policy summary\n"
+        "/delete_my_data \u2014 permanently delete all your data"
     )
     log.info("cmd_start", internal_user_id=str(db_user.id))
 
@@ -109,6 +191,8 @@ async def cmd_set_tone(
     message: Message,
     command: CommandObject,
     db_user: User,
+    db_session: AsyncSession,
+    snapshot_store: SnapshotStore,
 ) -> None:
     """Set the response tone. Usage: /set_tone <tone>"""
     tone = (command.args or "").strip().lower()
@@ -125,7 +209,12 @@ async def cmd_set_tone(
             f"Valid tones: {', '.join(sorted(_VALID_TONES))}"
         )
         return
-    # Full DB persistence deferred to Task 6 (Prompt state manager).
+    profile = await _get_or_create_profile(db_session, db_user.id)
+    profile.tone = tone
+    await db_session.flush()
+    await _rebuild_and_save_snapshot(
+        snapshot_store, db_user.id, profile.persona_name, profile.tone,
+    )
     await message.answer(
         f"Tone set to '{tone}'.\n"
         "Changes will be applied starting from your next message."
@@ -143,6 +232,8 @@ async def cmd_set_persona(
     message: Message,
     command: CommandObject,
     db_user: User,
+    db_session: AsyncSession,
+    snapshot_store: SnapshotStore,
 ) -> None:
     """Set the persona name. Usage: /set_persona <name>"""
     name = (command.args or "").strip()
@@ -155,7 +246,12 @@ async def cmd_set_persona(
     if len(name) > 64:
         await message.answer("Persona name must be 64 characters or fewer.")
         return
-    # Full DB persistence deferred to Task 6.
+    profile = await _get_or_create_profile(db_session, db_user.id)
+    profile.persona_name = name
+    await db_session.flush()
+    await _rebuild_and_save_snapshot(
+        snapshot_store, db_user.id, profile.persona_name, profile.tone,
+    )
     await message.answer(f"Persona name set to '{html.escape(name)}'.")
     log.info("set_persona", internal_user_id=str(db_user.id), persona_name=name)
 
@@ -182,9 +278,20 @@ async def cmd_memory_compact_now(message: Message, db_user: User) -> None:
 
 
 @router.message(Command("reset_persona"))
-async def cmd_reset_persona(message: Message, db_user: User) -> None:
+async def cmd_reset_persona(
+    message: Message,
+    db_user: User,
+    db_session: AsyncSession,
+    snapshot_store: SnapshotStore,
+) -> None:
     """Reset the user's persona and tone to defaults."""
-    # Full DB write deferred to Task 6.
+    profile = await _get_or_create_profile(db_session, db_user.id)
+    profile.persona_name = None
+    profile.tone = None
+    await db_session.flush()
+    await _rebuild_and_save_snapshot(
+        snapshot_store, db_user.id, None, None,
+    )
     await message.answer(
         "Your persona has been reset to defaults.\n"
         "Use /set_persona and /set_tone to customise again."
@@ -202,9 +309,9 @@ async def cmd_privacy(message: Message) -> None:
     """Show a privacy policy summary."""
     await message.answer(
         "Privacy summary:\n\n"
-        "• Messages are retained for up to 7 days to maintain conversation context.\n"
-        "• Profile settings are stored until you request deletion.\n"
-        "• No data is sold or shared with third parties.\n\n"
+        "\u2022 Messages are retained for up to 7 days to maintain conversation context.\n"
+        "\u2022 Profile settings are stored until you request deletion.\n"
+        "\u2022 No data is sold or shared with third parties.\n\n"
         "Use /delete_my_data to permanently remove all your personal data."
     )
 
@@ -264,20 +371,40 @@ async def handle_message(
     ingress_start = time.perf_counter()
 
     async with span("ingress.handle_message", user_id=user_id_str):
-        reply = await process_message(
-            user_id=db_user.id,
-            message_text=text,
-            session=db_session,
-            snapshot_store=snapshot_store,
-            redis=redis,
-            chat_client=chat_client,
-            model=settings.chat_model,
-            conversation_ttl_seconds=settings.conversation_ttl_seconds,
-            refinement_activity_threshold=settings.refinement_activity_threshold,
-        )
+        try:
+            reply = await process_message(
+                user_id=db_user.id,
+                message_text=text,
+                session=db_session,
+                snapshot_store=snapshot_store,
+                redis=redis,
+                chat_client=chat_client,
+                model=settings.chat_model,
+                conversation_ttl_seconds=settings.conversation_ttl_seconds,
+                refinement_activity_threshold=settings.refinement_activity_threshold,
+            )
+        except Exception:
+            log.exception(
+                "process_message_failed",
+                internal_user_id=user_id_str,
+            )
+            # Send a user-facing error reply before re-raising so the
+            # middleware rolls back the DB transaction (prevents committing
+            # partially-flushed state such as assistant messages the user
+            # never saw).
+            try:
+                await message.answer(
+                    "Something went wrong while processing your message. "
+                    "Please try again in a moment.",
+                    parse_mode=None,
+                )
+            except Exception:  # noqa: BLE001
+                log.warning("error_reply_send_failed", internal_user_id=user_id_str)
+            raise
+
         # Split if the reply exceeds Telegram's message-length limit.
         # Wrap in try/except so a Telegram API failure (timeout, rate limit)
-        # does not propagate and roll back the DB transaction — Redis state
+        # does not propagate and roll back the DB transaction \u2014 Redis state
         # (activity counter, refinement jobs) is already committed.
         try:
             for i in range(0, len(reply), _TG_MSG_LIMIT):

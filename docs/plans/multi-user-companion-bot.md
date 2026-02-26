@@ -56,8 +56,8 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Implement prompt snapshot versioning (immutable snapshots, atomic active pointer)
 - [x] Build prompt merge: base system template + user persona segment + skill packs + short-term window + compacted long-term profile
 - [x] Implement rollback to previous snapshot on user command or failed quality checks
-- [ ] Wire /set_tone, /set_persona, /reset_persona to persist changes to DB
-- [ ] Implement DB-backed SnapshotStore (InMemorySnapshotStore is used in all modes)
+- [x] Wire /set_tone, /set_persona, /reset_persona to persist changes to DB
+- [x] Implement DB-backed SnapshotStore (InMemorySnapshotStore is used in all modes)
 - [x] Mark completed
 
 ### Task 7: Behavior change detector

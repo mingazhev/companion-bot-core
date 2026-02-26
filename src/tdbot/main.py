@@ -29,7 +29,8 @@ from tdbot.inference.client import ChatAPIClient
 from tdbot.internal.server import build_internal_app
 from tdbot.logging_config import configure_logging, get_logger
 from tdbot.privacy.ttl_sweeper import sweep_expired_messages
-from tdbot.prompt.snapshot_store import InMemorySnapshotStore
+from tdbot.prompt.postgres_store import PostgresSnapshotStore
+from tdbot.prompt.snapshot_store import InMemorySnapshotStore, SnapshotStore
 from tdbot.redis.client import close_redis_pool, create_redis_pool
 from tdbot.refinement.worker import run_worker
 
@@ -51,7 +52,11 @@ async def _run() -> None:
 
     engine = create_engine(settings)
     redis = await create_redis_pool(settings)
-    snapshot_store = InMemorySnapshotStore()
+    snapshot_store: SnapshotStore
+    if settings.use_fake_adapters:
+        snapshot_store = InMemorySnapshotStore()
+    else:
+        snapshot_store = PostgresSnapshotStore(engine=engine, redis=redis)
 
     if settings.use_fake_adapters:
         log.warning(

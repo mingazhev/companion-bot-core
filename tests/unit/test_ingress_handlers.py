@@ -23,7 +23,8 @@ from tdbot.bot.handlers import (
     cmd_start,
     handle_message,
 )
-from tdbot.db.models import User
+from tdbot.db.models import User, UserProfile
+from tdbot.prompt.snapshot_store import InMemorySnapshotStore
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -49,6 +50,17 @@ def _make_command(args: str | None) -> MagicMock:
     cmd = MagicMock()
     cmd.args = args
     return cmd
+
+
+def _make_profile_session(existing_profile: UserProfile | None = None) -> AsyncMock:
+    """Session mock that supports _get_or_create_profile."""
+    select_result = MagicMock()
+    select_result.scalar_one_or_none.return_value = existing_profile
+
+    db_session = AsyncMock()
+    db_session.add = MagicMock()
+    db_session.execute = AsyncMock(return_value=select_result)
+    return db_session
 
 
 # --------------------------------------------------------------------------- #
@@ -92,7 +104,9 @@ async def test_set_tone_valid() -> None:
     msg = _make_message()
     user = _make_user()
     cmd = _make_command(args="friendly")
-    await cmd_set_tone(msg, cmd, user)
+    db_session = _make_profile_session()
+    snapshot_store = InMemorySnapshotStore()
+    await cmd_set_tone(msg, cmd, user, db_session, snapshot_store)
     msg.answer.assert_called_once()
     text: str = msg.answer.call_args[0][0]
     assert "friendly" in text
@@ -103,7 +117,7 @@ async def test_set_tone_invalid_shows_valid_list() -> None:
     msg = _make_message()
     user = _make_user()
     cmd = _make_command(args="grumpy")
-    await cmd_set_tone(msg, cmd, user)
+    await cmd_set_tone(msg, cmd, user, AsyncMock(), AsyncMock())
     text: str = msg.answer.call_args[0][0]
     assert "grumpy" in text
     # At least one valid tone should be mentioned
@@ -115,7 +129,7 @@ async def test_set_tone_no_args_shows_help() -> None:
     msg = _make_message()
     user = _make_user()
     cmd = _make_command(args=None)
-    await cmd_set_tone(msg, cmd, user)
+    await cmd_set_tone(msg, cmd, user, AsyncMock(), AsyncMock())
     text: str = msg.answer.call_args[0][0]
     assert "tone" in text.lower()
 
@@ -126,9 +140,59 @@ async def test_all_valid_tones_accepted(tone: str) -> None:
     msg = _make_message()
     user = _make_user()
     cmd = _make_command(args=tone)
-    await cmd_set_tone(msg, cmd, user)
+    db_session = _make_profile_session()
+    snapshot_store = InMemorySnapshotStore()
+    await cmd_set_tone(msg, cmd, user, db_session, snapshot_store)
     text: str = msg.answer.call_args[0][0]
     assert tone in text
+
+
+@pytest.mark.asyncio
+async def test_set_tone_persists_profile_and_creates_snapshot() -> None:
+    """Verify that /set_tone updates the profile and creates a prompt snapshot."""
+    msg = _make_message()
+    user = _make_user()
+    cmd = _make_command(args="playful")
+    db_session = _make_profile_session()
+    snapshot_store = InMemorySnapshotStore()
+
+    await cmd_set_tone(msg, cmd, user, db_session, snapshot_store)
+
+    # Profile was added to session (new user, no existing profile)
+    db_session.add.assert_called_once()
+    added_profile: UserProfile = db_session.add.call_args[0][0]
+    assert added_profile.tone == "playful"
+
+    # A new snapshot was saved and set active
+    active = await snapshot_store.get_active(user.id)
+    assert active is not None
+    assert active.source == "user_command"
+    assert "Tone: playful" in active.system_prompt
+
+
+@pytest.mark.asyncio
+async def test_set_tone_updates_existing_profile() -> None:
+    """Verify that /set_tone updates an existing profile instead of creating new."""
+    msg = _make_message()
+    user = _make_user()
+    cmd = _make_command(args="casual")
+
+    existing_profile = UserProfile(user_id=user.id, persona_name="Ada")
+    existing_profile.tone = "friendly"
+    db_session = _make_profile_session(existing_profile=existing_profile)
+    snapshot_store = InMemorySnapshotStore()
+
+    await cmd_set_tone(msg, cmd, user, db_session, snapshot_store)
+
+    # Existing profile was updated (not a new one added)
+    db_session.add.assert_not_called()
+    assert existing_profile.tone == "casual"
+
+    # Snapshot includes both persona name and new tone
+    active = await snapshot_store.get_active(user.id)
+    assert active is not None
+    assert "Tone: casual" in active.system_prompt
+    assert "Name: Ada" in active.system_prompt
 
 
 # --------------------------------------------------------------------------- #
@@ -141,7 +205,9 @@ async def test_set_persona_valid() -> None:
     msg = _make_message()
     user = _make_user()
     cmd = _make_command(args="Alex")
-    await cmd_set_persona(msg, cmd, user)
+    db_session = _make_profile_session()
+    snapshot_store = InMemorySnapshotStore()
+    await cmd_set_persona(msg, cmd, user, db_session, snapshot_store)
     text: str = msg.answer.call_args[0][0]
     assert "Alex" in text
 
@@ -151,7 +217,9 @@ async def test_set_persona_html_in_name_is_escaped() -> None:
     msg = _make_message()
     user = _make_user()
     cmd = _make_command(args="<b>Bold</b>")
-    await cmd_set_persona(msg, cmd, user)
+    db_session = _make_profile_session()
+    snapshot_store = InMemorySnapshotStore()
+    await cmd_set_persona(msg, cmd, user, db_session, snapshot_store)
     text: str = msg.answer.call_args[0][0]
     assert "<b>" not in text
     assert "&lt;b&gt;" in text
@@ -162,7 +230,7 @@ async def test_set_persona_empty_shows_help() -> None:
     msg = _make_message()
     user = _make_user()
     cmd = _make_command(args="")
-    await cmd_set_persona(msg, cmd, user)
+    await cmd_set_persona(msg, cmd, user, AsyncMock(), AsyncMock())
     text: str = msg.answer.call_args[0][0]
     assert "persona" in text.lower()
 
@@ -172,9 +240,30 @@ async def test_set_persona_too_long_rejected() -> None:
     msg = _make_message()
     user = _make_user()
     cmd = _make_command(args="A" * 65)
-    await cmd_set_persona(msg, cmd, user)
+    await cmd_set_persona(msg, cmd, user, AsyncMock(), AsyncMock())
     text: str = msg.answer.call_args[0][0]
     assert "64" in text
+
+
+@pytest.mark.asyncio
+async def test_set_persona_persists_profile_and_creates_snapshot() -> None:
+    """Verify that /set_persona updates the profile and creates a prompt snapshot."""
+    msg = _make_message()
+    user = _make_user()
+    cmd = _make_command(args="Nova")
+    db_session = _make_profile_session()
+    snapshot_store = InMemorySnapshotStore()
+
+    await cmd_set_persona(msg, cmd, user, db_session, snapshot_store)
+
+    db_session.add.assert_called_once()
+    added_profile: UserProfile = db_session.add.call_args[0][0]
+    assert added_profile.persona_name == "Nova"
+
+    active = await snapshot_store.get_active(user.id)
+    assert active is not None
+    assert active.source == "user_command"
+    assert "Name: Nova" in active.system_prompt
 
 
 # --------------------------------------------------------------------------- #
@@ -201,10 +290,36 @@ async def test_memory_compact_now_replies() -> None:
 async def test_reset_persona_replies() -> None:
     msg = _make_message()
     user = _make_user()
-    await cmd_reset_persona(msg, user)
+    existing_profile = UserProfile(user_id=user.id, persona_name="Ada", tone="playful")
+    db_session = _make_profile_session(existing_profile=existing_profile)
+    snapshot_store = InMemorySnapshotStore()
+    await cmd_reset_persona(msg, user, db_session, snapshot_store)
     msg.answer.assert_called_once()
     text: str = msg.answer.call_args[0][0]
     assert "been reset" in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_reset_persona_clears_profile_and_creates_snapshot() -> None:
+    """Verify that /reset_persona clears persona fields and creates a clean snapshot."""
+    msg = _make_message()
+    user = _make_user()
+
+    existing_profile = UserProfile(user_id=user.id, persona_name="Ada", tone="playful")
+    db_session = _make_profile_session(existing_profile=existing_profile)
+    snapshot_store = InMemorySnapshotStore()
+
+    await cmd_reset_persona(msg, user, db_session, snapshot_store)
+
+    # Profile fields cleared
+    assert existing_profile.persona_name is None
+    assert existing_profile.tone is None
+
+    # Snapshot has no persona section
+    active = await snapshot_store.get_active(user.id)
+    assert active is not None
+    assert active.source == "user_command"
+    assert "[Persona]" not in active.system_prompt
 
 
 # --------------------------------------------------------------------------- #
@@ -225,21 +340,31 @@ async def test_privacy_mentions_delete() -> None:
 # --------------------------------------------------------------------------- #
 
 
+def _make_delete_session(user: User) -> AsyncMock:
+    """Session mock where the SELECT existence check finds the user."""
+    select_result = MagicMock()
+    select_result.scalar_one_or_none.return_value = user.id
+    delete_result = MagicMock()
+
+    db_session = AsyncMock()
+    db_session.add = MagicMock()
+    db_session.execute = AsyncMock(side_effect=[select_result, delete_result])
+    return db_session
+
+
 @pytest.mark.asyncio
 async def test_delete_my_data_replies() -> None:
     msg = _make_message()
     user = _make_user()
-    db_session = AsyncMock()
-    db_session.add = MagicMock()
-    db_session.execute = AsyncMock()
+    db_session = _make_delete_session(user)
     redis = AsyncMock()
     redis.delete = AsyncMock()
     snapshot_store = AsyncMock()
     await cmd_delete_my_data(msg, user, db_session, redis, snapshot_store)
     # Verify snapshot store cleanup
     snapshot_store.delete_for_user.assert_awaited_once_with(user.id)
-    # Verify the DB delete statement was actually executed
-    db_session.execute.assert_awaited()
+    # Verify the DB statements were executed (SELECT + DELETE)
+    assert db_session.execute.await_count == 2
     # Verify Redis keys were cleaned up
     redis.delete.assert_awaited_once()
     msg.answer.assert_called_once()
@@ -251,9 +376,7 @@ async def test_delete_my_data_replies() -> None:
 async def test_delete_my_data_cleans_correct_redis_keys() -> None:
     msg = _make_message()
     user = _make_user(telegram_user_id=42)
-    db_session = AsyncMock()
-    db_session.add = MagicMock()
-    db_session.execute = AsyncMock()
+    db_session = _make_delete_session(user)
     redis = AsyncMock()
     redis.delete = AsyncMock()
     snapshot_store = AsyncMock()
