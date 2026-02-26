@@ -22,6 +22,7 @@ from sqlalchemy import update as sql_update
 
 from tdbot.db.engine import get_async_session
 from tdbot.db.models import AuditLog, Job
+from tdbot.inference.circuit_breaker import CircuitBreakerOpen
 from tdbot.logging_config import get_logger
 from tdbot.metrics import REFINEMENT_JOBS
 from tdbot.orchestrator.context_loader import load_recent_messages
@@ -31,6 +32,7 @@ from tdbot.redis.queues import (
     QUEUE_REFINEMENT_JOBS,
     QUEUE_RETRY_JOBS,
     dequeue_job,
+    enqueue_refinement_job,
     enqueue_retry_job,
 )
 from tdbot.refinement.client import refine_prompt
@@ -229,6 +231,20 @@ async def process_one_job(
             user_id=user_id_str,
             version_before=snapshot.version,
             version_after=new_version,
+        )
+
+    except CircuitBreakerOpen:
+        # The model provider is down — re-enqueue to the primary queue WITHOUT
+        # incrementing the attempt counter so this transient condition does not
+        # burn through retries.  The worker's 30-second poll timeout on the
+        # primary queue provides a natural back-off before the job is retried.
+        await enqueue_refinement_job(redis, user_id_str, job_data)
+        final_status = "failed"
+        error_msg = "circuit breaker open"
+        log.warning(
+            "refinement_job_deferred_circuit_open",
+            user_id=user_id_str,
+            attempt=attempt,
         )
 
     except Exception as exc:  # noqa: BLE001

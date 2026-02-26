@@ -9,9 +9,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import fakeredis.aioredis as fakeredis
 
+from tdbot.inference.circuit_breaker import CircuitBreakerOpen
 from tdbot.prompt.schemas import SnapshotRecord
 from tdbot.prompt.snapshot_store import InMemorySnapshotStore
-from tdbot.redis.queues import QUEUE_RETRY_JOBS, get_queue_length
+from tdbot.redis.queues import QUEUE_REFINEMENT_JOBS, QUEUE_RETRY_JOBS, get_queue_length
 from tdbot.refinement.schemas import RefinementResult, RefinementRiskFlag, SnapshotDelta
 from tdbot.refinement.worker import (
     MAX_ATTEMPTS,
@@ -379,3 +380,47 @@ async def test_process_one_job_invalid_user_id_is_skipped() -> None:
         )
 
     chat_client.chat_completion.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# process_one_job — circuit breaker open
+# ---------------------------------------------------------------------------
+
+
+async def test_process_one_job_defers_on_circuit_breaker_open() -> None:
+    """CircuitBreakerOpen re-enqueues to the primary queue without burning a retry."""
+    redis = fakeredis.FakeRedis()
+    snapshot_store = InMemorySnapshotStore()
+    user_id = uuid.uuid4()
+    snap = _make_snapshot(user_id)
+    await snapshot_store.save(snap)
+    await snapshot_store.set_active(user_id, snap.id)
+
+    chat_client = AsyncMock()
+    chat_client.chat_completion = AsyncMock(
+        side_effect=CircuitBreakerOpen(failure_count=5, reset_at=0.0)
+    )
+
+    with patch("tdbot.refinement.worker.get_async_session", new=_fake_session_ctx):
+        await process_one_job(
+            {"user_id": str(user_id), "attempt": 1},
+            redis=redis,
+            snapshot_store=snapshot_store,
+            chat_client=chat_client,
+            engine=MagicMock(),
+        )
+
+    # Should NOT be in the retry queue (would burn a retry attempt)
+    retry_len = await get_queue_length(redis, QUEUE_RETRY_JOBS)
+    assert retry_len == 0
+
+    # Should be re-enqueued to the PRIMARY queue for natural back-off
+    primary_len = await get_queue_length(redis, QUEUE_REFINEMENT_JOBS)
+    assert primary_len == 1
+
+    # Attempt counter should NOT have been incremented
+    import json
+
+    raw = await redis.lpop(QUEUE_REFINEMENT_JOBS)
+    job = json.loads(raw)
+    assert job.get("attempt", 0) <= 1  # original attempt preserved
