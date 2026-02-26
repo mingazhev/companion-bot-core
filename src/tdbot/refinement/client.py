@@ -119,12 +119,18 @@ async def refine_prompt(
         data = json.loads(content)
     except json.JSONDecodeError as exc:
         raise ValueError(
-            f"Refinement model returned non-JSON content: {content!r}"
+            f"Refinement model returned non-JSON content (length={len(content)})"
         ) from exc
 
     try:
         return RefinementResult.model_validate(data)
     except ValidationError as exc:
+        # Build a sanitised summary: include field path and error type but
+        # strip ``input_value`` which may contain user/model content (PII).
+        sanitised_errors = [
+            f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']} (type={e['type']})"
+            for e in exc.errors()
+        ]
         raise ValueError(
-            f"Refinement result failed schema validation: {exc}"
-        ) from exc
+            f"Refinement result failed schema validation: {'; '.join(sanitised_errors)}"
+        ) from None

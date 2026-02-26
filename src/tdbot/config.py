@@ -80,6 +80,7 @@ class Settings(BaseSettings):
     )
     refinement_activity_threshold: int = Field(
         default=5,
+        gt=0,
         description="Minimum new messages since last refinement to trigger a job",
     )
 

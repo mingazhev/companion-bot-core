@@ -11,7 +11,8 @@ Flow per incoming user message
 3. Route by risk / action:
    - ``refuse``      → log + return refusal message (no inference call).
    - ``confirm``     → store pending change, ask confirmation question.
-   - ``auto_apply``  → log event as applied, then generate reply.
+   - ``auto_apply``  → log event as applied, apply change to snapshot, then
+     generate reply.
    - ``pass_through``→ generate reply without recording a behavior event.
 4. Assemble per-user context (active snapshot + recent history).
 5. Call the inference adapter; handle ``CircuitBreakerOpen``.
@@ -27,8 +28,11 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from sqlalchemy import select
+
 from tdbot.behavior import classify
-from tdbot.db.models import BehaviorChangeEvent, ConversationMessage
+from tdbot.behavior.extractor import extract_persona_name, extract_skill_topic, extract_tone
+from tdbot.db.models import BehaviorChangeEvent, ConversationMessage, UserProfile
 from tdbot.inference import generate_reply
 from tdbot.inference.circuit_breaker import CircuitBreakerOpen
 from tdbot.logging_config import get_logger
@@ -46,6 +50,8 @@ from tdbot.orchestrator.dialogue_state import (
     get_pending_change,
     set_pending_change,
 )
+from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template, extract_section
+from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
 from tdbot.redis.queues import enqueue_refinement_job
 from tdbot.tracing import span
 
@@ -55,7 +61,7 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from tdbot.behavior.schemas import DetectionResult
+    from tdbot.behavior.schemas import DetectedIntent, DetectionResult
     from tdbot.inference.client import ChatAPIClient
     from tdbot.prompt.snapshot_store import SnapshotStore
 
@@ -69,6 +75,10 @@ _CANCEL_WORDS: frozenset[str] = frozenset({"no", "n", "cancel", "nope", "nevermi
 # Redis key for the per-user activity counter used to trigger refinement
 _ACTIVITY_KEY_PREFIX = "activity_count"
 _ACTIVITY_KEY_TTL = 86400  # 1 day
+
+# SET-NX guard key preventing duplicate refinement enqueues per user.
+_REFINEMENT_GUARD_PREFIX = "refinement:pending"
+_REFINEMENT_GUARD_TTL = 600  # 10 minutes
 
 # User-facing messages
 _CIRCUIT_OPEN_MSG = (
@@ -112,6 +122,272 @@ async def _record_behavior_event(
     await session.flush()
 
 
+_DEFAULT_SYSTEM_TEMPLATE = "You are a helpful, friendly companion."
+
+
+def _build_persona_segment(
+    persona_name: str | None,
+    tone: str | None,
+) -> str:
+    """Build the persona section content from profile fields."""
+    parts: list[str] = []
+    if persona_name:
+        parts.append(f"Name: {persona_name}")
+    if tone:
+        parts.append(f"Tone: {tone}")
+    return "\n".join(parts)
+
+
+async def _get_or_create_profile(
+    session: AsyncSession,
+    user_id: UUID,
+) -> UserProfile:
+    """Fetch the user's profile row, creating one if it doesn't exist."""
+    result = await session.execute(
+        select(UserProfile).where(UserProfile.user_id == user_id)
+    )
+    profile = result.scalar_one_or_none()
+    if profile is None:
+        profile = UserProfile(user_id=user_id)
+        session.add(profile)
+        await session.flush()
+    return profile
+
+
+async def _apply_behavior_change(
+    intent: DetectedIntent,
+    message_text: str,
+    user_id: UUID,
+    session: AsyncSession,
+    snapshot_store: SnapshotStore,
+) -> bool:
+    """Apply a detected behavior change to the user's profile and prompt snapshot.
+
+    Extracts parameters from *message_text* based on *intent*, updates the
+    ``UserProfile`` row, and rebuilds the active prompt snapshot.
+
+    Returns ``True`` if the change was successfully applied, ``False`` if the
+    required parameter could not be extracted from the message.
+    """
+    if intent == "tone_change":
+        tone = extract_tone(message_text)
+        if tone is None:
+            log.info(
+                "behavior_change_tone_extraction_failed",
+                user_id=str(user_id),
+                message_text=message_text[:100],
+            )
+            return False
+        profile = await _get_or_create_profile(session, user_id)
+        profile.tone = tone
+        await session.flush()
+        await _rebuild_snapshot(snapshot_store, user_id, profile.persona_name, profile.tone)
+        log.info(
+            "behavior_change_snapshot_updated",
+            user_id=str(user_id),
+            intent=intent,
+            tone=tone,
+        )
+        return True
+
+    if intent == "persona_change":
+        name = extract_persona_name(message_text)
+        if name is None:
+            log.info(
+                "behavior_change_persona_extraction_failed",
+                user_id=str(user_id),
+                message_text=message_text[:100],
+            )
+            return False
+        profile = await _get_or_create_profile(session, user_id)
+        profile.persona_name = name
+        await session.flush()
+        await _rebuild_snapshot(snapshot_store, user_id, profile.persona_name, profile.tone)
+        log.info(
+            "behavior_change_snapshot_updated",
+            user_id=str(user_id),
+            intent=intent,
+            persona_name=name,
+        )
+        return True
+
+    if intent == "skill_add_prompt":
+        topic = extract_skill_topic(message_text)
+        if topic is None:
+            log.info(
+                "behavior_change_skill_extraction_failed",
+                user_id=str(user_id),
+                message_text=message_text[:100],
+            )
+            return False
+        await _add_skill_to_snapshot(snapshot_store, user_id, topic)
+        log.info(
+            "behavior_change_snapshot_updated",
+            user_id=str(user_id),
+            intent=intent,
+            skill_topic=topic,
+        )
+        return True
+
+    if intent == "skill_remove":
+        topic = extract_skill_topic(message_text)
+        if topic is None:
+            log.info(
+                "behavior_change_skill_extraction_failed",
+                user_id=str(user_id),
+                message_text=message_text[:100],
+            )
+            return False
+        removed = await _remove_skill_from_snapshot(snapshot_store, user_id, topic)
+        if removed:
+            log.info(
+                "behavior_change_snapshot_updated",
+                user_id=str(user_id),
+                intent=intent,
+                skill_topic=topic,
+            )
+        return removed
+
+    return False
+
+
+async def _rebuild_snapshot(
+    snapshot_store: SnapshotStore,
+    user_id: UUID,
+    persona_name: str | None,
+    tone: str | None,
+) -> None:
+    """Rebuild and activate a prompt snapshot reflecting updated profile fields."""
+    current = await snapshot_store.get_active(user_id)
+
+    raw_skills: dict[str, object] = {}
+    if current is not None:
+        base_template = extract_base_template(current.system_prompt)
+        skill_packs: dict[str, str] = {
+            k: str(v) for k, v in current.skill_prompts_json.items()
+        }
+        long_term_profile = extract_section(current.system_prompt, "Long-term Profile")
+        raw_skills = dict(current.skill_prompts_json)
+    else:
+        base_template = _DEFAULT_SYSTEM_TEMPLATE
+        skill_packs = {}
+        long_term_profile = ""
+
+    components = PromptComponents(
+        base_system_template=base_template,
+        persona_segment=_build_persona_segment(persona_name, tone),
+        skill_packs=skill_packs,
+        long_term_profile=long_term_profile,
+    )
+    system_prompt = build_system_prompt(components)
+
+    version = await snapshot_store.next_version(user_id)
+    record = SnapshotRecord(
+        user_id=user_id,
+        version=version,
+        system_prompt=system_prompt,
+        skill_prompts_json=raw_skills,
+        source="behavior_change",
+    )
+    await snapshot_store.save(record)
+    await snapshot_store.set_active(user_id, record.id)
+
+
+async def _add_skill_to_snapshot(
+    snapshot_store: SnapshotStore,
+    user_id: UUID,
+    topic: str,
+) -> None:
+    """Add a skill prompt fragment to the user's active snapshot."""
+    current = await snapshot_store.get_active(user_id)
+
+    if current is not None:
+        base_template = extract_base_template(current.system_prompt)
+        skill_packs = {k: str(v) for k, v in current.skill_prompts_json.items()}
+        long_term_profile = extract_section(current.system_prompt, "Long-term Profile")
+        persona_segment = extract_section(current.system_prompt, "Persona")
+    else:
+        base_template = _DEFAULT_SYSTEM_TEMPLATE
+        skill_packs = {}
+        long_term_profile = ""
+        persona_segment = ""
+
+    skill_key = topic.lower().replace(" ", "_")
+    skill_packs[skill_key] = f"Assist the user with {topic}-related questions and tasks."
+    raw_skills = dict(skill_packs)
+
+    components = PromptComponents(
+        base_system_template=base_template,
+        persona_segment=persona_segment,
+        skill_packs=skill_packs,
+        long_term_profile=long_term_profile,
+    )
+    system_prompt = build_system_prompt(components)
+
+    version = await snapshot_store.next_version(user_id)
+    record = SnapshotRecord(
+        user_id=user_id,
+        version=version,
+        system_prompt=system_prompt,
+        skill_prompts_json=raw_skills,
+        source="behavior_change",
+    )
+    await snapshot_store.save(record)
+    await snapshot_store.set_active(user_id, record.id)
+
+
+async def _remove_skill_from_snapshot(
+    snapshot_store: SnapshotStore,
+    user_id: UUID,
+    topic: str,
+) -> bool:
+    """Remove a skill prompt fragment from the user's active snapshot.
+
+    Returns ``True`` if a matching skill was found and removed.
+    """
+    current = await snapshot_store.get_active(user_id)
+    if current is None:
+        return False
+
+    base_template = extract_base_template(current.system_prompt)
+    skill_packs = {k: str(v) for k, v in current.skill_prompts_json.items()}
+    long_term_profile = extract_section(current.system_prompt, "Long-term Profile")
+    persona_segment = extract_section(current.system_prompt, "Persona")
+
+    skill_key = topic.lower().replace(" ", "_")
+    # Try exact match first, then case-insensitive prefix match.
+    if skill_key in skill_packs:
+        del skill_packs[skill_key]
+    else:
+        matching = [k for k in skill_packs if k.startswith(skill_key) or skill_key.startswith(k)]
+        if not matching:
+            return False
+        for k in matching:
+            del skill_packs[k]
+
+    raw_skills = dict(skill_packs)
+
+    components = PromptComponents(
+        base_system_template=base_template,
+        persona_segment=persona_segment,
+        skill_packs=skill_packs,
+        long_term_profile=long_term_profile,
+    )
+    system_prompt = build_system_prompt(components)
+
+    version = await snapshot_store.next_version(user_id)
+    record = SnapshotRecord(
+        user_id=user_id,
+        version=version,
+        system_prompt=system_prompt,
+        skill_prompts_json=raw_skills,
+        source="behavior_change",
+    )
+    await snapshot_store.save(record)
+    await snapshot_store.set_active(user_id, record.id)
+    return True
+
+
 async def _persist_messages(
     session: AsyncSession,
     user_id: UUID,
@@ -150,7 +426,21 @@ async def _maybe_enqueue_refinement(
     user_id: UUID,
     activity_threshold: int,
 ) -> None:
-    """Increment activity counter; enqueue a refinement job at threshold."""
+    """Increment activity counter; enqueue a refinement job at threshold.
+
+    Uses ``>=`` for the threshold check so that a transient Redis failure
+    in the ``finally`` cleanup (which resets the counter) cannot
+    permanently suppress future triggers.
+
+    A SET-NX guard key (``refinement:pending:{user_id}``) prevents
+    duplicate enqueues under concurrent load — only the first request to
+    acquire the guard actually pushes a job.  The guard expires after
+    10 minutes so a lost worker cannot permanently block future triggers.
+
+    Cleanup (counter reset) is wrapped in a ``try``/``except`` so that a
+    transient Redis failure in the ``finally`` block does not propagate
+    up and roll back the caller's DB transaction.
+    """
     key = f"{_ACTIVITY_KEY_PREFIX}:{user_id}"
     count = await redis.incr(key)
     if count == 1:
@@ -158,18 +448,41 @@ async def _maybe_enqueue_refinement(
         await redis.expire(key, _ACTIVITY_KEY_TTL)
 
     if count >= activity_threshold:
+        # Dedup guard: only one in-flight refinement job per user.
+        guard_key = f"{_REFINEMENT_GUARD_PREFIX}:{user_id}"
+        acquired = await redis.set(guard_key, "1", nx=True, ex=_REFINEMENT_GUARD_TTL)
+        if not acquired:
+            log.debug(
+                "refinement_enqueue_skipped_guard",
+                user_id=str(user_id),
+                message_count=count,
+            )
+            return
+
         payload = {
             "user_id": str(user_id),
             "trigger": "activity_threshold",
             "count": count,
         }
-        await enqueue_refinement_job(redis, str(user_id), payload)
-        await redis.delete(key)
-        log.info(
-            "refinement_job_enqueued",
-            user_id=str(user_id),
-            message_count=count,
-        )
+        try:
+            await enqueue_refinement_job(redis, str(user_id), payload)
+            log.info(
+                "refinement_job_enqueued",
+                user_id=str(user_id),
+                message_count=count,
+            )
+        finally:
+            # Always reset the counter so a failed enqueue does not
+            # permanently block future refinement triggers.  The next
+            # ``threshold`` messages will re-attempt the enqueue.
+            try:
+                await redis.delete(key)
+            except Exception:  # noqa: BLE001
+                log.warning(
+                    "activity_counter_cleanup_failed",
+                    user_id=str(user_id),
+                    key=key,
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +536,13 @@ async def process_message(
                     pending.detection_result,
                     applied=True,
                     confirmed=True,
+                )
+                await _apply_behavior_change(
+                    intent=pending.detection_result.intent,
+                    message_text=pending.original_message,
+                    user_id=user_id,
+                    session=session,
+                    snapshot_store=snapshot_store,
                 )
                 await clear_pending_change(redis, user_id_str)
                 await _maybe_enqueue_refinement(redis, user_id, refinement_activity_threshold)
@@ -363,6 +683,13 @@ async def process_message(
                     detection,
                     applied=True,
                     confirmed=False,
+                )
+                await _apply_behavior_change(
+                    intent=detection.intent,
+                    message_text=message_text,
+                    user_id=user_id,
+                    session=session,
+                    snapshot_store=snapshot_store,
                 )
                 log.info(
                     "behavior_change_auto_applied",

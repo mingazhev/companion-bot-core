@@ -69,6 +69,7 @@ warn_unused_configs = true
 ignore_missing_imports = false
 mypy_path = "src"
 packages = ["tdbot"]
+exclude = ["alembic/"]
 
 [[tool.mypy.overrides]]
 module = [

@@ -15,7 +15,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 # Immutable set of reasons that can create a new snapshot.
-SnapshotSource = Literal["initial", "user_command", "refinement", "rollback"]
+SnapshotSource = Literal["initial", "user_command", "behavior_change", "refinement", "rollback"]
 
 
 class PromptComponents(BaseModel):

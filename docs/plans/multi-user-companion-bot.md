@@ -65,7 +65,7 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Implement risk-level classification (low / medium / high) with deterministic heuristics
 - [x] Implement confidence thresholding: below threshold defaults to normal chat + clarification question
 - [x] Implement auto-apply for low-risk, confirm flow for medium-risk, refuse for high-risk
-- [ ] Apply detected behavior changes to the prompt snapshot (currently records events but does not update the snapshot)
+- [x] Apply detected behavior changes to the prompt snapshot (currently records events but does not update the snapshot)
 - [x] Mark completed
 
 ### Task 8: Conversation orchestrator

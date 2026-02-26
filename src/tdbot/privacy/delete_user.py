@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from tdbot.db.models import AuditLog, User
 
@@ -70,20 +70,30 @@ async def hard_delete_user(
     The function is idempotent: if the user row does not exist the DELETE is
     a no-op and no exception is raised.
     """
-    # Step 1: Write the audit event BEFORE deletion so the FK is still valid
-    #         when the row is inserted.  After the user row is deleted,
-    #         ON DELETE SET NULL will null-out audit_log.user_id automatically.
-    audit_entry = AuditLog(
-        user_id=user_id,
-        event_type="user_data_deleted",
-        details_json={"reason": "user_request", "initiated_by": "user"},
+    # Check whether the user row still exists so that repeated calls do not
+    # attempt to insert an audit entry with a dangling FK reference.
+    result = await session.execute(
+        select(User.id).where(User.id == user_id).with_for_update()
     )
-    session.add(audit_entry)
+    if result.scalar_one_or_none() is None:
+        # User already deleted — nothing to do in the DB.  Fall through to
+        # the Redis cleanup below so stale keys are still removed.
+        pass
+    else:
+        # Step 1: Write the audit event BEFORE deletion so the FK is still valid
+        #         when the row is inserted.  After the user row is deleted,
+        #         ON DELETE SET NULL will null-out audit_log.user_id automatically.
+        audit_entry = AuditLog(
+            user_id=user_id,
+            event_type="user_data_deleted",
+            details_json={"reason": "user_request", "initiated_by": "user"},
+        )
+        session.add(audit_entry)
 
-    # Step 2: Delete the User row.  ON DELETE CASCADE removes all personal-
-    #         data rows; ON DELETE SET NULL preserves the audit entry above
-    #         (with user_id becoming NULL).
-    await session.execute(delete(User).where(User.id == user_id))
+        # Step 2: Delete the User row.  ON DELETE CASCADE removes all personal-
+        #         data rows; ON DELETE SET NULL preserves the audit entry above
+        #         (with user_id becoming NULL).
+        await session.execute(delete(User).where(User.id == user_id))
 
     # Step 3: Remove Redis keys scoped to the internal user UUID so that a
     #         user who re-registers does not inherit stale pending changes,
