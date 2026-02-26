@@ -131,6 +131,7 @@ async def _run() -> None:
                 snapshot_store=snapshot_store,
                 chat_client=refinement_client,
                 engine=engine,
+                encryptor=encryptor,
             ),
             name="refinement_worker",
         )

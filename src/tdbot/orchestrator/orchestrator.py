@@ -108,8 +108,15 @@ _REFUSE_MSG = (
 _CHANGE_APPLIED_MSG = "Done! I've recorded your preference and will adapt accordingly."
 _CHANGE_CANCELLED_MSG = "No problem, keeping things as they are."
 
+_INTENT_LABELS: dict[str, str] = {
+    "persona_change": "your persona",
+    "tone_change": "your tone",
+    "skill_add_prompt": "your skills",
+    "skill_remove": "your skills",
+}
+
 _CONFIRM_TEMPLATE = (
-    "You'd like to change {intent}. This is a moderate setting change. "
+    "You'd like to change {label}. This is a moderate setting change. "
     "Reply 'yes' to confirm or 'no' to cancel."
 )
 
@@ -730,7 +737,8 @@ async def process_message(
             CHAT_LATENCY.labels(model=model).observe(
                 time.perf_counter() - pipeline_start
             )
-            return _CONFIRM_TEMPLATE.format(intent=detection.intent.replace("_", " "))
+            label = _INTENT_LABELS.get(detection.intent, detection.intent.replace("_", " "))
+            return _CONFIRM_TEMPLATE.format(label=label)
 
         # ------------------------------------------------------------------
         # Step 4 — Build context and generate reply (auto_apply / pass_through)

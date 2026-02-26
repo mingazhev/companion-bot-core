@@ -26,6 +26,7 @@ from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
 from sqlalchemy import select
 
+from tdbot.behavior.extractor import VALID_TONES
 from tdbot.db.models import UserProfile
 from tdbot.logging_config import get_logger
 from tdbot.orchestrator import process_message
@@ -54,9 +55,7 @@ log = get_logger(__name__)
 
 router = Router(name="commands")
 
-_VALID_TONES: frozenset[str] = frozenset(
-    {"friendly", "professional", "playful", "neutral", "casual"}
-)
+_VALID_TONES = VALID_TONES  # re-export from extractor (single source of truth)
 # Telegram limits plain-text messages to 4096 characters.
 _TG_MSG_LIMIT = 4096
 
@@ -233,7 +232,10 @@ async def cmd_set_tone(
         return
     profile = await _get_or_create_profile(db_session, db_user.id)
     # Decrypt existing persona_name for prompt building before encrypting new tone.
-    raw_persona = enc.decrypt_safe(profile.persona_name) if profile.persona_name else None
+    raw_persona = (
+        enc.decrypt_safe(profile.persona_name, default=profile.persona_name)
+        if profile.persona_name else None
+    )
     profile.tone = enc.encrypt(tone)
     await db_session.flush()
     await _rebuild_and_save_snapshot(
@@ -278,7 +280,10 @@ async def cmd_set_persona(
         return
     profile = await _get_or_create_profile(db_session, db_user.id)
     # Decrypt existing tone for prompt building before encrypting new persona name.
-    raw_tone = enc.decrypt_safe(profile.tone) if profile.tone else None
+    raw_tone = (
+        enc.decrypt_safe(profile.tone, default=profile.tone)
+        if profile.tone else None
+    )
     profile.persona_name = enc.encrypt(name)
     await db_session.flush()
     await _rebuild_and_save_snapshot(

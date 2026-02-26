@@ -278,7 +278,7 @@ async def test_process_message_confirm_stores_pending_and_asks() -> None:
             chat_client=client,
         )
 
-    expected = _CONFIRM_TEMPLATE.format(intent="persona change")
+    expected = _CONFIRM_TEMPLATE.format(label="your persona")
     assert reply == expected
     # Pending change should be stored in Redis
     pending = await get_pending_change(redis, str(user_id))

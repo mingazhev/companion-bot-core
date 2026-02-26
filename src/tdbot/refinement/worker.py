@@ -26,6 +26,7 @@ from tdbot.inference.circuit_breaker import CircuitBreakerOpen
 from tdbot.logging_config import get_logger
 from tdbot.metrics import REFINEMENT_JOBS
 from tdbot.orchestrator.context_loader import load_recent_messages
+from tdbot.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
 from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template, extract_section
 from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
 from tdbot.redis.queues import (
@@ -125,6 +126,7 @@ async def process_one_job(
     snapshot_store: SnapshotStore,
     chat_client: ChatAPIClient,
     engine: AsyncEngine,
+    encryptor: FieldEncryptor | None = None,
 ) -> None:
     """Process a single refinement job from the queue.
 
@@ -188,7 +190,10 @@ async def process_one_job(
 
         # --- Load recent messages ---
         async with get_async_session(engine) as session:
-            recent_messages = await load_recent_messages(session, user_id, limit=30)
+            enc = encryptor or NOOP_ENCRYPTOR
+            recent_messages = await load_recent_messages(
+                session, user_id, limit=30, encryptor=enc,
+            )
 
         # --- Call refinement model ---
         result = await refine_prompt(chat_client, snapshot, recent_messages)
@@ -214,7 +219,7 @@ async def process_one_job(
             and new_snap.skill_prompts_json == snapshot.skill_prompts_json
         ):
             log.info("refinement_job_noop", user_id=user_id_str)
-            final_status = "completed"
+            final_status = "skipped"
             return
 
         new_version = await snapshot_store.next_version(user_id)
@@ -335,6 +340,7 @@ async def run_worker(
     snapshot_store: SnapshotStore,
     chat_client: ChatAPIClient,
     engine: AsyncEngine,
+    encryptor: FieldEncryptor | None = None,
     poll_timeout: int = 30,
 ) -> None:
     """Run the refinement worker loop indefinitely.
@@ -347,6 +353,7 @@ async def run_worker(
         snapshot_store: Prompt snapshot store.
         chat_client:    ``ChatAPIClient`` configured for the refinement model.
         engine:         Async SQLAlchemy engine for DB sessions.
+        encryptor:      Optional field encryptor for decrypting message content.
         poll_timeout:   Seconds to block waiting for a primary queue job.
     """
     log.info("refinement_worker_started")
@@ -355,6 +362,7 @@ async def run_worker(
         "snapshot_store": snapshot_store,
         "chat_client": chat_client,
         "engine": engine,
+        "encryptor": encryptor,
     }
     try:
         while True:
