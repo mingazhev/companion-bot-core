@@ -221,7 +221,7 @@ async def process_message(
                     session,
                     user_id,
                     pending.detection_result,
-                    applied=True,
+                    applied=False,
                     confirmed=True,
                 )
                 await clear_pending_change(redis, user_id_str)
@@ -333,6 +333,9 @@ async def process_message(
                 inference_reply = await generate_reply(chat_client, user_context, message_text)
         except CircuitBreakerOpen:
             log.error("circuit_breaker_open_during_chat", user_id=user_id_str)
+            CHAT_LATENCY.labels(model=model).observe(
+                time.perf_counter() - pipeline_start
+            )
             return _CIRCUIT_OPEN_MSG
 
         reply_text = inference_reply.reply
@@ -356,7 +359,7 @@ async def process_message(
                 session,
                 user_id,
                 detection,
-                applied=True,
+                applied=False,
                 confirmed=False,
             )
             log.info(

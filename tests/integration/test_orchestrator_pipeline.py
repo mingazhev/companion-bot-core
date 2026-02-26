@@ -478,10 +478,10 @@ async def test_medium_risk_persona_change_confirmed_with_yes() -> None:
     assert reply2 == _CHANGE_APPLIED_MSG
     # Pending change is cleared
     assert await get_pending_change(redis, str(user_id)) is None
-    # Behavior event recorded with applied=True, confirmed=True
+    # Behavior event recorded with applied=False (not yet wired), confirmed=True
     session2.add.assert_called_once()
     event = session2.add.call_args[0][0]
-    assert event.applied is True
+    assert event.applied is False
     assert event.confirmed is True
 
 

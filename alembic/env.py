@@ -1,8 +1,8 @@
 """Alembic environment configuration with async SQLAlchemy support.
 
-Migrations run against the database URL taken from the TDBOT_DATABASE_URL
-environment variable (or the DATABASE_URL fallback).  The URL in alembic.ini
-is only a placeholder and is always overridden here.
+Migrations run against the database URL taken from the DATABASE_URL
+environment variable.  The URL in alembic.ini is only a placeholder
+and is always overridden here.
 """
 
 from __future__ import annotations
@@ -42,13 +42,13 @@ target_metadata = Base.metadata
 def _get_url() -> str:
     """Return the database URL from the environment, overriding alembic.ini."""
     url = os.environ.get(
-        "TDBOT_DATABASE_URL",
-        os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url", "") or ""),
+        "DATABASE_URL",
+        config.get_main_option("sqlalchemy.url", "") or "",
     )
     if not url:
         raise RuntimeError(
             "Database URL not configured. "
-            "Set the TDBOT_DATABASE_URL environment variable."
+            "Set the DATABASE_URL environment variable."
         )
     # Ensure we use the asyncpg driver for migrations as well.
     if url.startswith("postgresql://"):

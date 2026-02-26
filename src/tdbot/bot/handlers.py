@@ -228,12 +228,15 @@ async def cmd_delete_my_data(
     """
     user_id_str = str(db_user.id)
     await hard_delete_user(db_user.id, db_session, redis, telegram_user_id=db_user.telegram_user_id)
-    await message.answer(
-        "Your personal data has been permanently deleted.\n\n"
-        "Conversation history, profile settings, and persona data have been removed. "
-        "This action cannot be undone."
-    )
     log.info("delete_my_data_completed", internal_user_id=user_id_str)
+    try:
+        await message.answer(
+            "Your personal data has been permanently deleted.\n\n"
+            "Conversation history, profile settings, and persona data have been removed. "
+            "This action cannot be undone."
+        )
+    except Exception:  # noqa: BLE001
+        log.warning("delete_my_data_confirmation_send_failed", internal_user_id=user_id_str)
 
 
 # --------------------------------------------------------------------------- #
