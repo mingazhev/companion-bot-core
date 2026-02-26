@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from tdbot.prompt.merge_builder import _SECTION_SEP
 from tdbot.refinement.schemas import RefinementRiskFlag
 
 if TYPE_CHECKING:
@@ -91,5 +92,11 @@ def validate_refinement_result(result: RefinementResult) -> list[str]:
         if _contains_injection_pattern(text):
             violations.append("proposed text matches prompt-injection pattern")
             break  # one violation is enough to reject the whole result
+
+    # --- prompt-structure integrity: reject deltas containing the section separator ---
+    for text in candidate_texts:
+        if _SECTION_SEP in text:
+            violations.append("proposed text contains prompt section separator")
+            break
 
     return violations

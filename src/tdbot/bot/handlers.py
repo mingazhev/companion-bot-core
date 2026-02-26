@@ -274,15 +274,24 @@ async def handle_message(
             refinement_activity_threshold=settings.refinement_activity_threshold,
         )
         # Split if the reply exceeds Telegram's message-length limit.
-        for i in range(0, len(reply), _TG_MSG_LIMIT):
-            await message.answer(reply[i : i + _TG_MSG_LIMIT], parse_mode=None)
+        # Wrap in try/except so a Telegram API failure (timeout, rate limit)
+        # does not propagate and roll back the DB transaction — Redis state
+        # (activity counter, refinement jobs) is already committed.
+        try:
+            for i in range(0, len(reply), _TG_MSG_LIMIT):
+                await message.answer(reply[i : i + _TG_MSG_LIMIT], parse_mode=None)
+        except Exception:
+            log.warning("reply_send_failed", internal_user_id=user_id_str, reply_length=len(reply))
 
         # Surface "profile updated" notice if the refinement worker finished
         # updating this user's prompt snapshot since their last message.
-        if await check_and_clear_user_notice(redis, user_id_str):
-            await message.answer(
-                "Your conversation profile has been updated based on recent interactions."
-            )
+        try:
+            if await check_and_clear_user_notice(redis, user_id_str):
+                await message.answer(
+                    "Your conversation profile has been updated based on recent interactions."
+                )
+        except Exception:
+            log.warning("notice_send_failed", internal_user_id=user_id_str)
 
     elapsed_ms = round((time.perf_counter() - ingress_start) * 1000, 2)
     log.info(
