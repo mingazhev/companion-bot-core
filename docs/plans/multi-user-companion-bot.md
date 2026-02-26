@@ -79,8 +79,8 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Implement `refine_prompt(snapshot, recent_context) -> proposed_snapshot_delta, rationale, risk_flags` interface
 - [x] Build Codex/Claude non-interactive refinement client
 - [x] Implement scheduler: enqueue jobs by activity thresholds
-- [ ] Wire cadence-based scheduling into a production code path (refinement/scheduler.py exists but is not called)
-- [ ] Wire /memory_compact_now to enqueue a refinement job (handler acknowledges but does not enqueue)
+- [x] Wire cadence-based scheduling into a production code path (refinement/scheduler.py exists but is not called)
+- [x] Wire /memory_compact_now to enqueue a refinement job (handler acknowledges but does not enqueue)
 - [x] Validate refinement output schema and policy; store new versioned snapshot
 - [x] Add dead-letter queue for repeated failed jobs
 - [x] Emit audit event and optional user-visible "profile updated" notice

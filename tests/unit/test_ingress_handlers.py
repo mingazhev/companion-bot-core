@@ -275,10 +275,30 @@ async def test_set_persona_persists_profile_and_creates_snapshot() -> None:
 async def test_memory_compact_now_replies() -> None:
     msg = _make_message()
     user = _make_user()
-    await cmd_memory_compact_now(msg, user)
+    redis = AsyncMock()
+    redis.rpush = AsyncMock(return_value=1)
+    await cmd_memory_compact_now(msg, user, redis)
     msg.answer.assert_called_once()
     text: str = msg.answer.call_args[0][0]
     assert "compaction" in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_memory_compact_now_enqueues_refinement_job() -> None:
+    msg = _make_message()
+    user = _make_user()
+    redis = AsyncMock()
+    redis.rpush = AsyncMock(return_value=1)
+    await cmd_memory_compact_now(msg, user, redis)
+    redis.rpush.assert_called_once()
+    import json
+
+    call_args = redis.rpush.call_args
+    queue_name = call_args[0][0]
+    payload = json.loads(call_args[0][1])
+    assert queue_name == "refinement_jobs"
+    assert payload["trigger"] == "manual_compact"
+    assert payload["user_id"] == str(user.id)
 
 
 # --------------------------------------------------------------------------- #

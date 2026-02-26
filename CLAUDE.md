@@ -68,11 +68,9 @@ tdbot                       # run the bot
 
 ## Known incomplete features (explicitly deferred)
 
-- `/memory_compact_now` — handler acknowledges the command but does not enqueue a job into `refinement_jobs`. The refinement worker is running and processes jobs queued via the activity threshold or `/internal/refine`; the gap is only in the command handler path.
 - Webhook mode — raises `NotImplementedError`; only polling is functional
 - Field-level encryption — `FieldEncryptor` is implemented but not wired to any DB read/write path
 - Policy guardrails — `policy/guardrails.py` and `policy/abuse_throttle.py` exist but are not called from the orchestrator
-- `refinement/scheduler.py` — cadence-based scheduling exists but is not called from any production path
 
 ## Security notes
 

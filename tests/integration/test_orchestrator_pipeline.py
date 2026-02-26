@@ -16,6 +16,7 @@ Scenarios covered:
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any
@@ -629,7 +630,12 @@ async def test_high_risk_safety_override_refused_without_model_call() -> None:
 
 @pytest.mark.asyncio
 async def test_activity_threshold_enqueues_refinement_job() -> None:
-    """Reaching the activity threshold causes a refinement job to appear in Redis queue."""
+    """Reaching the activity threshold causes a refinement job to appear in Redis queue.
+
+    The cadence scheduler may also enqueue a job on the first message (no prior
+    record), so the queue may contain more than one job.  We verify that at
+    least one activity-threshold triggered job is present.
+    """
     user_id = uuid.uuid4()
     redis = fakeredis.FakeRedis(decode_responses=True)
     store = InMemorySnapshotStore()
@@ -648,4 +654,13 @@ async def test_activity_threshold_enqueues_refinement_job() -> None:
         )
 
     queue_len = await get_queue_length(redis, QUEUE_REFINEMENT_JOBS)
-    assert queue_len == 1
+    assert queue_len >= 1
+
+    # Drain the queue and verify at least one activity-threshold job is present.
+    jobs: list[dict[str, Any]] = []
+    for _ in range(queue_len):
+        raw = await redis.lpop(QUEUE_REFINEMENT_JOBS)
+        if raw is not None:
+            jobs.append(json.loads(raw))
+    triggers = [j.get("trigger") for j in jobs]
+    assert "activity_threshold" in triggers

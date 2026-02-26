@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from tdbot.prompt.snapshot_store import SnapshotStore
 
 from tdbot.privacy.delete_user import hard_delete_user
+from tdbot.redis.queues import enqueue_refinement_job
 from tdbot.refinement.worker import check_and_clear_user_notice
 
 log = get_logger(__name__)
@@ -262,14 +263,15 @@ async def cmd_set_persona(
 
 
 @router.message(Command("memory_compact_now"))
-async def cmd_memory_compact_now(message: Message, db_user: User) -> None:
+async def cmd_memory_compact_now(message: Message, db_user: User, redis: Redis) -> None:
     """Request an immediate memory compaction for this user."""
-    # Job enqueueing deferred to Task 9 (Refinement worker).
+    user_id_str = str(db_user.id)
+    await enqueue_refinement_job(redis, user_id_str, {"trigger": "manual_compact"})
     await message.answer(
         "Memory compaction requested.\n"
         "Your conversation history will be summarised shortly."
     )
-    log.info("memory_compact_now_requested", internal_user_id=str(db_user.id))
+    log.info("memory_compact_now_requested", internal_user_id=user_id_str)
 
 
 # --------------------------------------------------------------------------- #
@@ -382,6 +384,7 @@ async def handle_message(
                 model=settings.chat_model,
                 conversation_ttl_seconds=settings.conversation_ttl_seconds,
                 refinement_activity_threshold=settings.refinement_activity_threshold,
+                refinement_cadence_seconds=settings.refinement_cadence_seconds,
             )
         except Exception:
             log.exception(

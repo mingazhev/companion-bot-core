@@ -494,3 +494,79 @@ async def test_process_message_no_refinement_below_threshold() -> None:
             )
 
     assert enqueued_calls == []
+
+
+# ---------------------------------------------------------------------------
+# Cadence-based refinement scheduling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_process_message_calls_cadence_scheduler() -> None:
+    """Cadence scheduler should be called on every pass_through message."""
+    user_id = uuid4()
+    redis = fakeredis.FakeRedis(decode_responses=True)
+    session = _make_session()
+    store = InMemorySnapshotStore()
+    client = MagicMock()
+
+    cadence_calls: list[tuple[str, int]] = []
+
+    async def fake_cadence(r: object, uid: str, cadence: int) -> bool:
+        cadence_calls.append((uid, cadence))
+        return False
+
+    with patch(
+        "tdbot.orchestrator.orchestrator.classify",
+        return_value=_make_detection(action="pass_through"),
+    ), patch(
+        "tdbot.orchestrator.orchestrator.generate_reply",
+        return_value=_make_inference_reply("OK"),
+    ), patch(
+        "tdbot.orchestrator.orchestrator.enqueue_if_cadence_due",
+        side_effect=fake_cadence,
+    ):
+        await process_message(
+            user_id=user_id,
+            message_text="hi",
+            session=session,
+            snapshot_store=store,
+            redis=redis,
+            chat_client=client,
+            refinement_cadence_seconds=7200,
+        )
+
+    assert len(cadence_calls) == 1
+    assert cadence_calls[0] == (str(user_id), 7200)
+
+
+@pytest.mark.asyncio
+async def test_process_message_cadence_enqueues_job() -> None:
+    """When cadence is due, a refinement job should be enqueued."""
+    user_id = uuid4()
+    redis = fakeredis.FakeRedis(decode_responses=True)
+    session = _make_session()
+    store = InMemorySnapshotStore()
+    client = MagicMock()
+
+    with patch(
+        "tdbot.orchestrator.orchestrator.classify",
+        return_value=_make_detection(action="pass_through"),
+    ), patch(
+        "tdbot.orchestrator.orchestrator.generate_reply",
+        return_value=_make_inference_reply("OK"),
+    ), patch(
+        "tdbot.orchestrator.orchestrator.enqueue_if_cadence_due",
+        return_value=True,
+    ) as mock_cadence:
+        await process_message(
+            user_id=user_id,
+            message_text="hi",
+            session=session,
+            snapshot_store=store,
+            redis=redis,
+            chat_client=client,
+            refinement_cadence_seconds=3600,
+        )
+
+    mock_cadence.assert_called_once_with(redis, str(user_id), 3600)

@@ -53,6 +53,7 @@ from tdbot.orchestrator.dialogue_state import (
 from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template, extract_section
 from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
 from tdbot.redis.queues import enqueue_refinement_job
+from tdbot.refinement.scheduler import enqueue_if_cadence_due
 from tdbot.tracing import span
 
 if TYPE_CHECKING:
@@ -500,6 +501,7 @@ async def process_message(
     model: str = "gpt-4o-mini",
     conversation_ttl_seconds: int = 604800,
     refinement_activity_threshold: int = 10,
+    refinement_cadence_seconds: int = 3600,
     max_tokens: int = 1024,
 ) -> str:
     """Orchestrate a single user message through the full processing pipeline.
@@ -514,6 +516,8 @@ async def process_message(
         model:                         Model identifier for persistence metadata.
         conversation_ttl_seconds:      TTL for conversation message rows.
         refinement_activity_threshold: Messages before enqueueing a refinement job.
+        refinement_cadence_seconds:    Minimum seconds between cadence-triggered
+                                       refinement jobs for a single user.
         max_tokens:                    Maximum completion tokens.
 
     Returns:
@@ -712,9 +716,10 @@ async def process_message(
                 )
 
             # ------------------------------------------------------------------
-            # Step 7 — Enqueue optional refinement trigger
+            # Step 7 — Enqueue optional refinement triggers
             # ------------------------------------------------------------------
             await _maybe_enqueue_refinement(redis, user_id, refinement_activity_threshold)
+            await enqueue_if_cadence_due(redis, user_id_str, refinement_cadence_seconds)
 
             log.info(
                 "chat_pipeline_completed",
