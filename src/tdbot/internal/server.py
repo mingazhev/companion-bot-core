@@ -57,7 +57,8 @@ async def _metrics_middleware(
     # the actual user UUID in the path.
     try:
         canonical: str = request.match_info.route.resource.canonical  # type: ignore[union-attr]
-        endpoint = canonical.split("/")[-1].split("{")[0].rstrip("/") or canonical
+        segments = [s for s in canonical.split("/") if s and not s.startswith("{")]
+        endpoint = segments[-1] if segments else canonical
     except (AttributeError, IndexError):
         endpoint = request.path
 
