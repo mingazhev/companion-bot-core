@@ -17,6 +17,9 @@ from pydantic import BaseModel, Field
 # Immutable set of reasons that can create a new snapshot.
 SnapshotSource = Literal["initial", "user_command", "behavior_change", "refinement", "rollback"]
 
+# Default system prompt for new users without a stored snapshot.
+DEFAULT_SYSTEM_TEMPLATE = "You are a helpful, friendly companion."
+
 
 class PromptComponents(BaseModel):
     """All segments merged in order to produce the compiled system prompt."""

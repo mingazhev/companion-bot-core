@@ -40,9 +40,12 @@ _REDIS_KEY_PREFIXES = (
     "activity_count",
     "refinement:notice",
     "refinement:last_scheduled",
+    "refinement:pending",
     "abuse:violations",
     "abuse:block",
     "prompt_cache",
+    "prompt:active",
+    "prompt:version",
 )
 
 # Redis key prefixes scoped to the Telegram user ID (not internal UUID).

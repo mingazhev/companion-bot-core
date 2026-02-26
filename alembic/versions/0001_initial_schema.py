@@ -51,8 +51,8 @@ def upgrade() -> None:
     op.create_table(
         "user_profiles",
         sa.Column("user_id", sa.UUID(), nullable=False),
-        sa.Column("persona_name", sa.String(length=128), nullable=True),
-        sa.Column("tone", sa.String(length=64), nullable=True),
+        sa.Column("persona_name", sa.Text(), nullable=True),
+        sa.Column("tone", sa.Text(), nullable=True),
         sa.Column("style_constraints", sa.Text(), nullable=True),
         sa.Column(
             "safety_level",

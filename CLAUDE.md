@@ -26,8 +26,8 @@ src/tdbot/
 
 - Settings singleton: `get_settings()` returns a cached `Settings` instance. Tests must patch `tdbot.config._settings` before imports that call it.
 - DB session lifecycle: `get_async_session(engine)` is an async context manager that opens a `session.begin()` block and commits on clean exit. The `async_sessionmaker` is cached per engine via `_get_session_factory()`.
-- Middleware injection: `IngressMiddleware` injects `db_user`, `db_session`, `tg_user`, and `redis` into the aiogram handler data dict via the middleware pattern. The dispatcher's `workflow_data` additionally provides `snapshot_store`, `chat_client`, and `settings` to all handlers.
-- Fake adapter mode: `USE_FAKE_ADAPTERS=true` replaces `ChatAPIClient` with `FakeChatAPIClient`. `InMemorySnapshotStore` is always used. Seed personas from `dev/seeds.py`.
+- Middleware injection: `IngressMiddleware` injects `db_user`, `db_session`, `tg_user`, and `redis` into the aiogram handler data dict via the middleware pattern. The dispatcher's `workflow_data` additionally provides `snapshot_store`, `chat_client`, `encryptor`, and `settings` to all handlers.
+- Fake adapter mode: `USE_FAKE_ADAPTERS=true` replaces `ChatAPIClient` with `FakeChatAPIClient` and uses `InMemorySnapshotStore`. In production mode, `PostgresSnapshotStore` (backed by `prompt_snapshots` table with Redis active-pointer caching) is used. Seed personas from `dev/seeds.py`.
 - User provisioning: `get_or_create_user(session, telegram_user_id)` in `bot/users.py` uses a PostgreSQL upsert (`INSERT … ON CONFLICT DO NOTHING` on `telegram_user_id`) followed by a SELECT. This is race-condition-safe for concurrent first messages. The caller (`IngressMiddleware`) is responsible for committing the enclosing transaction.
 - Internal route body parsing: always use `await request.read()` to read the request body; do not rely on `Content-Length`. This supports chunked transfer encoding. Parse JSON manually from the raw bytes with `json.loads()`. See `internal/routes.py` for the reference pattern.
 
@@ -64,11 +64,15 @@ tdbot                       # run the bot
 - `abuse:violations:{user_uuid}` — sorted set of violation timestamps
 - `abuse:block:{user_uuid}` — block flag with TTL
 - `prompt_cache:{user_uuid}` — cached prompt snapshot (5-minute TTL); not yet wired into context loader
+- `refinement:pending:{user_uuid}` — SET-NX guard preventing duplicate refinement enqueues (10-minute TTL)
+- `prompt:active:{user_uuid}` — active snapshot pointer (PostgresSnapshotStore)
+- `prompt:version:{user_uuid}` — monotonic snapshot version counter (PostgresSnapshotStore)
 - `refinement_jobs` / `retry_jobs` — Redis list queues for the worker
 
 ## Known incomplete features (explicitly deferred)
 
 - Webhook mode — raises `NotImplementedError`; only polling is functional
+- Prompt cache (`prompt_cache:{user_uuid}`) is defined in `redis/prompt_cache.py` but not yet wired into the context loader pipeline
 
 ## Security notes
 

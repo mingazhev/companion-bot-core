@@ -11,35 +11,10 @@ Public surface:
 
 from __future__ import annotations
 
-import re
-from typing import Final, NamedTuple
+from typing import Final
 
 from tdbot.policy.schemas import GuardrailResult
-
-# ---------------------------------------------------------------------------
-# Compiled signal helper
-# ---------------------------------------------------------------------------
-
-
-class _Signal(NamedTuple):
-    """A compiled regex pattern paired with its confidence weight."""
-
-    pattern: re.Pattern[str]
-    weight: float
-
-
-def _compile(patterns: list[tuple[str, float]]) -> list[_Signal]:
-    return [
-        _Signal(re.compile(p, re.IGNORECASE | re.DOTALL), w) for p, w in patterns
-    ]
-
-
-def _score(text: str, signals: list[_Signal]) -> float:
-    return min(
-        sum(sig.weight for sig in signals if sig.pattern.search(text)),
-        1.0,
-    )
-
+from tdbot.signals import Signal, compile_signals, score_signals
 
 # ---------------------------------------------------------------------------
 # Prompt injection signals
@@ -49,7 +24,7 @@ def _score(text: str, signals: list[_Signal]) -> float:
 # and delimiter injection (triple backtick, ### headers, etc.).
 # ---------------------------------------------------------------------------
 
-_INJECTION_SIGNALS: Final[list[_Signal]] = _compile(
+_INJECTION_SIGNALS: Final[list[Signal]] = compile_signals(
     [
         # Markup / delimited system tag injection
         (r"<\s*(system|instruction|prompt|context|admin)\s*>", 0.9),
@@ -91,7 +66,7 @@ def check_prompt_injection(text: str) -> GuardrailResult:
         :class:`~tdbot.policy.schemas.GuardrailResult` with ``allowed=False``
         when an injection signal fires, otherwise ``allowed=True``.
     """
-    score = _score(text, _INJECTION_SIGNALS)
+    score = score_signals(text, _INJECTION_SIGNALS)
     if score > 0.0:
         return GuardrailResult(
             allowed=False,
@@ -112,7 +87,7 @@ def check_prompt_injection(text: str) -> GuardrailResult:
 # elevated permissions or bypass user-tier constraints.
 # ---------------------------------------------------------------------------
 
-_ROLE_CHANGE_SIGNALS: Final[list[_Signal]] = _compile(
+_ROLE_CHANGE_SIGNALS: Final[list[Signal]] = compile_signals(
     [
         # Explicit admin/developer/root role assumption
         (
@@ -165,7 +140,7 @@ def check_unsafe_role_change(text: str) -> GuardrailResult:
         :class:`~tdbot.policy.schemas.GuardrailResult` with ``allowed=False``
         when an unsafe role change signal fires, otherwise ``allowed=True``.
     """
-    score = _score(text, _ROLE_CHANGE_SIGNALS)
+    score = score_signals(text, _ROLE_CHANGE_SIGNALS)
     if score > 0.0:
         return GuardrailResult(
             allowed=False,
@@ -187,7 +162,7 @@ def check_unsafe_role_change(text: str) -> GuardrailResult:
 # require an explicit confirmation prompt before the user can proceed.
 # ---------------------------------------------------------------------------
 
-_CAPABILITY_SIGNALS: Final[list[_Signal]] = _compile(
+_CAPABILITY_SIGNALS: Final[list[Signal]] = compile_signals(
     [
         # Code execution
         (
@@ -209,7 +184,7 @@ _CAPABILITY_SIGNALS: Final[list[_Signal]] = _compile(
             r"(the internet|the web|websites?|urls?|web pages?|online)\b",
             0.8,
         ),
-        (r"\bhttp(s?):\/\/", 0.6),
+        (r"\bhttp(s?):\/\/", 0.3),
         (r"\b(send|make)\b.{0,20}\b(http|api|web)\b.{0,20}\brequest\b", 0.8),
         # Email / messaging
         (
@@ -256,7 +231,7 @@ def check_risky_capability(text: str) -> GuardrailResult:
         :class:`~tdbot.policy.schemas.GuardrailResult` with ``allowed=False``
         when a risky capability signal fires above threshold, else ``allowed=True``.
     """
-    score = _score(text, _CAPABILITY_SIGNALS)
+    score = score_signals(text, _CAPABILITY_SIGNALS)
     if score >= _CAPABILITY_THRESHOLD:
         return GuardrailResult(
             allowed=False,

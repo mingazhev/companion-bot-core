@@ -37,6 +37,8 @@ from cryptography.fernet import Fernet, InvalidToken
 if TYPE_CHECKING:
     from tdbot.config import Settings
 
+# Uses structlog directly (not tdbot.logging_config) to avoid a circular import:
+# logging_config -> privacy.__init__ -> field_encryption -> logging_config
 _log = structlog.get_logger(__name__)
 
 
@@ -121,3 +123,7 @@ class FieldEncryptor:
                 reason="InvalidToken — possible key mismatch or unencrypted legacy row",
             )
             return default
+
+
+# Module-level singleton for disabled encryption (pass-through no-ops).
+NOOP_ENCRYPTOR = FieldEncryptor(None, enabled=False)

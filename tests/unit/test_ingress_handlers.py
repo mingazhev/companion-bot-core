@@ -88,7 +88,8 @@ async def test_start_replies() -> None:
 async def test_profile_shows_telegram_id() -> None:
     msg = _make_message()
     user = _make_user(telegram_user_id=12345)
-    await cmd_profile(msg, user)
+    db_session = _make_profile_session()
+    await cmd_profile(msg, user, db_session)
     msg.answer.assert_called_once()
     text: str = msg.answer.call_args[0][0]
     assert "12345" in text

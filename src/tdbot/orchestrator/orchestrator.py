@@ -65,9 +65,9 @@ from tdbot.policy.guardrails import (
     check_risky_capability,
     check_unsafe_role_change,
 )
-from tdbot.privacy.field_encryption import FieldEncryptor
+from tdbot.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
 from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template, extract_section
-from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
+from tdbot.prompt.schemas import DEFAULT_SYSTEM_TEMPLATE, PromptComponents, SnapshotRecord
 from tdbot.redis.queues import enqueue_refinement_job
 from tdbot.refinement.scheduler import enqueue_if_cadence_due
 from tdbot.tracing import span
@@ -83,9 +83,6 @@ if TYPE_CHECKING:
     from tdbot.prompt.snapshot_store import SnapshotStore
 
 log = get_logger(__name__)
-
-# Disabled (pass-through) encryptor used when no FieldEncryptor is injected.
-_NOOP_ENCRYPTOR = FieldEncryptor(None, enabled=False)
 
 # Words that confirm a pending medium-risk change (case-insensitive, post-strip)
 _CONFIRM_WORDS: frozenset[str] = frozenset({"yes", "y", "confirm", "ok", "sure", "yep", "yeah"})
@@ -142,9 +139,6 @@ async def _record_behavior_event(
     await session.flush()
 
 
-_DEFAULT_SYSTEM_TEMPLATE = "You are a helpful, friendly companion."
-
-
 def _build_persona_segment(
     persona_name: str | None,
     tone: str | None,
@@ -190,7 +184,7 @@ async def _apply_behavior_change(
     Returns ``True`` if the change was successfully applied, ``False`` if the
     required parameter could not be extracted from the message.
     """
-    enc = encryptor or _NOOP_ENCRYPTOR
+    enc = encryptor or NOOP_ENCRYPTOR
 
     if intent == "tone_change":
         tone = extract_tone(message_text)
@@ -296,7 +290,7 @@ async def _rebuild_snapshot(
         long_term_profile = extract_section(current.system_prompt, "Long-term Profile")
         raw_skills = dict(current.skill_prompts_json)
     else:
-        base_template = _DEFAULT_SYSTEM_TEMPLATE
+        base_template = DEFAULT_SYSTEM_TEMPLATE
         skill_packs = {}
         long_term_profile = ""
 
@@ -334,7 +328,7 @@ async def _add_skill_to_snapshot(
         long_term_profile = extract_section(current.system_prompt, "Long-term Profile")
         persona_segment = extract_section(current.system_prompt, "Persona")
     else:
-        base_template = _DEFAULT_SYSTEM_TEMPLATE
+        base_template = DEFAULT_SYSTEM_TEMPLATE
         skill_packs = {}
         long_term_profile = ""
         persona_segment = ""
@@ -425,7 +419,7 @@ async def _persist_messages(
     ttl_seconds: int,
     encryptor: FieldEncryptor | None = None,
 ) -> None:
-    enc = encryptor or _NOOP_ENCRYPTOR
+    enc = encryptor or NOOP_ENCRYPTOR
     ttl_expires = datetime.now(tz=UTC) + timedelta(seconds=ttl_seconds)
 
     session.add(
@@ -500,18 +494,34 @@ async def _maybe_enqueue_refinement(
                 user_id=str(user_id),
                 message_count=count,
             )
-        finally:
-            # Always reset the counter so a failed enqueue does not
-            # permanently block future refinement triggers.  The next
-            # ``threshold`` messages will re-attempt the enqueue.
+        except Exception:  # noqa: BLE001
+            # Enqueue failed — release the guard key so the next threshold
+            # crossing can retry, and leave the counter intact so messages
+            # are not lost from the trigger perspective.
             try:
-                await redis.delete(key)
+                await redis.delete(guard_key)
             except Exception:  # noqa: BLE001
                 log.warning(
-                    "activity_counter_cleanup_failed",
+                    "refinement_guard_cleanup_failed",
                     user_id=str(user_id),
-                    key=key,
+                    key=guard_key,
                 )
+            log.warning(
+                "refinement_enqueue_failed",
+                user_id=str(user_id),
+                message_count=count,
+            )
+            return
+
+        # Reset counter only on successful enqueue.
+        try:
+            await redis.delete(key)
+        except Exception:  # noqa: BLE001
+            log.warning(
+                "activity_counter_cleanup_failed",
+                user_id=str(user_id),
+                key=key,
+            )
 
 
 # ---------------------------------------------------------------------------

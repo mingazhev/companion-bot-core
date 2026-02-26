@@ -94,7 +94,7 @@ async def record_policy_violation(
     vkey = _violation_key(user_id)
     member = str(uuid.uuid4())
 
-    # Atomic pipeline: prune old entries, add new one, count, refresh TTL.
+    # Non-transactional pipeline: prune old entries, add new one, count, refresh TTL.
     pipe = redis.pipeline()
     pipe.zremrangebyscore(vkey, "-inf", window_start)
     pipe.zadd(vkey, {member: now})

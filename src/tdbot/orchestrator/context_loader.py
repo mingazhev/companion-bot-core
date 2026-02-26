@@ -14,9 +14,9 @@ from sqlalchemy import select
 
 from tdbot.db.models import ConversationMessage
 from tdbot.inference.schemas import ChatMessage, UserContext
-from tdbot.privacy.field_encryption import FieldEncryptor
+from tdbot.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
 from tdbot.prompt.merge_builder import build_system_prompt
-from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
+from tdbot.prompt.schemas import DEFAULT_SYSTEM_TEMPLATE, PromptComponents, SnapshotRecord
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -25,10 +25,6 @@ if TYPE_CHECKING:
 
     from tdbot.prompt.snapshot_store import SnapshotStore
 
-# Disabled (pass-through) encryptor used when no FieldEncryptor is injected.
-_NOOP_ENCRYPTOR = FieldEncryptor(None, enabled=False)
-
-_DEFAULT_SYSTEM_TEMPLATE = "You are a helpful, friendly companion."
 _DEFAULT_MAX_TOKENS = 1024
 # Type alias for valid chat message roles — used to satisfy ChatMessage.role narrowing
 _MessageRole = Literal["system", "user", "assistant"]
@@ -57,7 +53,7 @@ async def load_recent_messages(
         List of :class:`~tdbot.inference.schemas.ChatMessage` in chronological
         order (oldest first).
     """
-    enc = encryptor or _NOOP_ENCRYPTOR
+    enc = encryptor or NOOP_ENCRYPTOR
     now = datetime.now(tz=UTC)
     stmt = (
         select(ConversationMessage)
@@ -112,7 +108,7 @@ async def load_user_context(
     if snapshot is not None:
         system_prompt = snapshot.system_prompt
     else:
-        components = PromptComponents(base_system_template=_DEFAULT_SYSTEM_TEMPLATE)
+        components = PromptComponents(base_system_template=DEFAULT_SYSTEM_TEMPLATE)
         system_prompt = build_system_prompt(components)
         # Persist an initial snapshot so the refinement worker has a base to
         # build on.  Without this, the worker always skips new users.

@@ -95,9 +95,9 @@ class UserProfile(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    persona_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    persona_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     tone: Mapped[str | None] = mapped_column(
-        String(64),
+        Text,
         nullable=True,
         comment="e.g. friendly, professional, playful",
     )

@@ -18,8 +18,7 @@ Public surface:
 
 from __future__ import annotations
 
-import re
-from typing import TYPE_CHECKING, Final, NamedTuple, cast
+from typing import TYPE_CHECKING, Final, cast
 
 from tdbot.behavior.policy import (
     CLARIFICATION_TEXT,
@@ -28,49 +27,17 @@ from tdbot.behavior.policy import (
     get_risk_level,
 )
 from tdbot.behavior.schemas import DetectionResult
+from tdbot.signals import Signal, compile_signals, score_signals
 
 if TYPE_CHECKING:
     from tdbot.behavior.schemas import DetectedIntent
 
 
 # ---------------------------------------------------------------------------
-# Signal type
-# ---------------------------------------------------------------------------
-
-
-class _Signal(NamedTuple):
-    """A compiled regex pattern paired with its confidence weight."""
-
-    pattern: re.Pattern[str]
-    weight: float
-
-
-# ---------------------------------------------------------------------------
-# Signal compilation helper
-# ---------------------------------------------------------------------------
-
-
-def _compile(patterns: list[tuple[str, float]]) -> list[_Signal]:
-    """Compile *patterns* into :class:`_Signal` objects.
-
-    Args:
-        patterns: List of ``(regex_string, weight)`` tuples.  Each pattern
-            is compiled with ``IGNORECASE | DOTALL`` so ``.`` matches newlines
-            and matching is case-insensitive.
-
-    Returns:
-        List of compiled :class:`_Signal` objects.
-    """
-    return [
-        _Signal(re.compile(p, re.IGNORECASE | re.DOTALL), w) for p, w in patterns
-    ]
-
-
-# ---------------------------------------------------------------------------
 # Safety signals (always checked first)
 # ---------------------------------------------------------------------------
 
-_SAFETY_SIGNALS: Final[list[_Signal]] = _compile(
+_SAFETY_SIGNALS: Final[list[Signal]] = compile_signals(
     [
         # Explicit instruction / rule bypass — s? handles plurals
         (
@@ -116,8 +83,8 @@ _SAFETY_SIGNALS: Final[list[_Signal]] = _compile(
 # Config-change signals (scored after safety passes)
 # ---------------------------------------------------------------------------
 
-_CHANGE_SIGNALS: Final[dict[str, list[_Signal]]] = {
-    "persona_change": _compile(
+_CHANGE_SIGNALS: Final[dict[str, list[Signal]]] = {
+    "persona_change": compile_signals(
         [
             (r"\byou are now\b", 0.7),
             (
@@ -139,7 +106,7 @@ _CHANGE_SIGNALS: Final[dict[str, list[_Signal]]] = {
             ),
         ]
     ),
-    "tone_change": _compile(
+    "tone_change": compile_signals(
         [
             (
                 r"\b(be|sound|talk|speak|respond|answer|write|communicate)\b.{0,30}\b"
@@ -171,7 +138,7 @@ _CHANGE_SIGNALS: Final[dict[str, list[_Signal]]] = {
             (r"\bless (formal|verbose|casual|cold|stiff|technical|distant)\b", 0.4),
         ]
     ),
-    "skill_add_prompt": _compile(
+    "skill_add_prompt": compile_signals(
         [
             (r"\badd\b.{0,25}\b(skill|capability|feature|ability|topic)\b", 0.7),
             (
@@ -197,7 +164,7 @@ _CHANGE_SIGNALS: Final[dict[str, list[_Signal]]] = {
             (r"\blearn (about|to help with|how to help with)\b", 0.4),
         ]
     ),
-    "skill_remove": _compile(
+    "skill_remove": compile_signals(
         [
             (r"\bremove\b.{0,25}\b(skill|capability|feature|ability|topic)\b", 0.7),
             (r"\bstop (helping|assisting) (me )?with\b", 0.7),
@@ -222,27 +189,6 @@ _CHANGE_SIGNALS: Final[dict[str, list[_Signal]]] = {
 
 
 # ---------------------------------------------------------------------------
-# Scoring helper
-# ---------------------------------------------------------------------------
-
-
-def _score(text: str, signals: list[_Signal]) -> float:
-    """Sum the weights of all signals that match *text*, capped at 1.0.
-
-    Args:
-        text:    The raw user message.
-        signals: List of :class:`_Signal` objects to test.
-
-    Returns:
-        Score in ``[0.0, 1.0]``.
-    """
-    return min(
-        sum(sig.weight for sig in signals if sig.pattern.search(text)),
-        1.0,
-    )
-
-
-# ---------------------------------------------------------------------------
 # Public classifier
 # ---------------------------------------------------------------------------
 
@@ -264,7 +210,7 @@ def classify(text: str) -> DetectionResult:
         :class:`~tdbot.behavior.schemas.DetectionResult` with all fields set.
     """
     # 1. Safety check — any match is treated as a high-risk override attempt.
-    safety_score = _score(text, _SAFETY_SIGNALS)
+    safety_score = score_signals(text, _SAFETY_SIGNALS)
     if safety_score > 0.0:
         risk = get_risk_level("safety_override_attempt")
         return DetectionResult(
@@ -276,7 +222,7 @@ def classify(text: str) -> DetectionResult:
 
     # 2. Score all config-change intents and pick the best.
     scores: dict[str, float] = {
-        intent: _score(text, signals)
+        intent: score_signals(text, signals)
         for intent, signals in _CHANGE_SIGNALS.items()
     }
 

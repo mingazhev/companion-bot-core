@@ -29,9 +29,9 @@ from sqlalchemy import select
 from tdbot.db.models import UserProfile
 from tdbot.logging_config import get_logger
 from tdbot.orchestrator import process_message
-from tdbot.privacy.field_encryption import FieldEncryptor
+from tdbot.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
 from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template, extract_section
-from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
+from tdbot.prompt.schemas import DEFAULT_SYSTEM_TEMPLATE, PromptComponents, SnapshotRecord
 from tdbot.tracing import span
 
 if TYPE_CHECKING:
@@ -52,9 +52,6 @@ from tdbot.refinement.worker import check_and_clear_user_notice
 
 log = get_logger(__name__)
 
-# Disabled (pass-through) encryptor used when no FieldEncryptor is injected.
-_NOOP_ENCRYPTOR = FieldEncryptor(None, enabled=False)
-
 router = Router(name="commands")
 
 _VALID_TONES: frozenset[str] = frozenset(
@@ -62,9 +59,6 @@ _VALID_TONES: frozenset[str] = frozenset(
 )
 # Telegram limits plain-text messages to 4096 characters.
 _TG_MSG_LIMIT = 4096
-
-# Default system template for new users (matches context_loader).
-_DEFAULT_SYSTEM_TEMPLATE = "You are a helpful, friendly companion."
 
 
 # --------------------------------------------------------------------------- #
@@ -119,7 +113,7 @@ async def _rebuild_and_save_snapshot(
         long_term_profile = extract_section(current.system_prompt, "Long-term Profile")
         raw_skills = dict(current.skill_prompts_json)
     else:
-        base_template = _DEFAULT_SYSTEM_TEMPLATE
+        base_template = DEFAULT_SYSTEM_TEMPLATE
         skill_packs = {}
         long_term_profile = ""
 
@@ -171,15 +165,36 @@ async def cmd_start(message: Message, db_user: User) -> None:
 
 
 @router.message(Command("profile"))
-async def cmd_profile(message: Message, db_user: User) -> None:
+async def cmd_profile(
+    message: Message,
+    db_user: User,
+    db_session: AsyncSession,
+    encryptor: FieldEncryptor | None = None,
+) -> None:
     """Display the user's current profile information."""
+    enc = encryptor or NOOP_ENCRYPTOR
+    result = await db_session.execute(
+        select(UserProfile).where(UserProfile.user_id == db_user.id)
+    )
+    profile = result.scalar_one_or_none()
+
+    persona_display = "(not set)"
+    tone_display = "(not set)"
+    if profile is not None:
+        if profile.persona_name:
+            persona_display = enc.decrypt(profile.persona_name)
+        if profile.tone:
+            tone_display = enc.decrypt(profile.tone)
+
     lines = [
         f"Telegram ID: {db_user.telegram_user_id}",
         f"Status: {db_user.status}",
         f"Locale: {db_user.locale or '(not set)'}",
         f"Timezone: {db_user.timezone or '(not set)'}",
         "",
-        "Persona and tone settings will be shown here once configured.",
+        f"Persona: {persona_display}",
+        f"Tone: {tone_display}",
+        "",
         "Use /set_tone and /set_persona to customise.",
     ]
     await message.answer("\n".join(lines), parse_mode=None)
@@ -201,7 +216,7 @@ async def cmd_set_tone(
     encryptor: FieldEncryptor | None = None,
 ) -> None:
     """Set the response tone. Usage: /set_tone <tone>"""
-    enc = encryptor or _NOOP_ENCRYPTOR
+    enc = encryptor or NOOP_ENCRYPTOR
     tone = (command.args or "").strip().lower()
     if not tone:
         await message.answer(
@@ -246,7 +261,7 @@ async def cmd_set_persona(
     encryptor: FieldEncryptor | None = None,
 ) -> None:
     """Set the persona name. Usage: /set_persona <name>"""
-    enc = encryptor or _NOOP_ENCRYPTOR
+    enc = encryptor or NOOP_ENCRYPTOR
     name = (command.args or "").strip()
     if not name:
         await message.answer(
