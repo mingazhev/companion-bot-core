@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
     from tdbot.config import Settings
     from tdbot.inference.client import ChatAPIClient
+    from tdbot.privacy.field_encryption import FieldEncryptor
     from tdbot.prompt.snapshot_store import SnapshotStore
 
 
@@ -50,6 +51,7 @@ def build_dispatcher(
     redis: Redis,
     snapshot_store: SnapshotStore | None = None,
     chat_client: ChatAPIClient | None = None,
+    encryptor: FieldEncryptor | None = None,
 ) -> Dispatcher:
     """Create and configure the aiogram :class:`~aiogram.Dispatcher`.
 
@@ -64,6 +66,7 @@ def build_dispatcher(
         redis:          Async Redis client for idempotency and rate limiting.
         snapshot_store: Prompt snapshot store injected into message handlers.
         chat_client:    Inference API client injected into message handlers.
+        encryptor:      Optional field encryptor for at-rest encryption.
 
     Returns:
         A fully configured :class:`~aiogram.Dispatcher` ready for polling or
@@ -78,5 +81,7 @@ def build_dispatcher(
         dp["snapshot_store"] = snapshot_store
     if chat_client is not None:
         dp["chat_client"] = chat_client
+    if encryptor is not None:
+        dp["encryptor"] = encryptor
     dp["settings"] = settings
     return dp

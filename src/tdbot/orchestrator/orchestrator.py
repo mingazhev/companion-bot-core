@@ -65,6 +65,7 @@ from tdbot.policy.guardrails import (
     check_risky_capability,
     check_unsafe_role_change,
 )
+from tdbot.privacy.field_encryption import FieldEncryptor
 from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template, extract_section
 from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
 from tdbot.redis.queues import enqueue_refinement_job
@@ -82,6 +83,9 @@ if TYPE_CHECKING:
     from tdbot.prompt.snapshot_store import SnapshotStore
 
 log = get_logger(__name__)
+
+# Disabled (pass-through) encryptor used when no FieldEncryptor is injected.
+_NOOP_ENCRYPTOR = FieldEncryptor(None, enabled=False)
 
 # Words that confirm a pending medium-risk change (case-insensitive, post-strip)
 _CONFIRM_WORDS: frozenset[str] = frozenset({"yes", "y", "confirm", "ok", "sure", "yep", "yeah"})
@@ -176,6 +180,7 @@ async def _apply_behavior_change(
     user_id: UUID,
     session: AsyncSession,
     snapshot_store: SnapshotStore,
+    encryptor: FieldEncryptor | None = None,
 ) -> bool:
     """Apply a detected behavior change to the user's profile and prompt snapshot.
 
@@ -185,6 +190,8 @@ async def _apply_behavior_change(
     Returns ``True`` if the change was successfully applied, ``False`` if the
     required parameter could not be extracted from the message.
     """
+    enc = encryptor or _NOOP_ENCRYPTOR
+
     if intent == "tone_change":
         tone = extract_tone(message_text)
         if tone is None:
@@ -195,9 +202,11 @@ async def _apply_behavior_change(
             )
             return False
         profile = await _get_or_create_profile(session, user_id)
-        profile.tone = tone
+        profile.tone = enc.encrypt(tone)
         await session.flush()
-        await _rebuild_snapshot(snapshot_store, user_id, profile.persona_name, profile.tone)
+        # Decrypt existing persona_name (may be encrypted in DB) for prompt building.
+        raw_persona = enc.decrypt_safe(profile.persona_name) if profile.persona_name else None
+        await _rebuild_snapshot(snapshot_store, user_id, raw_persona, tone)
         log.info(
             "behavior_change_snapshot_updated",
             user_id=str(user_id),
@@ -216,9 +225,11 @@ async def _apply_behavior_change(
             )
             return False
         profile = await _get_or_create_profile(session, user_id)
-        profile.persona_name = name
+        profile.persona_name = enc.encrypt(name)
         await session.flush()
-        await _rebuild_snapshot(snapshot_store, user_id, profile.persona_name, profile.tone)
+        # Decrypt existing tone (may be encrypted in DB) for prompt building.
+        raw_tone = enc.decrypt_safe(profile.tone) if profile.tone else None
+        await _rebuild_snapshot(snapshot_store, user_id, name, raw_tone)
         log.info(
             "behavior_change_snapshot_updated",
             user_id=str(user_id),
@@ -412,14 +423,16 @@ async def _persist_messages(
     tokens_used: int,
     model: str,
     ttl_seconds: int,
+    encryptor: FieldEncryptor | None = None,
 ) -> None:
+    enc = encryptor or _NOOP_ENCRYPTOR
     ttl_expires = datetime.now(tz=UTC) + timedelta(seconds=ttl_seconds)
 
     session.add(
         ConversationMessage(
             user_id=user_id,
             role="user",
-            content=user_text,
+            content=enc.encrypt(user_text),
             model=model,
             ttl_expires_at=ttl_expires,
         )
@@ -428,7 +441,7 @@ async def _persist_messages(
         ConversationMessage(
             user_id=user_id,
             role="assistant",
-            content=assistant_text,
+            content=enc.encrypt(assistant_text),
             tokens_used=tokens_used,
             model=model,
             ttl_expires_at=ttl_expires,
@@ -518,6 +531,7 @@ async def process_message(
     refinement_activity_threshold: int = 10,
     refinement_cadence_seconds: int = 3600,
     max_tokens: int = 1024,
+    encryptor: FieldEncryptor | None = None,
 ) -> str:
     """Orchestrate a single user message through the full processing pipeline.
 
@@ -534,6 +548,10 @@ async def process_message(
         refinement_cadence_seconds:    Minimum seconds between cadence-triggered
                                        refinement jobs for a single user.
         max_tokens:                    Maximum completion tokens.
+        encryptor:                     Optional field encryptor for at-rest
+                                       encryption of conversation content and
+                                       profile fields.  ``None`` uses a
+                                       disabled (pass-through) encryptor.
 
     Returns:
         Reply text to send back to the user.
@@ -597,6 +615,7 @@ async def process_message(
                     user_id=user_id,
                     session=session,
                     snapshot_store=snapshot_store,
+                    encryptor=encryptor,
                 )
                 await clear_pending_change(redis, user_id_str)
                 await _maybe_enqueue_refinement(redis, user_id, refinement_activity_threshold)
@@ -702,7 +721,8 @@ async def process_message(
         try:
             async with span("prompt_manager.load_context", user_id=user_id_str):
                 user_context = await load_user_context(
-                    session, snapshot_store, user_id, max_tokens
+                    session, snapshot_store, user_id, max_tokens,
+                    encryptor=encryptor,
                 )
 
             try:
@@ -744,6 +764,7 @@ async def process_message(
                     user_id=user_id,
                     session=session,
                     snapshot_store=snapshot_store,
+                    encryptor=encryptor,
                 )
                 log.info(
                     "behavior_change_auto_applied",
@@ -763,6 +784,7 @@ async def process_message(
                     tokens_used=inference_reply.usage.total_tokens,
                     model=model,
                     ttl_seconds=conversation_ttl_seconds,
+                    encryptor=encryptor,
                 )
 
             # ------------------------------------------------------------------

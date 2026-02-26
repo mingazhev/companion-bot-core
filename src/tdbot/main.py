@@ -28,6 +28,7 @@ from tdbot.dev.fake_client import FakeChatAPIClient
 from tdbot.inference.client import ChatAPIClient
 from tdbot.internal.server import build_internal_app
 from tdbot.logging_config import configure_logging, get_logger
+from tdbot.privacy.field_encryption import FieldEncryptor
 from tdbot.privacy.ttl_sweeper import sweep_expired_messages
 from tdbot.prompt.postgres_store import PostgresSnapshotStore
 from tdbot.prompt.snapshot_store import InMemorySnapshotStore, SnapshotStore
@@ -57,6 +58,10 @@ async def _run() -> None:
         snapshot_store = InMemorySnapshotStore()
     else:
         snapshot_store = PostgresSnapshotStore(engine=engine, redis=redis)
+
+    encryptor = FieldEncryptor.from_settings(settings)
+    if encryptor.is_enabled:
+        log.info("field_encryption_enabled")
 
     if settings.use_fake_adapters:
         log.warning(
@@ -117,6 +122,7 @@ async def _run() -> None:
             redis=redis,
             snapshot_store=snapshot_store,
             chat_client=chat_client,
+            encryptor=encryptor,
         )
 
         worker_task = asyncio.create_task(

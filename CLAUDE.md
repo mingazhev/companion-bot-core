@@ -69,10 +69,9 @@ tdbot                       # run the bot
 ## Known incomplete features (explicitly deferred)
 
 - Webhook mode — raises `NotImplementedError`; only polling is functional
-- Field-level encryption — `FieldEncryptor` is implemented but not wired to any DB read/write path
 
 ## Security notes
 
-- `FIELD_ENCRYPTION_KEY` must be set when `ENCRYPT_SENSITIVE_FIELDS=true`; absence raises `RuntimeError` when `FieldEncryptor.from_settings()` is called. Currently `FieldEncryptor` is not constructed at startup (field encryption is not yet wired), so this check is not exercised during normal operation.
+- `FIELD_ENCRYPTION_KEY` must be set when `ENCRYPT_SENSITIVE_FIELDS=true`; absence raises `RuntimeError` at startup. Field encryption is wired into conversation message content and user profile fields (persona_name, tone). Legacy unencrypted rows are handled gracefully via `decrypt_safe`.
 - Internal HTTP service must NOT bind to `0.0.0.0`; there is no authentication on internal routes. A `Settings` validator rejects `0.0.0.0` and `::` at startup.
 - Rate limit pipeline uses Redis non-transactional batching (not MULTI/EXEC); allows ~1 extra request through under concurrent load

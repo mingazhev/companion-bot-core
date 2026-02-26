@@ -29,6 +29,7 @@ from sqlalchemy import select
 from tdbot.db.models import UserProfile
 from tdbot.logging_config import get_logger
 from tdbot.orchestrator import process_message
+from tdbot.privacy.field_encryption import FieldEncryptor
 from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template, extract_section
 from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
 from tdbot.tracing import span
@@ -50,6 +51,9 @@ from tdbot.redis.queues import enqueue_refinement_job
 from tdbot.refinement.worker import check_and_clear_user_notice
 
 log = get_logger(__name__)
+
+# Disabled (pass-through) encryptor used when no FieldEncryptor is injected.
+_NOOP_ENCRYPTOR = FieldEncryptor(None, enabled=False)
 
 router = Router(name="commands")
 
@@ -194,8 +198,10 @@ async def cmd_set_tone(
     db_user: User,
     db_session: AsyncSession,
     snapshot_store: SnapshotStore,
+    encryptor: FieldEncryptor | None = None,
 ) -> None:
     """Set the response tone. Usage: /set_tone <tone>"""
+    enc = encryptor or _NOOP_ENCRYPTOR
     tone = (command.args or "").strip().lower()
     if not tone:
         await message.answer(
@@ -211,10 +217,12 @@ async def cmd_set_tone(
         )
         return
     profile = await _get_or_create_profile(db_session, db_user.id)
-    profile.tone = tone
+    # Decrypt existing persona_name for prompt building before encrypting new tone.
+    raw_persona = enc.decrypt_safe(profile.persona_name) if profile.persona_name else None
+    profile.tone = enc.encrypt(tone)
     await db_session.flush()
     await _rebuild_and_save_snapshot(
-        snapshot_store, db_user.id, profile.persona_name, profile.tone,
+        snapshot_store, db_user.id, raw_persona, tone,
     )
     await message.answer(
         f"Tone set to '{tone}'.\n"
@@ -235,8 +243,10 @@ async def cmd_set_persona(
     db_user: User,
     db_session: AsyncSession,
     snapshot_store: SnapshotStore,
+    encryptor: FieldEncryptor | None = None,
 ) -> None:
     """Set the persona name. Usage: /set_persona <name>"""
+    enc = encryptor or _NOOP_ENCRYPTOR
     name = (command.args or "").strip()
     if not name:
         await message.answer(
@@ -248,10 +258,12 @@ async def cmd_set_persona(
         await message.answer("Persona name must be 64 characters or fewer.")
         return
     profile = await _get_or_create_profile(db_session, db_user.id)
-    profile.persona_name = name
+    # Decrypt existing tone for prompt building before encrypting new persona name.
+    raw_tone = enc.decrypt_safe(profile.tone) if profile.tone else None
+    profile.persona_name = enc.encrypt(name)
     await db_session.flush()
     await _rebuild_and_save_snapshot(
-        snapshot_store, db_user.id, profile.persona_name, profile.tone,
+        snapshot_store, db_user.id, name, raw_tone,
     )
     await message.answer(f"Persona name set to '{html.escape(name)}'.")
     log.info("set_persona", internal_user_id=str(db_user.id), persona_name=name)
@@ -366,6 +378,7 @@ async def handle_message(
     snapshot_store: SnapshotStore,
     chat_client: ChatAPIClient,
     settings: Settings,
+    encryptor: FieldEncryptor | None = None,
 ) -> None:
     """Route non-command text messages through the conversation orchestrator."""
     user_id_str = str(db_user.id)
@@ -385,6 +398,7 @@ async def handle_message(
                 conversation_ttl_seconds=settings.conversation_ttl_seconds,
                 refinement_activity_threshold=settings.refinement_activity_threshold,
                 refinement_cadence_seconds=settings.refinement_cadence_seconds,
+                encryptor=encryptor,
             )
         except Exception:
             log.exception(

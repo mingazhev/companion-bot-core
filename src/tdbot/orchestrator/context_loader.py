@@ -14,6 +14,7 @@ from sqlalchemy import select
 
 from tdbot.db.models import ConversationMessage
 from tdbot.inference.schemas import ChatMessage, UserContext
+from tdbot.privacy.field_encryption import FieldEncryptor
 from tdbot.prompt.merge_builder import build_system_prompt
 from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
 
@@ -23,6 +24,9 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from tdbot.prompt.snapshot_store import SnapshotStore
+
+# Disabled (pass-through) encryptor used when no FieldEncryptor is injected.
+_NOOP_ENCRYPTOR = FieldEncryptor(None, enabled=False)
 
 _DEFAULT_SYSTEM_TEMPLATE = "You are a helpful, friendly companion."
 _DEFAULT_MAX_TOKENS = 1024
@@ -34,6 +38,7 @@ async def load_recent_messages(
     session: AsyncSession,
     user_id: UUID,
     limit: int = 20,
+    encryptor: FieldEncryptor | None = None,
 ) -> list[ChatMessage]:
     """Return the most recent non-expired conversation messages for *user_id*.
 
@@ -41,14 +46,18 @@ async def load_recent_messages(
     message list as conversation history.
 
     Args:
-        session:  Active database session.
-        user_id:  Internal (UUID) user identifier.
-        limit:    Maximum number of messages to load (default 20).
+        session:    Active database session.
+        user_id:    Internal (UUID) user identifier.
+        limit:      Maximum number of messages to load (default 20).
+        encryptor:  Optional field encryptor.  Decrypts ``content`` from DB rows.
+                    ``None`` uses a disabled (pass-through) encryptor so legacy
+                    unencrypted rows are returned unchanged.
 
     Returns:
         List of :class:`~tdbot.inference.schemas.ChatMessage` in chronological
         order (oldest first).
     """
+    enc = encryptor or _NOOP_ENCRYPTOR
     now = datetime.now(tz=UTC)
     stmt = (
         select(ConversationMessage)
@@ -63,9 +72,13 @@ async def load_recent_messages(
     result = await session.execute(stmt)
     rows = list(result.scalars().all())
 
-    # Reverse to chronological (oldest first) for the inference message list
+    # Reverse to chronological (oldest first) for the inference message list.
+    # Use decrypt_safe so legacy unencrypted rows are returned as-is.
     return [
-        ChatMessage(role=cast("_MessageRole", row.role), content=row.content)
+        ChatMessage(
+            role=cast("_MessageRole", row.role),
+            content=enc.decrypt_safe(row.content, default=row.content),
+        )
         for row in reversed(rows)
     ]
 
@@ -75,6 +88,7 @@ async def load_user_context(
     snapshot_store: SnapshotStore,
     user_id: UUID,
     max_tokens: int = _DEFAULT_MAX_TOKENS,
+    encryptor: FieldEncryptor | None = None,
 ) -> UserContext:
     """Build a :class:`~tdbot.inference.schemas.UserContext` for *user_id*.
 
@@ -112,7 +126,7 @@ async def load_user_context(
         await snapshot_store.save(initial)
         await snapshot_store.set_active(user_id, initial.id)
 
-    history = await load_recent_messages(session, user_id, limit=20)
+    history = await load_recent_messages(session, user_id, limit=20, encryptor=encryptor)
 
     return UserContext(
         user_id=str(user_id),

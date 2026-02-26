@@ -112,7 +112,7 @@ Runtime: `aiogram 3.x`, persistence: `PostgreSQL + Redis`.
 - [x] Implement configurable TTL expiration for `conversation_messages`
 - [x] Implement `/delete_my_data` hard-delete flow (preserves audit minimality)
 - [x] Implement PII redaction in logs
-- [ ] Wire field encryption into DB read/write paths (FieldEncryptor is implemented but not wired)
+- [x] Wire field encryption into DB read/write paths (FieldEncryptor is implemented but not wired)
 - [x] Mark completed
 
 ### Task 14: Unit tests
