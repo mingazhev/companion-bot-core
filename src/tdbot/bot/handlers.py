@@ -302,6 +302,14 @@ async def cmd_set_persona(
 async def cmd_memory_compact_now(message: Message, db_user: User, redis: Redis) -> None:
     """Request an immediate memory compaction for this user."""
     user_id_str = str(db_user.id)
+
+    # Acquire the shared dedup guard to prevent flooding the refinement queue.
+    guard_key = f"refinement:pending:{user_id_str}"
+    acquired = await redis.set(guard_key, "1", nx=True, ex=600)
+    if not acquired:
+        await message.answer("A compaction is already in progress. Please wait.")
+        return
+
     await enqueue_refinement_job(redis, user_id_str, {"trigger": "manual_compact"})
     await message.answer(
         "Memory compaction requested.\n"

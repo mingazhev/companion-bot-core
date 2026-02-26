@@ -179,6 +179,7 @@ async def process_one_job(
     # State variables updated throughout the try block.
     final_status = "done"
     error_msg: str | None = None
+    job_requeued = False
 
     try:
         # --- Load active snapshot ---
@@ -270,6 +271,7 @@ async def process_one_job(
         else:
             cb_payload = {**job_data, "cb_retries": cb_retries}
             await enqueue_refinement_job(redis, user_id_str, cb_payload)
+            job_requeued = True
             final_status = "failed"
             error_msg = "circuit breaker open"
             log.warning(
@@ -298,6 +300,7 @@ async def process_one_job(
             # Re-enqueue with incremented attempt counter.
             retry_payload: dict[str, Any] = {**job_data, "attempt": attempt}
             await enqueue_retry_job(redis, user_id_str, retry_payload)
+            job_requeued = True
             final_status = "failed"
             log.warning(
                 "refinement_job_retried",
@@ -322,6 +325,14 @@ async def process_one_job(
                 user_id=user_id_str,
                 error=str(exc),
             )
+
+        # Release the dedup guard so new triggers can enqueue jobs, unless this
+        # job was re-enqueued (retry or circuit-breaker) and is still in flight.
+        if not job_requeued:
+            try:
+                await redis.delete(f"refinement:pending:{user_id}")
+            except Exception:  # noqa: BLE001
+                log.warning("refinement_guard_release_failed", user_id=user_id_str)
 
         REFINEMENT_JOBS.labels(status=final_status).inc()
         elapsed_ms = round((time.perf_counter() - job_start) * 1000, 2)

@@ -90,6 +90,16 @@ async def handle_refine(request: web.Request) -> web.Response:
         return web.json_response({"error": exc.errors()}, status=400)
 
     redis = request.app[REDIS_KEY]
+
+    # Acquire the shared dedup guard to prevent duplicate in-flight refinements.
+    guard_key = f"refinement:pending:{user_id}"
+    acquired = await redis.set(guard_key, "1", nx=True, ex=600)
+    if not acquired:
+        return web.json_response(
+            {"queued": False, "user_id": str(user_id), "reason": "refinement already in progress"},
+            status=409,
+        )
+
     queue_length = await enqueue_refinement_job(
         redis,
         str(user_id),
