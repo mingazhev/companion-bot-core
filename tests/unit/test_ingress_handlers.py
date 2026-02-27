@@ -18,6 +18,7 @@ from tdbot.bot.handlers import (
     cmd_privacy,
     cmd_profile,
     cmd_reset_persona,
+    cmd_set_language,
     cmd_set_persona,
     cmd_set_tone,
     cmd_start,
@@ -227,7 +228,8 @@ async def test_set_tone_rejects_when_lock_held() -> None:
     await cmd_set_tone(msg, cmd, user, AsyncMock(), InMemorySnapshotStore(), redis=redis)
 
     text: str = msg.answer.call_args[0][0]
-    assert "in progress" in text.lower()
+    lower = text.lower()
+    assert "in progress" in lower or "обновление профиля" in lower
     # Lock was not acquired so neither DEL nor eval-unlock must be called.
     redis.delete.assert_not_called()
     redis.eval.assert_not_called()
@@ -361,7 +363,8 @@ async def test_set_persona_control_chars_rejected(name: str) -> None:
     cmd = _make_command(args=name)
     await cmd_set_persona(msg, cmd, user, AsyncMock(), AsyncMock())
     text: str = msg.answer.call_args[0][0]
-    assert "control characters" in text.lower()
+    lower = text.lower()
+    assert "control characters" in lower or "управляющие символы" in lower
 
 
 @pytest.mark.asyncio
@@ -375,7 +378,8 @@ async def test_set_persona_rejects_when_lock_held() -> None:
     await cmd_set_persona(msg, cmd, user, AsyncMock(), InMemorySnapshotStore(), redis=redis)
 
     text: str = msg.answer.call_args[0][0]
-    assert "in progress" in text.lower()
+    lower = text.lower()
+    assert "in progress" in lower or "обновление профиля" in lower
     redis.delete.assert_not_called()
     redis.eval.assert_not_called()
 
@@ -390,7 +394,8 @@ async def test_reset_persona_rejects_when_lock_held() -> None:
     await cmd_reset_persona(msg, user, AsyncMock(), InMemorySnapshotStore(), redis=redis)
 
     text: str = msg.answer.call_args[0][0]
-    assert "in progress" in text.lower()
+    lower = text.lower()
+    assert "in progress" in lower or "обновление профиля" in lower
     redis.delete.assert_not_called()
     redis.eval.assert_not_called()
 
@@ -409,9 +414,12 @@ async def test_memory_compact_now_replies() -> None:
     await cmd_memory_compact_now(msg, user, redis)
     msg.answer.assert_called_once()
     text: str = msg.answer.call_args[0][0]
-    assert "compaction" in text.lower()
-    assert "prompt profile" in text.lower()
-    assert "refined" in text.lower()
+    lower = text.lower()
+    assert "compaction" in lower or "компактизац" in lower
+    assert (
+        ("prompt profile" in lower and "refined" in lower)
+        or ("профиль" in lower and "обнов" in lower)
+    )
 
 
 @pytest.mark.asyncio
@@ -447,7 +455,8 @@ async def test_reset_persona_replies() -> None:
     await cmd_reset_persona(msg, user, db_session, snapshot_store)
     msg.answer.assert_called_once()
     text: str = msg.answer.call_args[0][0]
-    assert "been reset" in text.lower()
+    lower = text.lower()
+    assert "been reset" in lower or "сброш" in lower
 
 
 @pytest.mark.asyncio
@@ -520,7 +529,8 @@ async def test_delete_my_data_replies() -> None:
     redis.delete.assert_awaited_once()
     msg.answer.assert_called_once()
     text: str = msg.answer.call_args[0][0]
-    assert "deleted" in text.lower()
+    lower = text.lower()
+    assert "deleted" in lower or "удален" in lower
 
 
 @pytest.mark.asyncio
@@ -594,7 +604,23 @@ async def test_handle_message_sends_profile_updated_notice_when_set() -> None:
 
     assert msg.answer.call_count == 2
     assert msg.answer.call_args_list[0][0][0] == "Reply text"
-    assert "profile" in msg.answer.call_args_list[1][0][0].lower()
+    notice = msg.answer.call_args_list[1][0][0].lower()
+    assert "profile" in notice or "профил" in notice
+
+
+@pytest.mark.asyncio
+async def test_set_language_updates_locale() -> None:
+    msg = _make_message()
+    user = _make_user()
+    db_session = AsyncMock()
+    cmd = _make_command(args="en")
+
+    await cmd_set_language(msg, cmd, user, db_session)
+
+    assert user.locale == "en"
+    db_session.flush.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "english" in text.lower()
 
 
 @pytest.mark.asyncio

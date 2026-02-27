@@ -60,6 +60,16 @@ _SAFETY_SIGNALS: Final[list[Signal]] = compile_signals(
             r"(system|instructions?|safety|rules?|policies?)\b",
             0.8,
         ),
+        (
+            r"\b(игнорируй|обойди|отключи)\b.{0,30}\b"
+            r"(инструкции|правила|ограничения|фильтры|безопасность)\b",
+            0.8,
+        ),
+        (
+            r"\b(сними|убери)\b.{0,20}\b"
+            r"(ограничения|фильтры|правила|безопасность)\b",
+            0.75,
+        ),
         # Prompt injection phrasing — handle plurals in embedded phrases
         (
             r"\bpretend\b.{0,30}\b"
@@ -73,6 +83,7 @@ _SAFETY_SIGNALS: Final[list[Signal]] = compile_signals(
         ),
         (r"\bact\b.{0,20}\b(without|freely|unfiltered|unrestricted)\b", 0.6),
         (r"\bno\b.{0,15}\b(restrictions?|filters?|rules?|safety|limits?)\b", 0.5),
+        (r"\bбез\b.{0,15}\b(ограничени|фильтр|правил|безопасност)\w*", 0.5),
         # Known jailbreak keywords
         (r"\bjailbreak\b", 0.9),
         (r"\bdan\b.{0,10}\bmode\b", 0.9),
@@ -100,6 +111,11 @@ _CHANGE_SIGNALS: Final[dict[str, list[Signal]]] = {
             (r"\bchange your (name|identity|character|persona)\b", 0.6),
             (r"\bplay the role of\b", 0.6),
             (r"\bimagine you are\b", 0.5),
+            (r"\bтеперь ты\b", 0.7),
+            (r"\bтвое имя\b.{0,20}\bтеперь\b", 0.6),
+            (r"\bзови себя\b", 0.6),
+            (r"\bиграй роль\b", 0.6),
+            (r"\bпредставь(?:ся)?\b.{0,20}\bкак\b", 0.6),
             (
                 r"\bbecome\b.{0,20}\b(a |an )?"
                 r"(different |new )?(person|character|assistant|entity|ai|bot)\b",
@@ -123,6 +139,13 @@ _CHANGE_SIGNALS: Final[dict[str, list[Signal]]] = {
                 0.6,
             ),
             (
+                r"\b(будь|отвечай|пиши|говори)\b.{0,30}\b"
+                r"(более|менее)\b.{0,30}\b"
+                r"(формально|неформально|дружелюбно|профессионально|кратко|подробно|тепло)\b",
+                0.7,
+            ),
+            (r"\bизмени\b.{0,20}\b(тон|стиль)\b", 0.6),
+            (
                 r"\buse (simpler|more complex|technical|plain|simple|clear|"
                 r"concise|elaborate) (words|language|vocabulary|terms)\b",
                 0.5,
@@ -144,11 +167,13 @@ _CHANGE_SIGNALS: Final[dict[str, list[Signal]]] = {
     "skill_add_prompt": compile_signals(
         [
             (r"\badd\b.{0,25}\b(skill|capability|feature|ability|topic)\b", 0.7),
+            (r"\b(добавь|включи|активируй)\b.{0,25}\b(навык|умение|функци|тем)\w*", 0.7),
             (
                 r"\bi (want|need|would like) you to (also )?"
                 r"(help|assist|know about|learn|understand)\b",
                 0.5,
             ),
+            (r"\b(помогай|помоги)\b.{0,25}\b(мне)\b.{0,25}\b(всегда|дальше|теперь)\b", 0.6),
             (
                 r"\b(help|assist) me with\b.{0,40}\b"
                 r"(from now on|always|going forward|in the future)\b",
@@ -171,7 +196,9 @@ _CHANGE_SIGNALS: Final[dict[str, list[Signal]]] = {
     "skill_remove": compile_signals(
         [
             (r"\bremove\b.{0,25}\b(skill|capability|feature|ability|topic)\b", 0.7),
+            (r"\b(убери|удали|отключи|деактивируй)\b.{0,25}\b(навык|умение|функци|тем)\w*", 0.7),
             (r"\bstop (helping|assisting) (me )?with\b", 0.7),
+            (r"\b(не помогай|перестань помогать)\b.{0,25}\b(мне)?\b.{0,10}\bс\b", 0.7),
             (
                 r"\b(disable|turn off)\b.{0,20}\b"
                 r"(skill|feature|capability|assistance)\b",

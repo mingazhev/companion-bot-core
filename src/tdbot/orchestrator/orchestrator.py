@@ -40,6 +40,7 @@ from tdbot.behavior.extractor import (
     extract_tone,
 )
 from tdbot.db.models import BehaviorChangeEvent, ConversationMessage
+from tdbot.i18n import normalize_locale, tr
 from tdbot.inference import generate_reply
 from tdbot.inference.circuit_breaker import CircuitBreakerOpen
 from tdbot.logging_config import get_logger
@@ -59,7 +60,6 @@ from tdbot.orchestrator.dialogue_state import (
     set_pending_change,
 )
 from tdbot.policy.abuse_throttle import (
-    ABUSE_BLOCK_MESSAGE,
     is_user_abuse_blocked,
     record_policy_violation,
 )
@@ -89,9 +89,19 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 # Words that confirm a pending medium-risk change (case-insensitive, post-strip)
-_CONFIRM_WORDS: frozenset[str] = frozenset({"yes", "y", "confirm", "ok", "sure", "yep", "yeah"})
+_CONFIRM_WORDS: frozenset[str] = frozenset(
+    {
+        "yes", "y", "confirm", "ok", "sure", "yep", "yeah",
+        "да", "д", "ага", "угу", "подтверждаю", "подтвердить", "хорошо",
+    }
+)
 # Words that cancel a pending medium-risk change
-_CANCEL_WORDS: frozenset[str] = frozenset({"no", "n", "cancel", "nope", "nevermind", "never mind"})
+_CANCEL_WORDS: frozenset[str] = frozenset(
+    {
+        "no", "n", "cancel", "nope", "nevermind", "never mind",
+        "нет", "н", "отмена", "отменить", "неа",
+    }
+)
 
 # Redis key for the per-user activity counter used to trigger refinement
 _ACTIVITY_KEY_PREFIX = "activity_count"
@@ -181,23 +191,18 @@ async def _apply_behavior_change(
                 message_text=message_text[:100],
             )
             return False
-        # Wrap the profile update and snapshot rebuild in a savepoint so that
-        # if rebuild_and_save_snapshot raises, both operations are rolled back
-        # atomically.  Without a savepoint the profile change would be
-        # committed by the outer transaction even when the snapshot write fails.
-        async with session.begin_nested():
-            profile = await get_or_create_profile(session, user_id)
-            profile.tone = enc.encrypt(tone)
-            # Decrypt existing persona_name (may be encrypted in DB) for prompt building.
-            raw_persona = (
-                enc.decrypt_safe(profile.persona_name, default="")
-                if profile.persona_name
-                else None
-            )
-            await rebuild_and_save_snapshot(
-                snapshot_store, user_id, raw_persona, tone,
-                source="behavior_change", session=session,
-            )
+        profile = await get_or_create_profile(session, user_id)
+        profile.tone = enc.encrypt(tone)
+        # Decrypt existing persona_name (may be encrypted in DB) for prompt building.
+        raw_persona = (
+            enc.decrypt_safe(profile.persona_name, default="")
+            if profile.persona_name
+            else None
+        )
+        await rebuild_and_save_snapshot(
+            snapshot_store, user_id, raw_persona, tone,
+            source="behavior_change", session=session,
+        )
         log.info(
             "behavior_change_snapshot_updated",
             user_id=str(user_id),
@@ -215,19 +220,16 @@ async def _apply_behavior_change(
                 message_text=message_text[:100],
             )
             return False
-        # Savepoint ensures that a snapshot-rebuild failure rolls back the
-        # profile update too, keeping profile and snapshot in sync.
-        async with session.begin_nested():
-            profile = await get_or_create_profile(session, user_id)
-            profile.persona_name = enc.encrypt(name)
-            # Decrypt existing tone (may be encrypted in DB) for prompt building.
-            raw_tone = (
-                enc.decrypt_safe(profile.tone, default="") if profile.tone else None
-            )
-            await rebuild_and_save_snapshot(
-                snapshot_store, user_id, name, raw_tone,
-                source="behavior_change", session=session,
-            )
+        profile = await get_or_create_profile(session, user_id)
+        profile.persona_name = enc.encrypt(name)
+        # Decrypt existing tone (may be encrypted in DB) for prompt building.
+        raw_tone = (
+            enc.decrypt_safe(profile.tone, default="") if profile.tone else None
+        )
+        await rebuild_and_save_snapshot(
+            snapshot_store, user_id, name, raw_tone,
+            source="behavior_change", session=session,
+        )
         log.info(
             "behavior_change_snapshot_updated",
             user_id=str(user_id),
@@ -504,6 +506,7 @@ async def process_message(
     refinement_cadence_seconds: int = 3600,
     max_tokens: int = 1024,
     encryptor: FieldEncryptor | None = None,
+    locale: str | None = None,
 ) -> str:
     """Orchestrate a single user message through the full processing pipeline.
 
@@ -529,6 +532,7 @@ async def process_message(
         Reply text to send back to the user.
     """
     user_id_str = str(user_id)
+    ui_locale = normalize_locale(locale) if locale is not None else "en"
     pipeline_start = time.perf_counter()
 
     async with span("orchestrator.process_message", user_id=user_id_str):
@@ -540,7 +544,7 @@ async def process_message(
             CHAT_LATENCY.labels(model=model).observe(
                 time.perf_counter() - pipeline_start
             )
-            return ABUSE_BLOCK_MESSAGE
+            return tr("orchestrator.abuse_block", ui_locale)
 
         # ------------------------------------------------------------------
         # Step 0b — Run policy guardrails on raw message text
@@ -565,7 +569,12 @@ async def process_message(
                 CHAT_LATENCY.labels(model=model).observe(
                     time.perf_counter() - pipeline_start
                 )
-                return result.reason or _REFUSE_MSG
+                reason_key = {
+                    "prompt_injection": "orchestrator.guardrail.prompt_injection",
+                    "unsafe_role_change": "orchestrator.guardrail.unsafe_role_change",
+                    "risky_capability": "orchestrator.guardrail.risky_capability",
+                }.get(result.violation or "", "orchestrator.refuse")
+                return tr(reason_key, ui_locale)
 
         # ------------------------------------------------------------------
         # Step 1 — Check for a pending medium-risk confirmation dialogue
@@ -602,9 +611,10 @@ async def process_message(
                 CHAT_LATENCY.labels(model=model).observe(
                     time.perf_counter() - pipeline_start
                 )
-                return _CHANGE_APPLIED_MSG if applied else (
-                    "I understood your confirmation but couldn't extract"
-                    " the setting from your original message."
+                return (
+                    tr("orchestrator.change_applied", ui_locale)
+                    if applied
+                    else tr("orchestrator.change_apply_failed", ui_locale)
                 )
 
             if normalized in _CANCEL_WORDS:
@@ -628,7 +638,7 @@ async def process_message(
                 CHAT_LATENCY.labels(model=model).observe(
                     time.perf_counter() - pipeline_start
                 )
-                return _CHANGE_CANCELLED_MSG
+                return tr("orchestrator.change_cancelled", ui_locale)
 
             # Any other text clears the pending state and proceeds normally
             await clear_pending_change(redis, user_id_str)
@@ -672,7 +682,7 @@ async def process_message(
             CHAT_LATENCY.labels(model=model).observe(
                 time.perf_counter() - pipeline_start
             )
-            return _REFUSE_MSG
+            return tr("orchestrator.refuse", ui_locale)
 
         if action == "confirm":
             pending_change = PendingChange(
@@ -688,8 +698,12 @@ async def process_message(
             CHAT_LATENCY.labels(model=model).observe(
                 time.perf_counter() - pipeline_start
             )
-            label = _INTENT_LABELS.get(detection.intent, detection.intent.replace("_", " "))
-            return _CONFIRM_TEMPLATE.format(label=label)
+            label_key = f"orchestrator.intent.{detection.intent}"
+            try:
+                label = tr(label_key, ui_locale)
+            except KeyError:
+                label = detection.intent.replace("_", " ")
+            return tr("orchestrator.confirm_template", ui_locale, label=label)
 
         # ------------------------------------------------------------------
         # Step 4 — Build context and generate reply (auto_apply / pass_through)
@@ -700,7 +714,7 @@ async def process_message(
             async with span("prompt_manager.load_context", user_id=user_id_str):
                 user_context = await load_user_context(
                     session, snapshot_store, user_id, max_tokens,
-                    encryptor=encryptor,
+                    encryptor=encryptor, locale=locale,
                 )
 
             try:
@@ -710,7 +724,7 @@ async def process_message(
                     )
             except CircuitBreakerOpen:
                 log.error("circuit_breaker_open_during_chat", user_id=user_id_str)
-                return _CIRCUIT_OPEN_MSG
+                return tr("orchestrator.circuit_open", ui_locale)
 
             reply_text = inference_reply.reply
 
@@ -725,7 +739,7 @@ async def process_message(
                     refusal=sf.refusal,
                     finish_reason=sf.finish_reason,
                 )
-                reply_text = _SAFETY_FALLBACK_MSG
+                reply_text = tr("orchestrator.safety_fallback", ui_locale)
 
             # Record token usage metrics (noqa: S106 — not a password, metric label)
             TOKENS_USED.labels(
@@ -790,7 +804,7 @@ async def process_message(
             # Surface clarification question when behavior detection had
             # a nonzero but below-threshold confidence score.
             if detection.clarification_question is not None:
-                reply_text = f"{reply_text}\n\n{detection.clarification_question}"
+                reply_text = f"{reply_text}\n\n{tr('orchestrator.clarification', ui_locale)}"
 
             # ------------------------------------------------------------------
             # Step 6 — Persist conversation messages

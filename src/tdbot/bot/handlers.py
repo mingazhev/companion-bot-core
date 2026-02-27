@@ -8,6 +8,7 @@ Commands implemented here
 -------------------------
 - /start              \u2014 welcome message
 - /profile            \u2014 show current user settings
+- /set_language       \u2014 switch chat language (ru|en)
 - /set_tone           \u2014 update response tone (persists to DB + rebuilds snapshot)
 - /set_persona        \u2014 update persona name (persists to DB + rebuilds snapshot)
 - /memory_compact_now \u2014 trigger memory compaction job
@@ -29,7 +30,8 @@ from aiogram.filters import Command, CommandObject
 from sqlalchemy import select
 
 from tdbot.behavior.extractor import VALID_TONES
-from tdbot.db.models import UserProfile
+from tdbot.db.models import User, UserProfile
+from tdbot.i18n import SUPPORTED_LOCALES, normalize_locale, tr
 from tdbot.logging_config import get_logger
 from tdbot.orchestrator import process_message
 from tdbot.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
@@ -46,7 +48,6 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from tdbot.config import Settings
-    from tdbot.db.models import User
     from tdbot.inference.client import ChatAPIClient
     from tdbot.prompt.snapshot_store import SnapshotStore
 
@@ -64,6 +65,10 @@ router = Router(name="commands")
 _TG_MSG_LIMIT = 4096
 
 
+def _user_locale(db_user: User | None) -> str:
+    return normalize_locale(db_user.locale if db_user is not None else None)
+
+
 
 # --------------------------------------------------------------------------- #
 # /start
@@ -73,18 +78,7 @@ _TG_MSG_LIMIT = 4096
 @router.message(Command("start"))
 async def cmd_start(message: Message, db_user: User) -> None:
     """Greet the user and show available commands."""
-    await message.answer(
-        "Hello! I am your personal companion bot.\n\n"
-        "Available commands:\n"
-        "/profile \u2014 view your current settings\n"
-        "/set_tone <tone> \u2014 adjust my tone (friendly, professional, playful\u2026)\n"
-        "/set_persona <name> \u2014 give me a persona name\n"
-        "/memory_compact_now \u2014 compress your conversation history\n"
-        "/reset_persona \u2014 restore default persona\n"
-        "/rollback \u2014 revert to the previous prompt version\n"
-        "/privacy \u2014 privacy policy summary\n"
-        "/delete_my_data \u2014 permanently delete all your data"
-    )
+    await message.answer(tr("start.text", _user_locale(db_user)), parse_mode=None)
     log.info("cmd_start", internal_user_id=str(db_user.id))
 
 
@@ -101,33 +95,84 @@ async def cmd_profile(
     encryptor: FieldEncryptor | None = None,
 ) -> None:
     """Display the user's current profile information."""
+    locale = _user_locale(db_user)
     enc = encryptor or NOOP_ENCRYPTOR
     result = await db_session.execute(
         select(UserProfile).where(UserProfile.user_id == db_user.id)
     )
     profile = result.scalar_one_or_none()
 
-    persona_display = "(not set)"
-    tone_display = "(not set)"
+    persona_display = tr("profile.not_set", locale)
+    tone_display = tr("profile.not_set", locale)
     if profile is not None:
         if profile.persona_name:
-            persona_display = enc.decrypt_safe(profile.persona_name, default="(unable to decrypt)")
+            persona_display = enc.decrypt_safe(
+                profile.persona_name,
+                default=tr("profile.decrypt_failed", locale),
+            )
         if profile.tone:
-            tone_display = enc.decrypt_safe(profile.tone, default="(unable to decrypt)")
+            tone_display = enc.decrypt_safe(
+                profile.tone,
+                default=tr("profile.decrypt_failed", locale),
+            )
 
-    lines = [
-        f"Telegram ID: {db_user.telegram_user_id}",
-        f"Status: {db_user.status}",
-        f"Locale: {db_user.locale or '(not set)'}",
-        f"Timezone: {db_user.timezone or '(not set)'}",
-        "",
-        f"Persona: {persona_display}",
-        f"Tone: {tone_display}",
-        "",
-        "Use /set_tone and /set_persona to customise.",
-    ]
-    await message.answer("\n".join(lines), parse_mode=None)
+    await message.answer(
+        tr(
+            "profile.summary",
+            locale,
+            telegram_id=db_user.telegram_user_id,
+            status=db_user.status,
+            user_locale=normalize_locale(db_user.locale),
+            timezone=db_user.timezone or tr("profile.not_set", locale),
+            persona=persona_display,
+            tone=tone_display,
+        ),
+        parse_mode=None,
+    )
     log.info("cmd_profile", internal_user_id=str(db_user.id))
+
+
+# --------------------------------------------------------------------------- #
+# /set_language
+# --------------------------------------------------------------------------- #
+
+
+@router.message(Command("set_language"))
+async def cmd_set_language(
+    message: Message,
+    command: CommandObject,
+    db_user: User,
+    db_session: AsyncSession,
+) -> None:
+    """Set chat language. Usage: /set_language <ru|en>."""
+    current_locale = _user_locale(db_user)
+    raw = (command.args or "").strip().lower()
+    if not raw:
+        await message.answer(tr("set_language.help", current_locale), parse_mode=None)
+        return
+
+    if raw.startswith("ru"):
+        new_locale = "ru"
+    elif raw.startswith("en"):
+        new_locale = "en"
+    else:
+        await message.answer(
+            tr("set_language.invalid", current_locale, value=html.escape(raw)),
+            parse_mode=None,
+        )
+        return
+
+    if new_locale not in SUPPORTED_LOCALES:
+        await message.answer(
+            tr("set_language.invalid", current_locale, value=html.escape(raw)),
+            parse_mode=None,
+        )
+        return
+
+    db_user.locale = new_locale
+    await db_session.flush()
+    await message.answer(tr("set_language.updated", new_locale), parse_mode=None)
+    log.info("set_language", internal_user_id=str(db_user.id), locale=new_locale)
 
 
 # --------------------------------------------------------------------------- #
@@ -146,19 +191,21 @@ async def cmd_set_tone(
     redis: Redis | None = None,
 ) -> None:
     """Set the response tone. Usage: /set_tone <tone>"""
+    locale = _user_locale(db_user)
     enc = encryptor or NOOP_ENCRYPTOR
     tone = (command.args or "").strip().lower()
     if not tone:
+        tones = ", ".join(sorted(VALID_TONES))
         await message.answer(
-            "Please provide a tone.\n"
-            f"Example: /set_tone friendly\n"
-            f"Valid tones: {', '.join(sorted(VALID_TONES))}"
+            tr("set_tone.missing", locale, tones=tones),
+            parse_mode=None,
         )
         return
     if tone not in VALID_TONES:
+        tones = ", ".join(sorted(VALID_TONES))
         await message.answer(
-            f"Unknown tone '{html.escape(tone)}'.\n"
-            f"Valid tones: {', '.join(sorted(VALID_TONES))}"
+            tr("set_tone.invalid", locale, tone=html.escape(tone), tones=tones),
+            parse_mode=None,
         )
         return
 
@@ -171,9 +218,7 @@ async def cmd_set_tone(
     if redis is not None:
         lock_held = bool(await redis.set(lock_key, lock_token, nx=True, ex=120))
         if not lock_held:
-            await message.answer(
-                "A profile update is already in progress. Please try again in a moment."
-            )
+            await message.answer(tr("profile.lock_in_progress", locale), parse_mode=None)
             return
 
     # When the success path completes, the lock release is deferred until after
@@ -203,8 +248,8 @@ async def cmd_set_tone(
             session=db_session,
         )
         await message.answer(
-            f"Tone set to '{tone}'.\n"
-            "Changes will be applied starting from your next message."
+            tr("set_tone.updated", locale, tone=tone),
+            parse_mode=None,
         )
         log.info("set_tone", internal_user_id=str(db_user.id), tone=tone)
         # Defer release until after commit + Redis pointer flush (success path).
@@ -240,16 +285,14 @@ async def cmd_set_persona(
     redis: Redis | None = None,
 ) -> None:
     """Set the persona name. Usage: /set_persona <name>"""
+    locale = _user_locale(db_user)
     enc = encryptor or NOOP_ENCRYPTOR
     name = (command.args or "").strip()
     if not name:
-        await message.answer(
-            "Please provide a persona name.\n"
-            "Example: /set_persona Alex"
-        )
+        await message.answer(tr("set_persona.missing", locale), parse_mode=None)
         return
     if len(name) > 64:
-        await message.answer("Persona name must be 64 characters or fewer.")
+        await message.answer(tr("set_persona.too_long", locale), parse_mode=None)
         return
     # Reject control characters (newlines, tabs, DEL, Unicode direction overrides,
     # zero-width chars) to prevent stored prompt injection via persona names.
@@ -261,7 +304,7 @@ async def cmd_set_persona(
         "\ufeff"                        # BOM / zero-width no-break space
     )
     if any(c < " " or c in _banned_chars for c in name):
-        await message.answer("Persona name must not contain control characters.")
+        await message.answer(tr("set_persona.control_chars", locale), parse_mode=None)
         return
 
     # Serialize concurrent profile updates for the same user.
@@ -271,9 +314,7 @@ async def cmd_set_persona(
     if redis is not None:
         lock_held = bool(await redis.set(lock_key, lock_token, nx=True, ex=120))
         if not lock_held:
-            await message.answer(
-                "A profile update is already in progress. Please try again in a moment."
-            )
+            await message.answer(tr("profile.lock_in_progress", locale), parse_mode=None)
             return
 
     deferred = False
@@ -291,7 +332,10 @@ async def cmd_set_persona(
             snapshot_store, db_user.id, name, raw_tone,
             session=db_session,
         )
-        await message.answer(f"Persona name set to '{html.escape(name)}'.")
+        await message.answer(
+            tr("set_persona.updated", locale, name=html.escape(name)),
+            parse_mode=None,
+        )
         log.info("set_persona", internal_user_id=str(db_user.id), persona_name=name)
         # Defer release until after commit + Redis pointer flush (success path).
         if lock_held:
@@ -318,13 +362,15 @@ async def cmd_set_persona(
 @router.message(Command("memory_compact_now"))
 async def cmd_memory_compact_now(message: Message, db_user: User, redis: Redis) -> None:
     """Request an immediate memory compaction for this user."""
+    locale = _user_locale(db_user)
+    locale = _user_locale(db_user)
     user_id_str = str(db_user.id)
 
     # Acquire the shared dedup guard to prevent flooding the refinement queue.
     guard_key = f"refinement:pending:{user_id_str}"
     acquired = await redis.set(guard_key, "1", nx=True, ex=600)
     if not acquired:
-        await message.answer("A compaction is already in progress. Please wait.")
+        await message.answer(tr("memory_compact.in_progress", locale), parse_mode=None)
         return
 
     try:
@@ -334,14 +380,11 @@ async def cmd_memory_compact_now(message: Message, db_user: User, redis: Redis) 
             await redis.delete(guard_key)
         except Exception:  # noqa: BLE001
             log.warning("compact_guard_cleanup_failed", internal_user_id=user_id_str)
-        await message.answer("Failed to enqueue compaction. Please try again.")
+        await message.answer(tr("memory_compact.enqueue_failed", locale), parse_mode=None)
         log.warning("memory_compact_enqueue_failed", internal_user_id=user_id_str)
         return
 
-    await message.answer(
-        "Memory compaction requested.\n"
-        "Your prompt profile will be refined based on recent conversations shortly."
-    )
+    await message.answer(tr("memory_compact.requested", locale), parse_mode=None)
     log.info("memory_compact_now_requested", internal_user_id=user_id_str)
 
 
@@ -359,6 +402,7 @@ async def cmd_reset_persona(
     redis: Redis | None = None,
 ) -> None:
     """Reset the user's persona and tone to defaults."""
+    locale = _user_locale(db_user)
     # Serialize concurrent profile updates for the same user.
     lock_key = f"profile:write:{db_user.id}"
     lock_token = secrets.token_hex(16)
@@ -366,9 +410,7 @@ async def cmd_reset_persona(
     if redis is not None:
         lock_held = bool(await redis.set(lock_key, lock_token, nx=True, ex=120))
         if not lock_held:
-            await message.answer(
-                "A profile update is already in progress. Please try again in a moment."
-            )
+            await message.answer(tr("profile.lock_in_progress", locale), parse_mode=None)
             return
 
     deferred = False
@@ -382,10 +424,7 @@ async def cmd_reset_persona(
             snapshot_store, db_user.id, None, None,
             session=db_session,
         )
-        await message.answer(
-            "Your persona has been reset to defaults.\n"
-            "Use /set_persona and /set_tone to customise again."
-        )
+        await message.answer(tr("reset_persona.updated", locale), parse_mode=None)
         log.info("reset_persona", internal_user_id=str(db_user.id))
         # Defer release until after commit + Redis pointer flush (success path).
         if lock_held:
@@ -417,6 +456,7 @@ async def cmd_rollback(
     snapshot_store: SnapshotStore,
 ) -> None:
     """Revert the active prompt snapshot to the previous version."""
+    locale = _user_locale(db_user)
     try:
         rolled_back = await rollback_to_previous(
             snapshot_store, db_user.id, session=db_session,
@@ -425,8 +465,8 @@ async def cmd_rollback(
         await message.answer(str(exc), parse_mode=None)
         return
     await message.answer(
-        f"Prompt rolled back to version {rolled_back.version}.\n"
-        "Changes will be applied starting from your next message."
+        tr("rollback.updated", locale, version=rolled_back.version),
+        parse_mode=None,
     )
     log.info("cmd_rollback", internal_user_id=str(db_user.id), version=rolled_back.version)
 
@@ -437,15 +477,9 @@ async def cmd_rollback(
 
 
 @router.message(Command("privacy"))
-async def cmd_privacy(message: Message) -> None:
+async def cmd_privacy(message: Message, db_user: User | None = None) -> None:
     """Show a privacy policy summary."""
-    await message.answer(
-        "Privacy summary:\n\n"
-        "\u2022 Messages are retained for up to 7 days to maintain conversation context.\n"
-        "\u2022 Profile settings are stored until you request deletion.\n"
-        "\u2022 No data is sold or shared with third parties.\n\n"
-        "Use /delete_my_data to permanently remove all your personal data."
-    )
+    await message.answer(tr("privacy.summary", _user_locale(db_user)), parse_mode=None)
 
 
 # --------------------------------------------------------------------------- #
@@ -468,16 +502,13 @@ async def cmd_delete_my_data(
     null user_id (audit minimality requirement).  Redis keys scoped to
     the user are also removed.  In-memory snapshot data is also purged.
     """
+    locale = _user_locale(db_user)
     user_id_str = str(db_user.id)
     await hard_delete_user(db_user.id, db_session, redis, telegram_user_id=db_user.telegram_user_id)
     await snapshot_store.delete_for_user(db_user.id)
     log.info("delete_my_data_completed", internal_user_id=user_id_str)
     try:
-        await message.answer(
-            "Your personal data has been permanently deleted.\n\n"
-            "Conversation history, profile settings, and persona data have been removed. "
-            "This action cannot be undone."
-        )
+        await message.answer(tr("delete_my_data.done", locale), parse_mode=None)
     except Exception:  # noqa: BLE001
         log.warning("delete_my_data_confirmation_send_failed", internal_user_id=user_id_str)
 
@@ -499,6 +530,7 @@ async def handle_message(
     encryptor: FieldEncryptor | None = None,
 ) -> None:
     """Route non-command text messages through the conversation orchestrator."""
+    locale = _user_locale(db_user)
     user_id_str = str(db_user.id)
     text = message.text or ""
     ingress_start = time.perf_counter()
@@ -518,6 +550,7 @@ async def handle_message(
                 refinement_activity_threshold=settings.refinement_activity_threshold,
                 refinement_cadence_seconds=settings.refinement_cadence_seconds,
                 encryptor=encryptor,
+                locale=locale,
             )
         except Exception:
             log.exception(
@@ -530,8 +563,7 @@ async def handle_message(
             # never saw).
             try:
                 await message.answer(
-                    "Something went wrong while processing your message. "
-                    "Please try again in a moment.",
+                    tr("handle.error", locale),
                     parse_mode=None,
                 )
             except Exception:  # noqa: BLE001
@@ -557,9 +589,7 @@ async def handle_message(
         # updating this user's prompt snapshot since their last message.
         try:
             if await check_and_clear_user_notice(redis, user_id_str):
-                await message.answer(
-                    "Your conversation profile has been updated based on recent interactions."
-                )
+                await message.answer(tr("notice.profile_updated", locale), parse_mode=None)
         except Exception:
             log.warning("notice_send_failed", internal_user_id=user_id_str)
 

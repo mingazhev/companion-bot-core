@@ -131,7 +131,8 @@ async def test_load_user_context_falls_back_to_default_when_no_snapshot() -> Non
 
     ctx = await load_user_context(session, store, user_id)
 
-    assert "helpful" in ctx.system_prompt.lower() or "companion" in ctx.system_prompt.lower()
+    lower = ctx.system_prompt.lower()
+    assert "helpful" in lower or "companion" in lower or "дружелюб" in lower or "компаньон" in lower
 
 
 @pytest.mark.asyncio

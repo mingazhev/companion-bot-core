@@ -100,12 +100,16 @@ Seed personas available: `friendly` (default), `professional`, `concise`, and sk
 |---|---|
 | `/start` | Welcome message and command list |
 | `/profile` | View current settings |
+| `/set_language <ru|en>` | Set chat language (`ru` default) |
 | `/set_tone <tone>` | Set response tone: `friendly`, `professional`, `playful`, `neutral`, `casual` |
 | `/set_persona <name>` | Set persona name (max 64 chars) |
 | `/memory_compact_now` | Request immediate prompt refinement |
 | `/reset_persona` | Reset persona and tone to defaults |
+| `/rollback` | Revert active prompt snapshot to the previous version |
 | `/privacy` | Data retention summary |
 | `/delete_my_data` | Permanently delete all personal data (DB rows + Redis keys including rate limits, pending changes, abuse blocks) |
+
+By default, bot communication is in Russian. Users can switch to English with `/set_language en`.
 
 ## Internal HTTP API
 

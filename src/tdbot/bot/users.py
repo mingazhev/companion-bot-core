@@ -29,7 +29,7 @@ async def get_or_create_user(session: AsyncSession, telegram_user_id: int) -> Us
     """
     stmt = (
         insert(User)
-        .values(telegram_user_id=telegram_user_id)
+        .values(telegram_user_id=telegram_user_id, locale="ru")
         .on_conflict_do_nothing(index_elements=["telegram_user_id"])
     )
     await session.execute(stmt)

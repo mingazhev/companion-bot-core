@@ -18,7 +18,10 @@ from pydantic import BaseModel, Field
 SnapshotSource = Literal["initial", "user_command", "behavior_change", "refinement", "rollback"]
 
 # Default system prompt for new users without a stored snapshot.
-DEFAULT_SYSTEM_TEMPLATE = "You are a helpful, friendly companion."
+DEFAULT_SYSTEM_TEMPLATE = (
+    "Ты полезный, дружелюбный AI-компаньон. "
+    "По умолчанию отвечай на русском языке."
+)
 
 
 class PromptComponents(BaseModel):

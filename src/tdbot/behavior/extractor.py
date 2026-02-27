@@ -31,11 +31,24 @@ _TONE_ALIASES: Final[dict[str, str]] = {
     "nice": "friendly",
     "nicer": "friendly",
     "welcoming": "friendly",
+    "дружелюбный": "friendly",
+    "дружелюбнее": "friendly",
+    "дружеский": "friendly",
+    "теплый": "friendly",
+    "тёплый": "friendly",
+    "теплее": "friendly",
+    "тёплее": "friendly",
     "professional": "professional",
     "formal": "professional",
     "serious": "professional",
     "business": "professional",
     "corporate": "professional",
+    "профессиональный": "professional",
+    "профессиональнее": "professional",
+    "формальный": "professional",
+    "официальный": "professional",
+    "серьезный": "professional",
+    "серьёзный": "professional",
     "playful": "playful",
     "fun": "playful",
     "humorous": "playful",
@@ -44,9 +57,17 @@ _TONE_ALIASES: Final[dict[str, str]] = {
     "witty": "playful",
     "wittier": "playful",
     "lighthearted": "playful",
+    "игривый": "playful",
+    "веселый": "playful",
+    "весёлый": "playful",
+    "юморной": "playful",
+    "шутливый": "playful",
     "neutral": "neutral",
     "balanced": "neutral",
     "objective": "neutral",
+    "нейтральный": "neutral",
+    "нейтральнее": "neutral",
+    "сбалансированный": "neutral",
     "casual": "casual",
     "relaxed": "casual",
     "informal": "casual",
@@ -55,6 +76,10 @@ _TONE_ALIASES: Final[dict[str, str]] = {
     "laid-back": "casual",
     "laidback": "casual",
     "conversational": "casual",
+    "неформальный": "casual",
+    "разговорный": "casual",
+    "расслабленный": "casual",
+    "свободный": "casual",
 }
 
 # Patterns to extract persona name from common phrasing.
@@ -103,51 +128,93 @@ _PERSONA_PATTERNS: Final[list[re.Pattern[str]]] = [
         r"\bchange your (?:name|identity|character|persona) to\b\s+([A-Z][a-zA-Z\-' ]{0,63})",
         re.IGNORECASE,
     ),
+    re.compile(
+        r"\bтеперь ты\b\s+(?:по имени\s+|зовут\s+)?([А-ЯЁA-Z][А-ЯЁа-яёA-Za-z\-' ]{0,63})",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bтвое имя\b\s+(?:теперь\s+)?([А-ЯЁA-Z][А-ЯЁа-яёA-Za-z\-' ]{0,63})",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bзови себя\b\s+([А-ЯЁA-Z][А-ЯЁа-яёA-Za-z\-' ]{0,63})",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bиграй роль\b\s+(?:[А-ЯЁа-яёA-Za-z]+\s+)?([А-ЯЁA-Z][А-ЯЁа-яёA-Za-z\-' ]{0,63})",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bпредставь(?:ся)?\b.{0,20}\bкак\b\s+"
+        r"(?:[А-ЯЁа-яёA-Za-z]+\s+)?([А-ЯЁA-Z][А-ЯЁа-яёA-Za-z\-' ]{0,63})",
+        re.IGNORECASE,
+    ),
 ]
+
+# Character class used for extracted skill topics (Latin + Cyrillic).
+_TOPIC = r"[a-zA-Zа-яА-ЯёЁ][a-zA-Zа-яА-ЯёЁ0-9 \-]{0,48}"
 
 # Patterns to extract skill topic from skill_add_prompt / skill_remove messages.
 _SKILL_PATTERNS: Final[list[re.Pattern[str]]] = [
     re.compile(
         r"\b(?:add|enable|activate)\b.{0,15}\b(?:skill|capability|feature|ability|topic)\b"
-        r"(?:\s+(?:for|about|called|named))?\s+([a-zA-Z][a-zA-Z0-9 \-]{0,48})",
+        rf"(?:\s+(?:for|about|called|named))?\s+({_TOPIC})",
         re.IGNORECASE,
     ),
     re.compile(
         r"\b(?:remove|disable|turn off|deactivate)\b.{0,15}"
         r"\b(?:skill|capability|feature|ability|topic)\b"
-        r"(?:\s+(?:for|about|called|named))?\s+([a-zA-Z][a-zA-Z0-9 \-]{0,48})",
+        rf"(?:\s+(?:for|about|called|named))?\s+({_TOPIC})",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(?:help|assist)\b\s+(?:me\s+)?with\b\s+([a-zA-Z][a-zA-Z0-9 \-]{0,48})"
+        rf"\b(?:help|assist)\b\s+(?:me\s+)?with\b\s+({_TOPIC})"
         r"\s+(?:from now on|always|going forward)",
         re.IGNORECASE,
     ),
     # Matches the detector signal: "i (want|need|would like) you to (also)? (help|assist|...)"
     re.compile(
         r"\bi (?:want|need|would like) you to (?:also )?(?:help|assist|know about|learn|understand)"
-        r"(?:\s+(?:me\s+)?with)?\s+([a-zA-Z][a-zA-Z0-9 \-]{0,48})",
+        rf"(?:\s+(?:me\s+)?with)?\s+({_TOPIC})",
         re.IGNORECASE,
     ),
     # Matches the detector signal: "you (should|can|could|may) also (help|assist|know|support)"
     re.compile(
         r"\byou (?:should|can|could|may) also (?:help|assist|know about|support)"
-        r"(?:\s+(?:me\s+)?with)?\s+([a-zA-Z][a-zA-Z0-9 \-]{0,48})",
+        rf"(?:\s+(?:me\s+)?with)?\s+({_TOPIC})",
         re.IGNORECASE,
     ),
     re.compile(
         r"\bstop (?:helping|assisting)\b\s+(?:me\s+)?with\b\s+"
-        r"([a-zA-Z][a-zA-Z0-9 \-]{0,48})",
+        rf"({_TOPIC})",
         re.IGNORECASE,
     ),
     re.compile(
         r"\blearn (?:about|to help with|how to help with)\b\s+"
-        r"([a-zA-Z][a-zA-Z0-9 \-]{0,48})",
+        rf"({_TOPIC})",
         re.IGNORECASE,
     ),
     re.compile(
         r"\bdon'?t (?:help|assist)\b\s+(?:me\s+)?with\b\s+"
-        r"([a-zA-Z][a-zA-Z0-9 \-]{0,48})\s+anymore",
+        rf"({_TOPIC})\s+anymore",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:добавь|включи|активируй)\b.{0,20}\b(?:навык|умение|функцию|тему)\b"
+        rf"(?:\s+(?:по|для|о))?\s+({_TOPIC})",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:убери|удали|отключи|деактивируй)\b.{0,20}\b(?:навык|умение|функцию|тему)\b"
+        rf"(?:\s+(?:по|для|о))?\s+({_TOPIC})",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"\b(?:помогай|помоги)\b\s+(?:мне\s+)?с\b\s+({_TOPIC})\s+(?:всегда|дальше|теперь)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"\b(?:не\s+помогай|перестань\s+помогать)\b\s+(?:мне\s+)?с\b\s+({_TOPIC})",
         re.IGNORECASE,
     ),
 ]

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Literal, cast
 from sqlalchemy import select
 
 from tdbot.db.models import ConversationMessage
+from tdbot.i18n import normalize_locale, tr
 from tdbot.inference.schemas import ChatMessage, UserContext
 from tdbot.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
 from tdbot.prompt.merge_builder import build_system_prompt
@@ -85,6 +86,7 @@ async def load_user_context(
     user_id: UUID,
     max_tokens: int = _DEFAULT_MAX_TOKENS,
     encryptor: FieldEncryptor | None = None,
+    locale: str | None = None,
 ) -> UserContext:
     """Build a :class:`~tdbot.inference.schemas.UserContext` for *user_id*.
 
@@ -121,6 +123,12 @@ async def load_user_context(
         )
         await snapshot_store.save(initial, session=session)
         await snapshot_store.set_active(user_id, initial.id, session=session)
+
+    if locale is not None:
+        system_prompt = (
+            f"{system_prompt}\n\n[Language]\n"
+            f"{tr('prompt.language_instruction', normalize_locale(locale))}"
+        )
 
     history = await load_recent_messages(session, user_id, limit=20, encryptor=encryptor)
 

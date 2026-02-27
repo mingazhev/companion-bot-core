@@ -41,17 +41,28 @@ _INJECTION_SIGNALS: Final[list[Signal]] = compile_signals(
             r"(instructions?|prompts?)\b",
             0.85,
         ),
+        (
+            r"\b(игнорируй|забудь)\b.{0,30}\b(предыдущие|все)\b.{0,20}\b"
+            r"(инструкции|правила|контекст|промпт)\b",
+            0.85,
+        ),
         (r"\bnew\b.{0,15}\binstructions?\b.{0,20}\b(are|follow|override)\b", 0.8),
+        (r"\bновые\b.{0,15}\bинструкц\w*\b.{0,20}\b(следуют|переопределяют)\b", 0.8),
         (r"\boverwrite\b.{0,20}\b(system|prompt|instructions?|context)\b", 0.85),
+        (r"\bперепиши\b.{0,20}\b(системный|промпт|инструкц|контекст)\w*", 0.85),
         (r"\breplace\b.{0,20}\b(system prompt|instructions?|persona)\b", 0.8),
+        (r"\bзамени\b.{0,20}\b(системный промпт|инструкц|персону)\b", 0.8),
         # Prompt leakage fishing
         (r"\brepeat\b.{0,25}\b(your|the)\b.{0,20}\b(system prompt|instructions?|context)\b", 0.75),
         (r"\bprint\b.{0,20}\b(your|the)\b.{0,20}\b(system prompt|instructions?)\b", 0.75),
         (r"\bshow\b.{0,20}\b(your|the)\b.{0,20}\b(system prompt|hidden instructions?)\b", 0.75),
+        (r"\bпокажи\b.{0,25}\b(системный промпт|скрытые инструкции|контекст)\b", 0.75),
         # Token smuggling keywords
         (r"\btoken\b.{0,20}\bsmuggling\b", 0.95),
         (r"\bprompt\b.{0,15}\binjection\b", 0.95),
         (r"\bprompt\b.{0,15}\bleak\b", 0.9),
+        (r"\bпромпт\b.{0,15}\bинъекц\w*\b", 0.95),
+        (r"\bутечк\w*\b.{0,20}\bпромпт\w*\b", 0.9),
     ]
 )
 
@@ -96,11 +107,21 @@ _ROLE_CHANGE_SIGNALS: Final[list[Signal]] = compile_signals(
             r"god mode|master|unrestricted (ai|bot|assistant))\b",
             0.9,
         ),
+        (
+            r"\b(ты|стань|будь|прикинься)\b.{0,30}\b"
+            r"(админ(истратор)?|разработчик|root|суперпользователь|система)\b",
+            0.9,
+        ),
         # "Switch to developer/admin mode"
         (
             r"\b(switch|enter|enable|activate|turn on)\b.{0,25}\b"
             r"(admin|developer|root|god|debug|privileged|unrestricted)\b.{0,15}\b"
             r"(mode|role|access|capabilities?)\b",
+            0.9,
+        ),
+        (
+            r"\b(включи|активируй|переключись)\b.{0,25}\b"
+            r"(режим|роль)\b.{0,15}\b(админ|разработчик|root|привилег)\w*",
             0.9,
         ),
         # "You now have admin privileges / elevated access"
@@ -114,6 +135,11 @@ _ROLE_CHANGE_SIGNALS: Final[list[Signal]] = compile_signals(
         (
             r"\bgrant\b.{0,20}\b(yourself|yourself full|admin|root|elevated)\b.{0,20}\b"
             r"(access|permissions?|privileges?)\b",
+            0.85,
+        ),
+        (
+            r"\bдай\b.{0,20}\b(себе|admin|root|повышен\w*)\b.{0,20}\b"
+            r"(доступ|права|привилеги)\w*",
             0.85,
         ),
         # "You are the system / the master AI" framing
@@ -170,6 +196,11 @@ _CAPABILITY_SIGNALS: Final[list[Signal]] = compile_signals(
             r"(code|script|program|command|shell|bash|python|javascript|sql)\b",
             0.85,
         ),
+        (
+            r"\b(запусти|выполни|скомпилируй)\b.{0,25}\b"
+            r"(код|скрипт|программу|команду|bash|python|javascript|sql)\b",
+            0.85,
+        ),
         (r"\bos\.system\b|subprocess\.|exec\(|eval\(", 0.95),
         # File system access
         (
@@ -177,11 +208,21 @@ _CAPABILITY_SIGNALS: Final[list[Signal]] = compile_signals(
             r"(file|directory|folder|disk|filesystem|path)\b",
             0.75,
         ),
+        (
+            r"\b(прочитай|запиши|удали|открой|создай|измени)\b.{0,25}\b"
+            r"(файл|директори|папк|диск|файлов\w*\s+систем\w*|путь)\w*",
+            0.75,
+        ),
         (r"\b(rm|mv|cp|mkdir|chmod|chown)\b.{0,20}\b/", 0.9),
         # Network / internet access
         (
             r"\b(browse|visit|fetch|scrape|crawl|download)\b.{0,25}\b"
             r"(the internet|the web|websites?|urls?|web pages?|online)\b",
+            0.8,
+        ),
+        (
+            r"\b(зайди|скачай|получи|собери|спарси|пройдись)\b.{0,25}\b"
+            r"(интернет|веб|сайт|url|страниц\w*|онлайн)\b",
             0.8,
         ),
         (r"\bhttp(s?):\/\/", 0.3),
