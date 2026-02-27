@@ -12,6 +12,7 @@ Commands implemented here
 - /set_persona        \u2014 update persona name (persists to DB + rebuilds snapshot)
 - /memory_compact_now \u2014 trigger memory compaction job
 - /reset_persona      \u2014 restore default persona (persists to DB + rebuilds snapshot)
+- /rollback           \u2014 revert active prompt snapshot to the previous version
 - /privacy            \u2014 display privacy policy summary
 - /delete_my_data     \u2014 initiate hard-delete flow
 """
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
     from tdbot.prompt.snapshot_store import SnapshotStore
 
 from tdbot.privacy.delete_user import hard_delete_user
+from tdbot.prompt.rollback import RollbackError, rollback_to_previous
 from tdbot.redis.queues import enqueue_refinement_job
 from tdbot.refinement.worker import check_and_clear_user_notice
 
@@ -72,6 +74,7 @@ async def cmd_start(message: Message, db_user: User) -> None:
         "/set_persona <name> \u2014 give me a persona name\n"
         "/memory_compact_now \u2014 compress your conversation history\n"
         "/reset_persona \u2014 restore default persona\n"
+        "/rollback \u2014 revert to the previous prompt version\n"
         "/privacy \u2014 privacy policy summary\n"
         "/delete_my_data \u2014 permanently delete all your data"
     )
@@ -284,6 +287,33 @@ async def cmd_reset_persona(
         "Use /set_persona and /set_tone to customise again."
     )
     log.info("reset_persona", internal_user_id=str(db_user.id))
+
+
+# --------------------------------------------------------------------------- #
+# /rollback
+# --------------------------------------------------------------------------- #
+
+
+@router.message(Command("rollback"))
+async def cmd_rollback(
+    message: Message,
+    db_user: User,
+    db_session: AsyncSession,
+    snapshot_store: SnapshotStore,
+) -> None:
+    """Revert the active prompt snapshot to the previous version."""
+    try:
+        rolled_back = await rollback_to_previous(
+            snapshot_store, db_user.id, session=db_session,
+        )
+    except RollbackError as exc:
+        await message.answer(str(exc))
+        return
+    await message.answer(
+        f"Prompt rolled back to version {rolled_back.version}.\n"
+        "Changes will be applied starting from your next message."
+    )
+    log.info("cmd_rollback", internal_user_id=str(db_user.id), version=rolled_back.version)
 
 
 # --------------------------------------------------------------------------- #

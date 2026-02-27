@@ -60,47 +60,47 @@ _TONE_ALIASES: Final[dict[str, str]] = {
 # Patterns to extract persona name from common phrasing.
 _PERSONA_PATTERNS: Final[list[re.Pattern[str]]] = [
     re.compile(
-        r"\byou are now\b\s+(?:called\s+)?([A-Z][a-zA-Z\-' ]{0,62})",
+        r"\byou are now\b\s+(?:called\s+)?([A-Z][a-zA-Z\-' ]{0,63})",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\byour name is\b\s+(?:now\s+)?([A-Z][a-zA-Z\-' ]{0,62})",
+        r"\byour name is\b\s+(?:now\s+)?([A-Z][a-zA-Z\-' ]{0,63})",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\bcall yourself\b\s+([A-Z][a-zA-Z\-' ]{0,62})",
+        r"\bcall yourself\b\s+([A-Z][a-zA-Z\-' ]{0,63})",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\bfrom now on\b.{0,30}\byou(?:'re| are)\b\s+([A-Z][a-zA-Z\-' ]{0,62})",
+        r"\bfrom now on\b.{0,30}\byou(?:'re| are)\b\s+([A-Z][a-zA-Z\-' ]{0,63})",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\bpretend (?:to be|you are|you're)\b\s+(?:a |an )?([A-Z][a-zA-Z\-' ]{0,62})",
+        r"\bpretend (?:to be|you are|you're)\b\s+(?:a |an )?([A-Z][a-zA-Z\-' ]{0,63})",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\broleplay (?:as|like)\b\s+(?:a |an )?([A-Z][a-zA-Z\-' ]{0,62})",
+        r"\broleplay (?:as|like)\b\s+(?:a |an )?([A-Z][a-zA-Z\-' ]{0,63})",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\bact as\b\s+(?:a |an )?([A-Z][a-zA-Z\-' ]{0,62})",
+        r"\bact as\b\s+(?:a |an )?([A-Z][a-zA-Z\-' ]{0,63})",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\bplay the role of\b\s+(?:a |an )?([A-Z][a-zA-Z\-' ]{0,62})",
+        r"\bplay the role of\b\s+(?:a |an )?([A-Z][a-zA-Z\-' ]{0,63})",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\bbecome\b\s+(?:a |an )?(?:different |new )?([A-Z][a-zA-Z\-' ]{0,62})",
+        r"\bbecome\b\s+(?:a |an )?(?:different |new )?([A-Z][a-zA-Z\-' ]{0,63})",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\bimagine you are\b\s+(?:a |an )?([A-Z][a-zA-Z\-' ]{0,62})",
+        r"\bimagine you are\b\s+(?:a |an )?([A-Z][a-zA-Z\-' ]{0,63})",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\bchange your (?:name|identity|character|persona) to\b\s+([A-Z][a-zA-Z\-' ]{0,62})",
+        r"\bchange your (?:name|identity|character|persona) to\b\s+([A-Z][a-zA-Z\-' ]{0,63})",
         re.IGNORECASE,
     ),
 ]

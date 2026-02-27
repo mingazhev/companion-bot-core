@@ -195,22 +195,26 @@ class PostgresSnapshotStore:
         )
 
 
+def extract_deferred_redis_writes(session: AsyncSession) -> list[tuple[str, str]]:
+    """Pop deferred Redis writes from *session*.info and return them.
+
+    Must be called **inside** the session context manager, before the
+    session is closed.  The returned list should then be passed to
+    :func:`flush_deferred_redis_writes` after the transaction commits.
+    """
+    return session.info.pop(_DEFERRED_REDIS_KEY, [])
+
+
 async def flush_deferred_redis_writes(
-    session: AsyncSession,
+    writes: list[tuple[str, str]],
     redis: Redis,
 ) -> None:
-    """Execute snapshot-pointer Redis writes deferred during *session*.
+    """Execute snapshot-pointer Redis writes previously extracted via
+    :func:`extract_deferred_redis_writes`.
 
-    Must be called **after** the DB transaction has committed.  If no
-    deferred writes were recorded the call is a no-op.
-
-    Writes are removed from ``session.info`` only after all Redis SETs
-    succeed so that callers can retry on transient failures.
+    Must be called **after** the DB transaction has committed.  If
+    *writes* is empty the call is a no-op.  Redis ``SET`` is
+    idempotent so callers can safely retry on transient failures.
     """
-    writes: list[tuple[str, str]] = session.info.get(_DEFERRED_REDIS_KEY, [])
-    if not writes:
-        return
     for key, value in writes:
         await redis.set(key, value)
-    # All writes succeeded — safe to clear.
-    session.info.pop(_DEFERRED_REDIS_KEY, None)

@@ -21,14 +21,14 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import update as sql_update
 
 from tdbot.db.engine import get_async_session
-from tdbot.db.models import AuditLog, Job
+from tdbot.db.models import AuditLog, Job, MemoryCompaction
 from tdbot.inference.circuit_breaker import CircuitBreakerOpen
 from tdbot.logging_config import get_logger
 from tdbot.metrics import REFINEMENT_JOBS
 from tdbot.orchestrator.context_loader import load_recent_messages
 from tdbot.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
 from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template, extract_section
-from tdbot.prompt.postgres_store import flush_deferred_redis_writes
+from tdbot.prompt.postgres_store import extract_deferred_redis_writes, flush_deferred_redis_writes
 from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
 from tdbot.redis.queues import (
     QUEUE_REFINEMENT_JOBS,
@@ -237,6 +237,8 @@ async def process_one_job(
 
         # Save the snapshot, update the active pointer, and emit the
         # audit event in a single transaction so they are atomic.
+        # Extract deferred Redis writes before the session closes.
+        deferred_writes: list[tuple[str, str]] = []
         async with get_async_session(engine) as session:
             await snapshot_store.save(new_snap, session=session)
             await snapshot_store.set_active(user_id, new_snap.id, session=session)
@@ -253,18 +255,27 @@ async def process_one_job(
                     },
                 )
             )
+            session.add(
+                MemoryCompaction(
+                    user_id=user_id,
+                    snapshot_id_before=snapshot.id,
+                    snapshot_id_after=new_snap.id,
+                    message_count=len(recent_messages),
+                    status="done",
+                )
+            )
+            deferred_writes = extract_deferred_redis_writes(session)
         # Post-commit side effects: flush the deferred Redis pointer write
-        # and set the user notice.  Retry with back-off (matching the
-        # IngressMiddleware pattern) because flush_deferred_redis_writes
-        # keeps writes in session.info until they all succeed.  A final
-        # failure is logged at ERROR level — the DB commit has already
-        # succeeded so we do NOT trigger a job retry, but we mark the
-        # job as failed and skip the user notice to avoid a misleading
-        # "profile updated" message when the active pointer is stale.
+        # and set the user notice.  Redis SET is idempotent so callers can
+        # safely retry.  A final failure is logged at ERROR level — the DB
+        # commit has already succeeded so we do NOT trigger a job retry,
+        # but we mark the job as failed and skip the user notice to avoid
+        # a misleading "profile updated" message when the active pointer
+        # is stale.
         flush_ok = False
         for _flush_attempt in range(3):
             try:
-                await flush_deferred_redis_writes(session, redis)
+                await flush_deferred_redis_writes(deferred_writes, redis)
                 flush_ok = True
                 break
             except Exception:  # noqa: BLE001

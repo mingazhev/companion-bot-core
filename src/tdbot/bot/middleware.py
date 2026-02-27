@@ -25,7 +25,7 @@ from aiogram import BaseMiddleware
 from tdbot.bot.users import get_or_create_user
 from tdbot.db.engine import get_async_session
 from tdbot.logging_config import bind_correlation_id, get_logger
-from tdbot.prompt.postgres_store import flush_deferred_redis_writes
+from tdbot.prompt.postgres_store import extract_deferred_redis_writes, flush_deferred_redis_writes
 from tdbot.redis.idempotency import clear_update_key, mark_update_seen
 from tdbot.redis.rate_limit import check_global_rate_limit, check_user_rate_limit
 
@@ -118,6 +118,7 @@ class IngressMiddleware(BaseMiddleware):
         # ------------------------------------------------------------------ #
         # Provision internal User row and inject context into handler data.
         # ------------------------------------------------------------------ #
+        deferred_writes: list[tuple[str, str]] = []
         try:
             async with get_async_session(self._engine) as session:
                 db_user = await get_or_create_user(session, tg_user.id)
@@ -132,6 +133,8 @@ class IngressMiddleware(BaseMiddleware):
                     update_id=update_id,
                 )
                 result = await handler(event, data)
+                # Extract deferred writes while the session is still open.
+                deferred_writes = extract_deferred_redis_writes(session)
         except Exception:
             # Handler or DB commit failed — clear the idempotency key so
             # Telegram retries of this update_id are not permanently dropped.
@@ -149,11 +152,10 @@ class IngressMiddleware(BaseMiddleware):
         # uncommitted rows.  If this fails we log but do NOT clear the
         # idempotency key: the handler already completed and the DB
         # committed, so allowing a Telegram retry would duplicate work.
-        # Retry with back-off because flush_deferred_redis_writes keeps
-        # writes in session.info until they all succeed.
+        # Redis SET is idempotent so callers can safely retry.
         for _attempt in range(3):
             try:
-                await flush_deferred_redis_writes(session, self._redis)
+                await flush_deferred_redis_writes(deferred_writes, self._redis)
                 break
             except Exception:  # noqa: BLE001
                 if _attempt == 2:  # noqa: PLR2004

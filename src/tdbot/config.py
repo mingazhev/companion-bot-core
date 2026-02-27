@@ -52,7 +52,7 @@ class Settings(BaseSettings):
 
     # --- OpenAI / model provider ---
     openai_api_key: SecretStr = Field(
-        ...,
+        default=SecretStr(""),
         description="OpenAI API key for chat and refinement calls",
     )
     chat_model: str = Field(default="gpt-4o-mini", description="Model used for chat replies")
@@ -152,6 +152,13 @@ class Settings(BaseSettings):
             "runs locally without valid OpenAI credentials. Never enable in production."
         ),
     )
+
+    @model_validator(mode="after")
+    def _validate_openai_api_key(self) -> Settings:
+        if not self.use_fake_adapters and not self.openai_api_key.get_secret_value():
+            msg = "OPENAI_API_KEY must be set when USE_FAKE_ADAPTERS is false"
+            raise ValueError(msg)
+        return self
 
 
 # Module-level singleton — lazily created on first call to get_settings().
