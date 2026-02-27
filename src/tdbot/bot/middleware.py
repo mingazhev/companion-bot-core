@@ -17,6 +17,7 @@ on them via aiogram's magic injection.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 from aiogram import BaseMiddleware
@@ -24,7 +25,8 @@ from aiogram import BaseMiddleware
 from tdbot.bot.users import get_or_create_user
 from tdbot.db.engine import get_async_session
 from tdbot.logging_config import bind_correlation_id, get_logger
-from tdbot.redis.idempotency import mark_update_seen
+from tdbot.prompt.postgres_store import flush_deferred_redis_writes
+from tdbot.redis.idempotency import clear_update_key, mark_update_seen
 from tdbot.redis.rate_limit import check_global_rate_limit, check_user_rate_limit
 
 if TYPE_CHECKING:
@@ -116,16 +118,49 @@ class IngressMiddleware(BaseMiddleware):
         # ------------------------------------------------------------------ #
         # Provision internal User row and inject context into handler data.
         # ------------------------------------------------------------------ #
-        async with get_async_session(self._engine) as session:
-            db_user = await get_or_create_user(session, tg_user.id)
-            data["db_user"] = db_user
-            data["db_session"] = session
-            data["tg_user"] = tg_user
-            data["redis"] = self._redis
-            log.debug(
-                "user_provisioned",
-                telegram_user_id=tg_user.id,
-                internal_user_id=str(db_user.id),
-                update_id=update_id,
-            )
-            return await handler(event, data)
+        try:
+            async with get_async_session(self._engine) as session:
+                db_user = await get_or_create_user(session, tg_user.id)
+                data["db_user"] = db_user
+                data["db_session"] = session
+                data["tg_user"] = tg_user
+                data["redis"] = self._redis
+                log.debug(
+                    "user_provisioned",
+                    telegram_user_id=tg_user.id,
+                    internal_user_id=str(db_user.id),
+                    update_id=update_id,
+                )
+                result = await handler(event, data)
+        except Exception:
+            # Handler or DB commit failed — clear the idempotency key so
+            # Telegram retries of this update_id are not permanently dropped.
+            try:
+                await clear_update_key(self._redis, update_id)
+            except Exception:  # noqa: BLE001
+                log.warning(
+                    "idempotency_key_cleanup_failed",
+                    update_id=update_id,
+                )
+            raise
+
+        # Transaction committed — flush snapshot-pointer Redis writes
+        # that were deferred during the handler to avoid referencing
+        # uncommitted rows.  If this fails we log but do NOT clear the
+        # idempotency key: the handler already completed and the DB
+        # committed, so allowing a Telegram retry would duplicate work.
+        # Retry with back-off because flush_deferred_redis_writes keeps
+        # writes in session.info until they all succeed.
+        for _attempt in range(3):
+            try:
+                await flush_deferred_redis_writes(session, self._redis)
+                break
+            except Exception:  # noqa: BLE001
+                if _attempt == 2:  # noqa: PLR2004
+                    log.error(
+                        "deferred_redis_flush_failed",
+                        update_id=update_id,
+                    )
+                else:
+                    await asyncio.sleep(0.25 * (_attempt + 1))
+        return result

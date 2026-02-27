@@ -28,6 +28,7 @@ from tdbot.metrics import REFINEMENT_JOBS
 from tdbot.orchestrator.context_loader import load_recent_messages
 from tdbot.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
 from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template, extract_section
+from tdbot.prompt.postgres_store import flush_deferred_redis_writes
 from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
 from tdbot.redis.queues import (
     QUEUE_REFINEMENT_JOBS,
@@ -150,6 +151,10 @@ async def process_one_job(
         user_id = uuid.UUID(str(raw_user_id))
     except ValueError:
         log.error("refinement_invalid_user_id", user_id=raw_user_id)
+        try:
+            await redis.delete(f"refinement:pending:{raw_user_id}")
+        except Exception:  # noqa: BLE001
+            log.warning("refinement_guard_release_failed", user_id=raw_user_id)
         return
 
     user_id_str = str(user_id)
@@ -174,6 +179,10 @@ async def process_one_job(
     except Exception as exc:  # noqa: BLE001
         log.error("refinement_job_db_create_failed", user_id=user_id_str, error=str(exc))
         REFINEMENT_JOBS.labels(status="failed").inc()
+        try:
+            await redis.delete(f"refinement:pending:{user_id}")
+        except Exception:  # noqa: BLE001
+            log.warning("refinement_guard_release_failed", user_id=user_id_str)
         return
 
     # State variables updated throughout the try block.
@@ -225,11 +234,12 @@ async def process_one_job(
 
         new_version = await snapshot_store.next_version(user_id)
         new_snap = new_snap.model_copy(update={"version": new_version})
-        await snapshot_store.save(new_snap)
-        await snapshot_store.set_active(user_id, new_snap.id)
 
-        # --- Emit audit event ---
+        # Save the snapshot, update the active pointer, and emit the
+        # audit event in a single transaction so they are atomic.
         async with get_async_session(engine) as session:
+            await snapshot_store.save(new_snap, session=session)
+            await snapshot_store.set_active(user_id, new_snap.id, session=session)
             session.add(
                 AuditLog(
                     user_id=user_id,
@@ -243,6 +253,8 @@ async def process_one_job(
                     },
                 )
             )
+        # Flush the deferred Redis pointer write after the DB commit.
+        await flush_deferred_redis_writes(session, redis)
 
         # --- Notify user (optional, non-blocking) ---
         await _set_user_notice(redis, user_id_str)

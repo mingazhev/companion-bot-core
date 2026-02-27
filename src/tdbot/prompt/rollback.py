@@ -18,7 +18,7 @@ atomically update the active pointer via ``store.set_active``.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from tdbot.metrics import PROMPT_ROLLBACKS
 from tdbot.prompt.schemas import SnapshotRecord
@@ -38,6 +38,7 @@ async def rollback_to_previous(
     user_id: uuid.UUID,
     *,
     reason: str = "user_command",
+    session: Any = None,
 ) -> SnapshotRecord:
     """Roll back the active snapshot one step to the previous version.
 
@@ -72,7 +73,7 @@ async def rollback_to_previous(
             "cannot roll back further"
         )
 
-    return await _apply_rollback(store, user_id, target, reason=reason)
+    return await _apply_rollback(store, user_id, target, reason=reason, session=session)
 
 
 async def rollback_to_version(
@@ -81,6 +82,7 @@ async def rollback_to_version(
     *,
     target_version: int,
     reason: str = "manual",
+    session: Any = None,
 ) -> SnapshotRecord:
     """Roll back the active snapshot to a specific historical version.
 
@@ -103,7 +105,7 @@ async def rollback_to_version(
         raise RollbackError(
             f"Snapshot version {target_version} not found for user {user_id}"
         )
-    return await _apply_rollback(store, user_id, target, reason=reason)
+    return await _apply_rollback(store, user_id, target, reason=reason, session=session)
 
 
 async def _apply_rollback(
@@ -112,6 +114,7 @@ async def _apply_rollback(
     target: SnapshotRecord,
     *,
     reason: str,
+    session: Any = None,
 ) -> SnapshotRecord:
     """Create a rollback snapshot from *target* and make it the active snapshot."""
     new_version = await store.next_version(user_id)
@@ -122,7 +125,7 @@ async def _apply_rollback(
         skill_prompts_json=dict(target.skill_prompts_json),
         source="rollback",
     )
-    await store.save(rollback_snap)
-    await store.set_active(user_id, rollback_snap.id)
+    await store.save(rollback_snap, session=session)
+    await store.set_active(user_id, rollback_snap.id, session=session)
     PROMPT_ROLLBACKS.labels(reason=reason).inc()
     return rollback_snap

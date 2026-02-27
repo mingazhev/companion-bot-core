@@ -75,6 +75,7 @@ async def test_duplicate_update_is_dropped() -> None:
         "tdbot.bot.middleware.get_or_create_user", return_value=_make_db_user()
     ):
         mock_session = AsyncMock()
+        mock_session.info = {}
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
         mock_session_cm.return_value = mock_session
@@ -104,6 +105,7 @@ async def test_new_update_calls_handler() -> None:
         "tdbot.bot.middleware.get_or_create_user", return_value=db_user
     ):
         mock_session = AsyncMock()
+        mock_session.info = {}
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
         mock_session_cm.return_value = mock_session
@@ -130,6 +132,7 @@ async def test_user_provisioned_in_data() -> None:
         "tdbot.bot.middleware.get_or_create_user", return_value=db_user
     ):
         mock_session = AsyncMock()
+        mock_session.info = {}
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
         mock_session_cm.return_value = mock_session
@@ -180,6 +183,7 @@ async def test_per_user_rate_limit_drops_excess() -> None:
             "tdbot.bot.middleware.get_or_create_user", return_value=db_user
         ):
             sess = AsyncMock()
+            sess.info = {}
             sess.__aenter__ = AsyncMock(return_value=sess)
             sess.__aexit__ = AsyncMock(return_value=False)
             mock_cm.return_value = sess
@@ -211,6 +215,7 @@ async def test_global_rate_limit_drops_excess() -> None:
             "tdbot.bot.middleware.get_or_create_user", return_value=db_user
         ):
             sess = AsyncMock()
+            sess.info = {}
             sess.__aenter__ = AsyncMock(return_value=sess)
             sess.__aexit__ = AsyncMock(return_value=False)
             mock_cm.return_value = sess
@@ -223,3 +228,37 @@ async def test_global_rate_limit_drops_excess() -> None:
     results = [await run_update(update_id=500 + i + 1) for i in range(5)]
     assert all(r is None for r in results)
     handler.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_deferred_redis_flush_failure_preserves_idempotency_key() -> None:
+    """If deferred Redis flush fails after a successful handler + commit,
+    the idempotency key must NOT be cleared — otherwise Telegram retries
+    would duplicate an already-committed update."""
+    redis = fakeredis.FakeRedis(decode_responses=True)
+    settings = _make_settings()
+    engine = MagicMock()
+    middleware = IngressMiddleware(settings=settings, engine=engine, redis=redis)
+
+    handler = AsyncMock(return_value="ok")
+    update = _make_update(update_id=900)
+
+    with patch("tdbot.bot.middleware.get_async_session") as mock_session_cm, patch(
+        "tdbot.bot.middleware.get_or_create_user", return_value=_make_db_user()
+    ), patch(
+        "tdbot.bot.middleware.flush_deferred_redis_writes",
+        side_effect=ConnectionError("Redis unavailable"),
+    ):
+        mock_session = AsyncMock()
+        mock_session.info = {}
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session_cm.return_value = mock_session
+
+        # Should NOT raise — the flush error is caught and logged.
+        result = await middleware(handler, update, {})
+
+    assert result == "ok"
+    handler.assert_called_once()
+    # The idempotency key must still be present so retries are rejected.
+    assert await redis.exists("idempotency:update:900") == 1

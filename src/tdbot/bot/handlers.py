@@ -31,12 +31,7 @@ from tdbot.db.models import UserProfile
 from tdbot.logging_config import get_logger
 from tdbot.orchestrator import process_message
 from tdbot.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
-from tdbot.prompt.helpers import (
-    get_or_create_profile as _get_or_create_profile,
-)
-from tdbot.prompt.helpers import (
-    rebuild_and_save_snapshot as _rebuild_and_save_snapshot,
-)
+from tdbot.prompt.helpers import get_or_create_profile, rebuild_and_save_snapshot
 from tdbot.tracing import span
 
 if TYPE_CHECKING:
@@ -57,7 +52,6 @@ log = get_logger(__name__)
 
 router = Router(name="commands")
 
-_VALID_TONES = VALID_TONES  # re-export from extractor (single source of truth)
 # Telegram limits plain-text messages to 4096 characters.
 _TG_MSG_LIMIT = 4096
 
@@ -147,16 +141,16 @@ async def cmd_set_tone(
         await message.answer(
             "Please provide a tone.\n"
             f"Example: /set_tone friendly\n"
-            f"Valid tones: {', '.join(sorted(_VALID_TONES))}"
+            f"Valid tones: {', '.join(sorted(VALID_TONES))}"
         )
         return
-    if tone not in _VALID_TONES:
+    if tone not in VALID_TONES:
         await message.answer(
             f"Unknown tone '{html.escape(tone)}'.\n"
-            f"Valid tones: {', '.join(sorted(_VALID_TONES))}"
+            f"Valid tones: {', '.join(sorted(VALID_TONES))}"
         )
         return
-    profile = await _get_or_create_profile(db_session, db_user.id)
+    profile = await get_or_create_profile(db_session, db_user.id)
     # Decrypt existing persona_name for prompt building before encrypting new tone.
     raw_persona = (
         enc.decrypt_safe(profile.persona_name, default="")
@@ -164,8 +158,9 @@ async def cmd_set_tone(
     )
     profile.tone = enc.encrypt(tone)
     await db_session.flush()
-    await _rebuild_and_save_snapshot(
+    await rebuild_and_save_snapshot(
         snapshot_store, db_user.id, raw_persona, tone,
+        session=db_session,
     )
     await message.answer(
         f"Tone set to '{tone}'.\n"
@@ -204,7 +199,7 @@ async def cmd_set_persona(
     if any(c < " " for c in name):
         await message.answer("Persona name must not contain control characters.")
         return
-    profile = await _get_or_create_profile(db_session, db_user.id)
+    profile = await get_or_create_profile(db_session, db_user.id)
     # Decrypt existing tone for prompt building before encrypting new persona name.
     raw_tone = (
         enc.decrypt_safe(profile.tone, default="")
@@ -212,8 +207,9 @@ async def cmd_set_persona(
     )
     profile.persona_name = enc.encrypt(name)
     await db_session.flush()
-    await _rebuild_and_save_snapshot(
+    await rebuild_and_save_snapshot(
         snapshot_store, db_user.id, name, raw_tone,
+        session=db_session,
     )
     await message.answer(f"Persona name set to '{html.escape(name)}'.")
     log.info("set_persona", internal_user_id=str(db_user.id), persona_name=name)
@@ -267,12 +263,13 @@ async def cmd_reset_persona(
     snapshot_store: SnapshotStore,
 ) -> None:
     """Reset the user's persona and tone to defaults."""
-    profile = await _get_or_create_profile(db_session, db_user.id)
+    profile = await get_or_create_profile(db_session, db_user.id)
     profile.persona_name = None
     profile.tone = None
     await db_session.flush()
-    await _rebuild_and_save_snapshot(
+    await rebuild_and_save_snapshot(
         snapshot_store, db_user.id, None, None,
+        session=db_session,
     )
     await message.answer(
         "Your persona has been reset to defaults.\n"

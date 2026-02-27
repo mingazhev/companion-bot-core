@@ -13,6 +13,7 @@ protocol and is intended for production deployments.  Use
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -26,8 +27,14 @@ from tdbot.prompt.schemas import SnapshotRecord
 log = get_logger(__name__)
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
     from redis.asyncio import Redis
-    from sqlalchemy.ext.asyncio import AsyncEngine
+    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+
+# Key used in ``session.info`` to accumulate Redis writes that must be
+# executed only after the DB transaction commits.
+_DEFERRED_REDIS_KEY = "_snapshot_deferred_redis_writes"
 
 
 def _to_record(row: PromptSnapshot) -> SnapshotRecord:
@@ -53,25 +60,49 @@ class PostgresSnapshotStore:
         self._engine = engine
         self._redis = redis
 
+    @asynccontextmanager
+    async def _use_session(
+        self, session: AsyncSession | None,
+    ) -> AsyncGenerator[AsyncSession, None]:
+        """Yield *session* when provided, otherwise open a private one."""
+        if session is not None:
+            yield session
+        else:
+            async with get_async_session(self._engine) as own_session:
+                yield own_session
+
     # -- persistence -------------------------------------------------------- #
 
-    async def save(self, record: SnapshotRecord) -> None:
-        """Persist *record* to PostgreSQL."""
-        async with get_async_session(self._engine) as session:
-            orm_row = PromptSnapshot(
-                id=record.id,
-                user_id=record.user_id,
-                version=record.version,
-                system_prompt=record.system_prompt,
-                skill_prompts_json=dict(record.skill_prompts_json),
-                source=record.source,
-            )
-            session.add(orm_row)
+    async def save(
+        self,
+        record: SnapshotRecord,
+        session: AsyncSession | None = None,
+    ) -> None:
+        """Persist *record* to PostgreSQL.
 
-    async def get(self, snapshot_id: UUID) -> SnapshotRecord | None:
+        When *session* is provided the row is added to that session (committed
+        by the caller).  Otherwise a private session is opened and committed
+        immediately.
+        """
+        orm_row = PromptSnapshot(
+            id=record.id,
+            user_id=record.user_id,
+            version=record.version,
+            system_prompt=record.system_prompt,
+            skill_prompts_json=dict(record.skill_prompts_json),
+            source=record.source,
+        )
+        async with self._use_session(session) as s:
+            s.add(orm_row)
+
+    async def get(
+        self,
+        snapshot_id: UUID,
+        session: AsyncSession | None = None,
+    ) -> SnapshotRecord | None:
         """Fetch a snapshot by UUID from PostgreSQL."""
-        async with get_async_session(self._engine) as session:
-            result = await session.execute(
+        async with self._use_session(session) as s:
+            result = await s.execute(
                 select(PromptSnapshot).where(PromptSnapshot.id == snapshot_id)
             )
             row = result.scalar_one_or_none()
@@ -97,15 +128,34 @@ class PostgresSnapshotStore:
             return None
         return await self.get(snapshot_id)
 
-    async def set_active(self, user_id: UUID, snapshot_id: UUID) -> None:
+    async def set_active(
+        self,
+        user_id: UUID,
+        snapshot_id: UUID,
+        session: AsyncSession | None = None,
+    ) -> None:
         """Atomically update the active pointer for *user_id* in Redis.
+
+        When *session* is provided the Redis write is **deferred** — it is
+        stored in ``session.info`` and must be flushed by the caller (via
+        :func:`flush_deferred_redis_writes`) after the transaction commits.
+        This prevents the Redis pointer from referencing an uncommitted or
+        rolled-back snapshot row.
+
+        When *session* is ``None`` the pointer is written immediately (the
+        snapshot is assumed to already be committed).
 
         Raises :class:`KeyError` when *snapshot_id* is not found in the store.
         """
-        record = await self.get(snapshot_id)
+        record = await self.get(snapshot_id, session=session)
         if record is None:
             raise KeyError(f"Snapshot {snapshot_id} not found in store")
-        await self._redis.set(f"prompt:active:{user_id}", str(snapshot_id))
+
+        if session is not None:
+            pending = session.info.setdefault(_DEFERRED_REDIS_KEY, [])
+            pending.append((f"prompt:active:{user_id}", str(snapshot_id)))
+        else:
+            await self._redis.set(f"prompt:active:{user_id}", str(snapshot_id))
 
     # -- listing / versioning ----------------------------------------------- #
 
@@ -143,3 +193,24 @@ class PostgresSnapshotStore:
             f"prompt:active:{user_id}",
             f"prompt:version:{user_id}",
         )
+
+
+async def flush_deferred_redis_writes(
+    session: AsyncSession,
+    redis: Redis,
+) -> None:
+    """Execute snapshot-pointer Redis writes deferred during *session*.
+
+    Must be called **after** the DB transaction has committed.  If no
+    deferred writes were recorded the call is a no-op.
+
+    Writes are removed from ``session.info`` only after all Redis SETs
+    succeed so that callers can retry on transient failures.
+    """
+    writes: list[tuple[str, str]] = session.info.get(_DEFERRED_REDIS_KEY, [])
+    if not writes:
+        return
+    for key, value in writes:
+        await redis.set(key, value)
+    # All writes succeeded — safe to clear.
+    session.info.pop(_DEFERRED_REDIS_KEY, None)

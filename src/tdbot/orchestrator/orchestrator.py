@@ -64,12 +64,7 @@ from tdbot.policy.guardrails import (
     check_unsafe_role_change,
 )
 from tdbot.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
-from tdbot.prompt.helpers import (
-    get_or_create_profile as _get_or_create_profile,
-)
-from tdbot.prompt.helpers import (
-    rebuild_and_save_snapshot as _rebuild_snapshot,
-)
+from tdbot.prompt.helpers import get_or_create_profile, rebuild_and_save_snapshot
 from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template, extract_section
 from tdbot.prompt.schemas import DEFAULT_SYSTEM_TEMPLATE, PromptComponents, SnapshotRecord
 from tdbot.redis.queues import enqueue_refinement_job
@@ -181,7 +176,7 @@ async def _apply_behavior_change(
                 message_text=message_text[:100],
             )
             return False
-        profile = await _get_or_create_profile(session, user_id)
+        profile = await get_or_create_profile(session, user_id)
         profile.tone = enc.encrypt(tone)
         await session.flush()
         # Decrypt existing persona_name (may be encrypted in DB) for prompt building.
@@ -190,8 +185,9 @@ async def _apply_behavior_change(
             if profile.persona_name
             else None
         )
-        await _rebuild_snapshot(
-            snapshot_store, user_id, raw_persona, tone, source="behavior_change",
+        await rebuild_and_save_snapshot(
+            snapshot_store, user_id, raw_persona, tone,
+            source="behavior_change", session=session,
         )
         log.info(
             "behavior_change_snapshot_updated",
@@ -210,12 +206,15 @@ async def _apply_behavior_change(
                 message_text=message_text[:100],
             )
             return False
-        profile = await _get_or_create_profile(session, user_id)
+        profile = await get_or_create_profile(session, user_id)
         profile.persona_name = enc.encrypt(name)
         await session.flush()
         # Decrypt existing tone (may be encrypted in DB) for prompt building.
         raw_tone = enc.decrypt_safe(profile.tone, default="") if profile.tone else None
-        await _rebuild_snapshot(snapshot_store, user_id, name, raw_tone, source="behavior_change")
+        await rebuild_and_save_snapshot(
+            snapshot_store, user_id, name, raw_tone,
+            source="behavior_change", session=session,
+        )
         log.info(
             "behavior_change_snapshot_updated",
             user_id=str(user_id),
@@ -233,7 +232,7 @@ async def _apply_behavior_change(
                 message_text=message_text[:100],
             )
             return False
-        await _add_skill_to_snapshot(snapshot_store, user_id, topic)
+        await _add_skill_to_snapshot(snapshot_store, user_id, topic, session=session)
         log.info(
             "behavior_change_snapshot_updated",
             user_id=str(user_id),
@@ -251,7 +250,9 @@ async def _apply_behavior_change(
                 message_text=message_text[:100],
             )
             return False
-        removed = await _remove_skill_from_snapshot(snapshot_store, user_id, topic)
+        removed = await _remove_skill_from_snapshot(
+            snapshot_store, user_id, topic, session=session,
+        )
         if removed:
             log.info(
                 "behavior_change_snapshot_updated",
@@ -268,6 +269,8 @@ async def _add_skill_to_snapshot(
     snapshot_store: SnapshotStore,
     user_id: UUID,
     topic: str,
+    *,
+    session: AsyncSession | None = None,
 ) -> None:
     """Add a skill prompt fragment to the user's active snapshot."""
     current = await snapshot_store.get_active(user_id)
@@ -303,14 +306,16 @@ async def _add_skill_to_snapshot(
         skill_prompts_json=raw_skills,
         source="behavior_change",
     )
-    await snapshot_store.save(record)
-    await snapshot_store.set_active(user_id, record.id)
+    await snapshot_store.save(record, session=session)
+    await snapshot_store.set_active(user_id, record.id, session=session)
 
 
 async def _remove_skill_from_snapshot(
     snapshot_store: SnapshotStore,
     user_id: UUID,
     topic: str,
+    *,
+    session: AsyncSession | None = None,
 ) -> bool:
     """Remove a skill prompt fragment from the user's active snapshot.
 
@@ -348,8 +353,8 @@ async def _remove_skill_from_snapshot(
         skill_prompts_json=raw_skills,
         source="behavior_change",
     )
-    await snapshot_store.save(record)
-    await snapshot_store.set_active(user_id, record.id)
+    await snapshot_store.save(record, session=session)
+    await snapshot_store.set_active(user_id, record.id, session=session)
     return True
 
 
@@ -724,14 +729,22 @@ async def process_message(
             # Step 5 — Record behavior event for auto-applied changes
             # ------------------------------------------------------------------
             if action == "auto_apply":
-                applied = await _apply_behavior_change(
-                    intent=detection.intent,
-                    message_text=message_text,
-                    user_id=user_id,
-                    session=session,
-                    snapshot_store=snapshot_store,
-                    encryptor=encryptor,
-                )
+                try:
+                    applied = await _apply_behavior_change(
+                        intent=detection.intent,
+                        message_text=message_text,
+                        user_id=user_id,
+                        session=session,
+                        snapshot_store=snapshot_store,
+                        encryptor=encryptor,
+                    )
+                except Exception:
+                    log.exception(
+                        "behavior_change_apply_failed",
+                        user_id=user_id_str,
+                        intent=detection.intent,
+                    )
+                    applied = False
                 await _record_behavior_event(
                     session,
                     user_id,

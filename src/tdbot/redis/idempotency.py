@@ -72,7 +72,8 @@ async def clear_update_key(
 ) -> None:
     """Delete the idempotency key for *update_id*.
 
-    Intended for testing and administrative tooling only.  In production the
-    key should expire naturally via its TTL.
+    Called by the ingress middleware when the handler fails so that Telegram
+    retries of the same ``update_id`` are not permanently dropped.  Also
+    used in testing and administrative tooling.
     """
     await redis.delete(_key(update_id))

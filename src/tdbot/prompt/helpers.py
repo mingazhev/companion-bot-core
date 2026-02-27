@@ -8,7 +8,7 @@ rebuild logic.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
@@ -65,6 +65,7 @@ async def rebuild_and_save_snapshot(
     tone: str | None,
     *,
     source: SnapshotSource = "user_command",
+    session: Any = None,
 ) -> None:
     """Build a new prompt snapshot reflecting updated profile and set it active.
 
@@ -75,6 +76,9 @@ async def rebuild_and_save_snapshot(
         tone:           Decrypted tone (or ``None``).
         source:         Source label for the snapshot (``"user_command"`` or
                         ``"behavior_change"``).
+        session:        Optional DB session.  When provided, the snapshot row
+                        is added to this session so it commits atomically with
+                        the caller's transaction.
     """
     current = await snapshot_store.get_active(user_id)
 
@@ -107,5 +111,5 @@ async def rebuild_and_save_snapshot(
         skill_prompts_json=raw_skills,
         source=source,
     )
-    await snapshot_store.save(record)
-    await snapshot_store.set_active(user_id, record.id)
+    await snapshot_store.save(record, session=session)
+    await snapshot_store.set_active(user_id, record.id, session=session)

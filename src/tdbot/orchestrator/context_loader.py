@@ -119,8 +119,8 @@ async def load_user_context(
             system_prompt=system_prompt,
             source="initial",
         )
-        await snapshot_store.save(initial)
-        await snapshot_store.set_active(user_id, initial.id)
+        await snapshot_store.save(initial, session=session)
+        await snapshot_store.set_active(user_id, initial.id, session=session)
 
     history = await load_recent_messages(session, user_id, limit=20, encryptor=encryptor)
 

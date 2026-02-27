@@ -65,6 +65,8 @@ async def _fake_session_ctx(_engine: Any) -> Any:
     session.execute = AsyncMock(return_value=result_mock)
     session.add = MagicMock()
     session.flush = AsyncMock()
+    # Provide a real dict for session.info so flush_deferred_redis_writes works.
+    session.info = {}
     yield session
 
 

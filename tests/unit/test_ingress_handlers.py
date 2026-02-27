@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tdbot.behavior.extractor import VALID_TONES
 from tdbot.bot.handlers import (
-    _VALID_TONES,
     cmd_delete_my_data,
     cmd_memory_compact_now,
     cmd_privacy,
@@ -122,7 +122,7 @@ async def test_set_tone_invalid_shows_valid_list() -> None:
     text: str = msg.answer.call_args[0][0]
     assert "grumpy" in text
     # At least one valid tone should be mentioned
-    assert any(t in text for t in _VALID_TONES)
+    assert any(t in text for t in VALID_TONES)
 
 
 @pytest.mark.asyncio
@@ -136,7 +136,7 @@ async def test_set_tone_no_args_shows_help() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("tone", list(_VALID_TONES))
+@pytest.mark.parametrize("tone", list(VALID_TONES))
 async def test_all_valid_tones_accepted(tone: str) -> None:
     msg = _make_message()
     user = _make_user()

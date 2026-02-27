@@ -18,7 +18,7 @@ operations are effectively atomic for test purposes.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     import uuid
@@ -29,11 +29,16 @@ if TYPE_CHECKING:
 class SnapshotStore(Protocol):
     """Async snapshot store used by the prompt state manager."""
 
-    async def save(self, record: SnapshotRecord) -> None:
-        """Persist a new snapshot (must be immutable after save)."""
+    async def save(self, record: SnapshotRecord, session: Any = None) -> None:
+        """Persist a new snapshot (must be immutable after save).
+
+        When *session* is an active DB session the row is added to that
+        session (committed by the caller).  Otherwise a private session is
+        opened and committed immediately.
+        """
         ...
 
-    async def get(self, snapshot_id: uuid.UUID) -> SnapshotRecord | None:
+    async def get(self, snapshot_id: uuid.UUID, session: Any = None) -> SnapshotRecord | None:
         """Fetch a snapshot by UUID; return None if not found."""
         ...
 
@@ -41,7 +46,9 @@ class SnapshotStore(Protocol):
         """Return the currently active snapshot for *user_id*, or None."""
         ...
 
-    async def set_active(self, user_id: uuid.UUID, snapshot_id: uuid.UUID) -> None:
+    async def set_active(
+        self, user_id: uuid.UUID, snapshot_id: uuid.UUID, session: Any = None,
+    ) -> None:
         """Atomically update the active pointer for *user_id*.
 
         In production: ``SET prompt:active:<user_id> <snapshot_id>`` in Redis.
@@ -84,14 +91,14 @@ class InMemorySnapshotStore:
         # user_id -> active snapshot UUID
         self._active: dict[uuid.UUID, uuid.UUID] = {}
 
-    async def save(self, record: SnapshotRecord) -> None:
+    async def save(self, record: SnapshotRecord, session: Any = None) -> None:
         """Persist *record*.  Silently overwrites if the same UUID is saved twice."""
         self._snapshots[record.id] = record
         bucket = self._user_index.setdefault(record.user_id, [])
         if record.id not in bucket:
             bucket.append(record.id)
 
-    async def get(self, snapshot_id: uuid.UUID) -> SnapshotRecord | None:
+    async def get(self, snapshot_id: uuid.UUID, session: Any = None) -> SnapshotRecord | None:
         return self._snapshots.get(snapshot_id)
 
     async def get_active(self, user_id: uuid.UUID) -> SnapshotRecord | None:
@@ -100,7 +107,9 @@ class InMemorySnapshotStore:
             return None
         return self._snapshots.get(active_id)
 
-    async def set_active(self, user_id: uuid.UUID, snapshot_id: uuid.UUID) -> None:
+    async def set_active(
+        self, user_id: uuid.UUID, snapshot_id: uuid.UUID, session: Any = None,
+    ) -> None:
         if snapshot_id not in self._snapshots:
             raise KeyError(f"Snapshot {snapshot_id} not found in store")
         self._active[user_id] = snapshot_id
