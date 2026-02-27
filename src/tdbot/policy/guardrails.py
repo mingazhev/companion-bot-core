@@ -159,7 +159,7 @@ def check_unsafe_role_change(text: str) -> GuardrailResult:
 #
 # v1 supports prompt-based skills only (no code execution, no external access).
 # These signals detect requests for capabilities that are out of scope and
-# require an explicit confirmation prompt before the user can proceed.
+# are blocked with an explanatory refusal message.
 # ---------------------------------------------------------------------------
 
 _CAPABILITY_SIGNALS: Final[list[Signal]] = compile_signals(

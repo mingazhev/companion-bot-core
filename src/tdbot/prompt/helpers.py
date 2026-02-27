@@ -42,13 +42,18 @@ async def acquire_profile_advisory_lock(
     rolls back.  This provides a hard serialization guarantee — independent of
     any TTL — for the profile read-modify-write cycle.
 
-    The lock key is derived from the first 8 bytes of the user UUID mapped to
-    a signed int64 (big-endian).  The Redis TTL lock in handlers still provides
-    a fast-path rejection that avoids a DB round-trip when a concurrent request
+    The lock key is derived by XOR-ing the two 8-byte halves of the user UUID
+    and mapping the result to a signed int64 (big-endian).  Using the full 128
+    bits avoids advisory-lock key collisions between users whose UUIDs share
+    the same first 8 bytes.  The Redis TTL lock in handlers still provides a
+    fast-path rejection that avoids a DB round-trip when a concurrent request
     is clearly in-flight; this advisory lock covers the remaining edge case
     where the TTL expires before the transaction commits.
     """
-    lock_key = struct.unpack(">q", user_id.bytes[:8])[0]
+    b = user_id.bytes
+    hi = struct.unpack(">q", b[:8])[0]
+    lo = struct.unpack(">q", b[8:])[0]
+    lock_key = hi ^ lo
     await session.execute(
         text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key}
     )

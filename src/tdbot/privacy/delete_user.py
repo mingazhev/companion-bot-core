@@ -46,6 +46,7 @@ _REDIS_KEY_PREFIXES = (
     "prompt_cache",
     "prompt:active",
     "prompt:version",
+    "profile:write",
 )
 
 # Redis key prefixes scoped to the Telegram user ID (not internal UUID).
