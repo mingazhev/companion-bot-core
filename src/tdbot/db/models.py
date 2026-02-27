@@ -150,7 +150,7 @@ class PromptSnapshot(Base):
     source: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
-        comment="initial | user_command | refinement | rollback",
+        comment="initial | user_command | refinement | rollback | behavior_change",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

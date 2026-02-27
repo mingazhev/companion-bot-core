@@ -796,6 +796,17 @@ async def process_message(
                 completion_tokens=inference_reply.usage.completion_tokens,
             )
 
+            # Notify user when a skill_remove auto-apply found no matching skill.
+            if (
+                action == "auto_apply"
+                and detection.intent == "skill_remove"
+                and not applied
+            ):
+                reply_text = (
+                    f"{reply_text}\n\n"
+                    "(I couldn't find a skill matching that topic to remove.)"
+                )
+
             # Surface clarification question when behavior detection had
             # a nonzero but below-threshold confidence score.
             if detection.clarification_question is not None:

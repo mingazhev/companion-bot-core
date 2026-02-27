@@ -155,18 +155,30 @@ def extract_tone(text: str) -> str | None:
     return None
 
 
+_PERSONA_NAME_BANNED_CHARS = frozenset(
+    "\x7f"                            # DEL
+    "\u200b\u200c\u200d\u200e\u200f"  # zero-width + directional marks
+    "\u2028\u2029"                    # line/paragraph separators
+    "\u202a\u202b\u202c\u202d\u202e"  # bidi embedding/override
+    "\ufeff"                          # BOM / zero-width no-break space
+)
+
+
 def extract_persona_name(text: str) -> str | None:
     """Extract a persona/character name from a persona_change message.
 
     Applies a series of regex patterns that match common natural-language
     phrasings for persona changes and returns the captured name.
-    Returns ``None`` if no name can be extracted.
+    Returns ``None`` if no name can be extracted or the name contains
+    control characters that could cause prompt injection.
     """
     for pattern in _PERSONA_PATTERNS:
         match = pattern.search(text)
         if match:
             name = match.group(1).strip().rstrip(".,!?;:")
             if name and len(name) <= 64:
+                if any(c < " " or c in _PERSONA_NAME_BANNED_CHARS for c in name):
+                    return None
                 return name
     return None
 

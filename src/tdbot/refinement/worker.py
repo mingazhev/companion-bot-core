@@ -438,6 +438,18 @@ async def run_worker(
         poll_timeout:   Seconds to block waiting for a primary queue job.
     """
     log.info("refinement_worker_started")
+    # Mark any jobs left in status="running" from a previous crash as failed.
+    try:
+        async with get_async_session(engine) as session:
+            await session.execute(
+                sql_update(Job)
+                .where(Job.status == "running")
+                .values(status="failed", error="worker_restart_before_completion")
+            )
+        log.info("refinement_worker_stale_jobs_cleared")
+    except Exception:  # noqa: BLE001
+        log.warning("refinement_worker_stale_jobs_clear_failed")
+
     kwargs: dict[str, Any] = {
         "redis": redis,
         "snapshot_store": snapshot_store,
