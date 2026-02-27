@@ -87,7 +87,7 @@ class PostgresSnapshotStore:
         raw = await self._redis.get(f"prompt:active:{user_id}")
         if raw is None:
             return None
-        snapshot_id = UUID(raw.decode() if isinstance(raw, bytes) else raw)
+        snapshot_id = UUID(raw)
         return await self.get(snapshot_id)
 
     async def set_active(self, user_id: UUID, snapshot_id: UUID) -> None:

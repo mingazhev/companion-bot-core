@@ -723,9 +723,10 @@ async def process_message(
                     confirmed=False,
                 )
                 log.info(
-                    "behavior_change_auto_applied",
+                    "behavior_change_auto_apply_attempted",
                     user_id=user_id_str,
                     intent=detection.intent,
+                    applied=applied,
                 )
 
             # ------------------------------------------------------------------
