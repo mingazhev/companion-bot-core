@@ -309,16 +309,26 @@ async def process_one_job(
             )
         else:
             cb_payload = {**job_data, "cb_retries": cb_retries}
-            await enqueue_refinement_job(redis, user_id_str, cb_payload)
-            job_requeued = True
-            final_status = "failed"
-            error_msg = "circuit breaker open"
-            log.warning(
-                "refinement_job_deferred_circuit_open",
-                user_id=user_id_str,
-                attempt=attempt,
-                cb_retries=cb_retries,
-            )
+            try:
+                await enqueue_refinement_job(redis, user_id_str, cb_payload)
+                job_requeued = True
+                final_status = "failed"
+                error_msg = "circuit breaker open"
+            except Exception:  # noqa: BLE001
+                final_status = "dead_letter"
+                error_msg = "circuit breaker open — re-enqueue failed"
+                log.error(
+                    "refinement_cb_reenqueue_failed",
+                    user_id=user_id_str,
+                    cb_retries=cb_retries,
+                )
+            else:
+                log.warning(
+                    "refinement_job_deferred_circuit_open",
+                    user_id=user_id_str,
+                    attempt=attempt,
+                    cb_retries=cb_retries,
+                )
 
     except Exception as exc:  # noqa: BLE001
         error_msg = str(exc)
@@ -338,14 +348,24 @@ async def process_one_job(
         else:
             # Re-enqueue with incremented attempt counter.
             retry_payload: dict[str, Any] = {**job_data, "attempt": attempt}
-            await enqueue_retry_job(redis, user_id_str, retry_payload)
-            job_requeued = True
-            final_status = "failed"
-            log.warning(
-                "refinement_job_retried",
-                user_id=user_id_str,
-                next_attempt=attempt + 1,
-            )
+            try:
+                await enqueue_retry_job(redis, user_id_str, retry_payload)
+                job_requeued = True
+                final_status = "failed"
+            except Exception:  # noqa: BLE001
+                final_status = "dead_letter"
+                error_msg = f"{error_msg} — re-enqueue failed"
+                log.error(
+                    "refinement_retry_reenqueue_failed",
+                    user_id=user_id_str,
+                    attempt=attempt,
+                )
+            else:
+                log.warning(
+                    "refinement_job_retried",
+                    user_id=user_id_str,
+                    next_attempt=attempt + 1,
+                )
     finally:
         try:
             async with get_async_session(engine) as session:
@@ -414,8 +434,8 @@ async def run_worker(
         "engine": engine,
         "encryptor": encryptor,
     }
-    try:
-        while True:
+    while True:
+        try:
             # Non-blocking check on retry queue first.
             retry_job = await dequeue_job(redis, QUEUE_RETRY_JOBS, timeout=1)
             if retry_job is not None:
@@ -428,6 +448,9 @@ async def run_worker(
                 continue  # timeout — loop back
 
             await process_one_job(job, **kwargs)
-    except asyncio.CancelledError:
-        log.info("refinement_worker_stopped")
-        raise
+        except asyncio.CancelledError:
+            log.info("refinement_worker_stopped")
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception("refinement_worker_loop_error")
+            await asyncio.sleep(5)
