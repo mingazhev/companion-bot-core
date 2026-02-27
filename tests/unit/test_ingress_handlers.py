@@ -52,10 +52,19 @@ def _make_command(args: str | None) -> MagicMock:
     return cmd
 
 
-def _make_profile_session(existing_profile: UserProfile | None = None) -> AsyncMock:
-    """Session mock that supports _get_or_create_profile."""
+def _make_profile_session(
+    existing_profile: UserProfile | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
+) -> AsyncMock:
+    """Session mock that supports get_or_create_profile (upsert-then-SELECT).
+
+    Always returns a real ``UserProfile`` from ``scalar_one()`` so the
+    handler code can set attributes on it.
+    """
+    profile = existing_profile or UserProfile(user_id=user_id or uuid.uuid4())
     select_result = MagicMock()
-    select_result.scalar_one_or_none.return_value = existing_profile
+    select_result.scalar_one.return_value = profile
 
     db_session = AsyncMock()
     db_session.add = MagicMock()
@@ -154,15 +163,14 @@ async def test_set_tone_persists_profile_and_creates_snapshot() -> None:
     msg = _make_message()
     user = _make_user()
     cmd = _make_command(args="playful")
-    db_session = _make_profile_session()
+    profile = UserProfile(user_id=user.id)
+    db_session = _make_profile_session(existing_profile=profile)
     snapshot_store = InMemorySnapshotStore()
 
     await cmd_set_tone(msg, cmd, user, db_session, snapshot_store)
 
-    # Profile was added to session (new user, no existing profile)
-    db_session.add.assert_called_once()
-    added_profile: UserProfile = db_session.add.call_args[0][0]
-    assert added_profile.tone == "playful"
+    # Profile tone was updated via upsert-then-SELECT
+    assert profile.tone == "playful"
 
     # A new snapshot was saved and set active
     active = await snapshot_store.get_active(user.id)
@@ -185,8 +193,7 @@ async def test_set_tone_updates_existing_profile() -> None:
 
     await cmd_set_tone(msg, cmd, user, db_session, snapshot_store)
 
-    # Existing profile was updated (not a new one added)
-    db_session.add.assert_not_called()
+    # Existing profile was updated
     assert existing_profile.tone == "casual"
 
     # Snapshot includes both persona name and new tone
@@ -252,14 +259,14 @@ async def test_set_persona_persists_profile_and_creates_snapshot() -> None:
     msg = _make_message()
     user = _make_user()
     cmd = _make_command(args="Nova")
-    db_session = _make_profile_session()
+    profile = UserProfile(user_id=user.id)
+    db_session = _make_profile_session(existing_profile=profile)
     snapshot_store = InMemorySnapshotStore()
 
     await cmd_set_persona(msg, cmd, user, db_session, snapshot_store)
 
-    db_session.add.assert_called_once()
-    added_profile: UserProfile = db_session.add.call_args[0][0]
-    assert added_profile.persona_name == "Nova"
+    # Profile persona_name was updated via upsert-then-SELECT
+    assert profile.persona_name == "Nova"
 
     active = await snapshot_store.get_active(user.id)
     assert active is not None

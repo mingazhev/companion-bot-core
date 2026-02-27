@@ -52,12 +52,16 @@ def _make_detection(
 
 
 def _make_session() -> AsyncMock:
-    """Minimal async session mock with profile query support."""
-    mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = []
-    # For SELECT queries used by _get_or_create_profile
+    """Minimal async session mock with profile query support.
+
+    Configures ``scalar_one()`` to return a real ``UserProfile`` so the
+    upsert-then-SELECT pattern in ``get_or_create_profile`` works.
+    """
+    from tdbot.db.models import UserProfile
+
     scalar_result = MagicMock()
-    scalar_result.scalar_one_or_none.return_value = None
+    scalar_result.scalars.return_value.all.return_value = []
+    scalar_result.scalar_one.return_value = UserProfile(user_id=uuid4())
     session = AsyncMock()
     session.execute = AsyncMock(return_value=scalar_result)
     session.add = MagicMock()

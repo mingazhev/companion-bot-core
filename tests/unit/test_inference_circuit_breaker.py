@@ -185,6 +185,93 @@ def test_circuit_breaker_open_str_contains_info() -> None:
 # ---------------------------------------------------------------------------
 
 
+async def test_half_open_cancellation_clears_probe_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """asyncio.CancelledError during a HALF_OPEN probe must clear the in-flight
+    flag so the circuit breaker does not get stuck permanently."""
+    cb = CircuitBreaker(failure_threshold=1, recovery_timeout=1.0)
+    with pytest.raises(RuntimeError):
+        await cb.call(_fail)
+
+    assert cb.state == CircuitState.OPEN
+
+    original = time.monotonic()
+    t = original + 2.0
+    monkeypatch.setattr(
+        "tdbot.inference.circuit_breaker.time.monotonic",
+        lambda: t,
+    )
+
+    async def _cancelled() -> str:
+        raise asyncio.CancelledError
+
+    # Probe is cancelled — must not leave the breaker stuck.
+    # The cancellation counts as a failure, returning the circuit to OPEN.
+    with pytest.raises(asyncio.CancelledError):
+        await cb.call(_cancelled)
+
+    assert cb.state == CircuitState.OPEN
+
+    # Advance time past recovery_timeout again so the circuit allows a new probe.
+    t = original + 4.0
+    monkeypatch.setattr(
+        "tdbot.inference.circuit_breaker.time.monotonic",
+        lambda: t,
+    )
+
+    # A new probe should be accepted (flag was cleared by the cancellation path)
+    result = await cb.call(_ok)
+    assert result == "ok"
+    assert cb.state == CircuitState.CLOSED  # type: ignore[comparison-overlap]
+
+
+async def test_half_open_cancel_after_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """CancelledError between a successful probe return and _record_success must
+    still clear the in-flight flag so the circuit does not get permanently stuck."""
+    cb = CircuitBreaker(failure_threshold=1, recovery_timeout=1.0)
+    with pytest.raises(RuntimeError):
+        await cb.call(_fail)
+
+    assert cb.state == CircuitState.OPEN
+
+    original = time.monotonic()
+    t = original + 2.0
+    monkeypatch.setattr(
+        "tdbot.inference.circuit_breaker.time.monotonic",
+        lambda: t,
+    )
+
+    # Patch _record_success to simulate CancelledError during success recording
+    # (e.g. task cancelled while awaiting the lock inside _record_success).
+    original_record_success = cb._record_success
+
+    async def _cancel_on_success() -> None:
+        raise asyncio.CancelledError
+
+    cb._record_success = _cancel_on_success  # type: ignore[assignment]
+
+    async def _succeeds() -> str:
+        return "ok"
+
+    with pytest.raises(asyncio.CancelledError):
+        await cb.call(_succeeds)
+
+    # The probe flag must be cleared even though CancelledError interrupted
+    # _record_success.
+    assert cb._half_open_probe_in_flight is False
+
+    # Restore and advance time for the next probe.
+    cb._record_success = original_record_success  # type: ignore[assignment]
+    t = original + 4.0
+    monkeypatch.setattr(
+        "tdbot.inference.circuit_breaker.time.monotonic",
+        lambda: t,
+    )
+
+    result = await cb.call(_ok)
+    assert result == "ok"
+    assert cb.state == CircuitState.CLOSED  # type: ignore[comparison-overlap]
+
+
 async def test_concurrent_failures_open_circuit() -> None:
     """Multiple concurrent failing calls should eventually open the circuit.
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from typing import TYPE_CHECKING
 
 from aiohttp import web
 
@@ -34,6 +35,9 @@ from tdbot.prompt.postgres_store import PostgresSnapshotStore
 from tdbot.prompt.snapshot_store import InMemorySnapshotStore, SnapshotStore
 from tdbot.redis.client import close_redis_pool, create_redis_pool
 from tdbot.refinement.worker import run_worker
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
 
 
 async def _run() -> None:
@@ -52,52 +56,12 @@ async def _run() -> None:
     )
 
     engine = create_engine(settings)
-    redis = await create_redis_pool(settings)
-    snapshot_store: SnapshotStore
-    if settings.use_fake_adapters:
-        snapshot_store = InMemorySnapshotStore()
-    else:
-        snapshot_store = PostgresSnapshotStore(engine=engine, redis=redis)
 
-    encryptor = FieldEncryptor.from_settings(settings)
-    if encryptor.is_enabled:
-        log.info("field_encryption_enabled")
-
-    if settings.use_fake_adapters:
-        log.warning(
-            "fake_adapters_enabled",
-            reason="USE_FAKE_ADAPTERS=true — no real model API calls will be made",
-        )
-        chat_client: ChatAPIClient = FakeChatAPIClient(model=settings.chat_model)
-        refinement_client: ChatAPIClient = FakeChatAPIClient(model=settings.refinement_model)
-    else:
-        chat_client = ChatAPIClient(
-            api_key=settings.openai_api_key.get_secret_value(),
-            model=settings.chat_model,
-            base_url=settings.openai_base_url,
-        )
-        refinement_client = ChatAPIClient(
-            api_key=settings.openai_api_key.get_secret_value(),
-            model=settings.refinement_model,
-            base_url=settings.openai_base_url,
-        )
-
-    # Start the internal HTTP service.
-    internal_app = build_internal_app(redis)
-    runner = web.AppRunner(internal_app)
-    await runner.setup()
-    site = web.TCPSite(
-        runner,
-        settings.internal_server_host,
-        settings.internal_server_port,
-    )
-    await site.start()
-    log.info(
-        "internal_server_started",
-        host=settings.internal_server_host,
-        port=settings.internal_server_port,
-    )
-
+    # Track resources for cleanup — all optional until initialized.
+    redis: Redis | None = None
+    chat_client: ChatAPIClient | None = None
+    refinement_client: ChatAPIClient | None = None
+    runner: web.AppRunner | None = None
     worker_task: asyncio.Task[None] | None = None
     sweeper_task: asyncio.Task[None] | None = None
 
@@ -115,6 +79,52 @@ async def _run() -> None:
             await asyncio.sleep(3600)  # wait one hour between sweeps
 
     try:
+        redis = await create_redis_pool(settings)
+        snapshot_store: SnapshotStore
+        if settings.use_fake_adapters:
+            snapshot_store = InMemorySnapshotStore()
+        else:
+            snapshot_store = PostgresSnapshotStore(engine=engine, redis=redis)
+
+        encryptor = FieldEncryptor.from_settings(settings)
+        if encryptor.is_enabled:
+            log.info("field_encryption_enabled")
+
+        if settings.use_fake_adapters:
+            log.warning(
+                "fake_adapters_enabled",
+                reason="USE_FAKE_ADAPTERS=true — no real model API calls will be made",
+            )
+            chat_client = FakeChatAPIClient(model=settings.chat_model)
+            refinement_client = FakeChatAPIClient(model=settings.refinement_model)
+        else:
+            chat_client = ChatAPIClient(
+                api_key=settings.openai_api_key.get_secret_value(),
+                model=settings.chat_model,
+                base_url=settings.openai_base_url,
+            )
+            refinement_client = ChatAPIClient(
+                api_key=settings.openai_api_key.get_secret_value(),
+                model=settings.refinement_model,
+                base_url=settings.openai_base_url,
+            )
+
+        # Start the internal HTTP service.
+        internal_app = build_internal_app(redis)
+        runner = web.AppRunner(internal_app)
+        await runner.setup()
+        site = web.TCPSite(
+            runner,
+            settings.internal_server_host,
+            settings.internal_server_port,
+        )
+        await site.start()
+        log.info(
+            "internal_server_started",
+            host=settings.internal_server_host,
+            port=settings.internal_server_port,
+        )
+
         bot = build_bot(settings)
         dp = build_dispatcher(
             settings,
@@ -162,10 +172,14 @@ async def _run() -> None:
         if sweeper_task is not None:
             sweeper_task.cancel()
             await asyncio.gather(sweeper_task, return_exceptions=True)
-        await runner.cleanup()
-        await chat_client.close()
-        await refinement_client.close()
-        await close_redis_pool(redis)
+        if runner is not None:
+            await runner.cleanup()
+        if chat_client is not None:
+            await chat_client.close()
+        if refinement_client is not None:
+            await refinement_client.close()
+        if redis is not None:
+            await close_redis_pool(redis)
         await engine.dispose()
         log.info("tdbot stopped")
 

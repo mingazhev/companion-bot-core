@@ -426,3 +426,54 @@ async def test_process_one_job_defers_on_circuit_breaker_open() -> None:
     raw = await redis.lpop(QUEUE_REFINEMENT_JOBS)
     job = json.loads(raw)
     assert job.get("attempt", 0) <= 1  # original attempt preserved
+
+
+# ---------------------------------------------------------------------------
+# process_one_job — Redis flush failure skips notice and marks failed
+# ---------------------------------------------------------------------------
+
+
+async def test_process_one_job_no_notice_on_redis_flush_failure() -> None:
+    """When the Redis active-pointer flush fails after DB commit, the job
+    should be marked failed and the user notice must NOT be set."""
+    redis = fakeredis.FakeRedis()
+    snapshot_store = InMemorySnapshotStore()
+    user_id = uuid.uuid4()
+    snap = _make_snapshot(user_id)
+    await snapshot_store.save(snap)
+    await snapshot_store.set_active(user_id, snap.id)
+
+    import json as _json
+
+    good_json = _json.dumps(
+        {
+            "proposed_delta": {
+                "persona_segment": "Be warm and concise",
+                "skill_packs": None,
+                "long_term_profile": None,
+            },
+            "rationale": "Observed user preference",
+            "risk_flags": [],
+        }
+    )
+    chat_client = AsyncMock()
+    chat_client.chat_completion = AsyncMock(return_value=_make_openai_response(good_json))
+
+    # Make flush_deferred_redis_writes always raise so all 3 attempts fail.
+    with (
+        patch("tdbot.refinement.worker.get_async_session", new=_fake_session_ctx),
+        patch(
+            "tdbot.refinement.worker.flush_deferred_redis_writes",
+            new=AsyncMock(side_effect=RuntimeError("Redis down")),
+        ),
+    ):
+        await process_one_job(
+            {"user_id": str(user_id)},
+            redis=redis,
+            snapshot_store=snapshot_store,
+            chat_client=chat_client,
+            engine=MagicMock(),
+        )
+
+    # User notice must NOT be set (Redis pointer is stale).
+    assert await check_and_clear_user_notice(redis, str(user_id)) is False

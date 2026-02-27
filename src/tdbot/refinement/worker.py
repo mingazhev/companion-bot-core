@@ -253,11 +253,38 @@ async def process_one_job(
                     },
                 )
             )
-        # Flush the deferred Redis pointer write after the DB commit.
-        await flush_deferred_redis_writes(session, redis)
-
-        # --- Notify user (optional, non-blocking) ---
-        await _set_user_notice(redis, user_id_str)
+        # Post-commit side effects: flush the deferred Redis pointer write
+        # and set the user notice.  Retry with back-off (matching the
+        # IngressMiddleware pattern) because flush_deferred_redis_writes
+        # keeps writes in session.info until they all succeed.  A final
+        # failure is logged at ERROR level — the DB commit has already
+        # succeeded so we do NOT trigger a job retry, but we mark the
+        # job as failed and skip the user notice to avoid a misleading
+        # "profile updated" message when the active pointer is stale.
+        flush_ok = False
+        for _flush_attempt in range(3):
+            try:
+                await flush_deferred_redis_writes(session, redis)
+                flush_ok = True
+                break
+            except Exception:  # noqa: BLE001
+                if _flush_attempt == 2:  # noqa: PLR2004
+                    log.error(
+                        "refinement_redis_flush_failed",
+                        user_id=user_id_str,
+                    )
+                    final_status = "failed"
+                    error_msg = "redis active-pointer flush failed after 3 attempts"
+                else:
+                    await asyncio.sleep(0.25 * (_flush_attempt + 1))
+        if flush_ok:
+            try:
+                await _set_user_notice(redis, user_id_str)
+            except Exception:  # noqa: BLE001
+                log.warning(
+                    "refinement_user_notice_failed",
+                    user_id=user_id_str,
+                )
 
         log.info(
             "refinement_job_done",

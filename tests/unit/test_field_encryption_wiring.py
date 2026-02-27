@@ -68,12 +68,20 @@ def _make_detection(
     )
 
 
-def _make_session() -> AsyncMock:
-    """Minimal async session mock with profile query support."""
-    mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = []
+def _make_session(
+    profile: Any = None,
+) -> AsyncMock:
+    """Minimal async session mock with profile query support.
+
+    When *profile* is provided, ``scalar_one()`` returns it so that the
+    upsert-then-SELECT pattern in ``get_or_create_profile`` works correctly.
+    """
+    from tdbot.db.models import UserProfile
+
     scalar_result = MagicMock()
-    scalar_result.scalar_one_or_none.return_value = None
+    scalar_result.scalars.return_value.all.return_value = []
+    # Default profile for tests that go through the profile creation path.
+    scalar_result.scalar_one.return_value = profile or UserProfile(user_id=uuid4())
     session = AsyncMock()
     session.execute = AsyncMock(return_value=scalar_result)
     session.add = MagicMock()
@@ -230,7 +238,10 @@ async def test_auto_apply_tone_change_encrypts_profile_tone() -> None:
     enc = _make_encryptor(enabled=True)
     user_id = uuid4()
     redis = fakeredis.FakeRedis(decode_responses=True)
-    session = _make_session()
+    from tdbot.db.models import UserProfile
+
+    profile = UserProfile(user_id=user_id)
+    session = _make_session(profile=profile)
     store = InMemorySnapshotStore()
 
     # Seed initial snapshot
@@ -264,15 +275,6 @@ async def test_auto_apply_tone_change_encrypts_profile_tone() -> None:
             encryptor=enc,
         )
 
-    # Find the UserProfile that was added to the session.
-    # session.add is called for: UserProfile (new), BehaviorChangeEvent, user msg, asst msg
-    added_objects = [call[0][0] for call in session.add.call_args_list]
-    from tdbot.db.models import UserProfile
-
-    profiles = [obj for obj in added_objects if isinstance(obj, UserProfile)]
-    assert len(profiles) == 1
-    profile = profiles[0]
-
     # The tone field should be encrypted, not plaintext
     assert profile.tone is not None
     assert profile.tone != "playful"
@@ -295,7 +297,10 @@ async def test_confirmed_persona_change_encrypts_profile_name() -> None:
     enc = _make_encryptor(enabled=True)
     user_id = uuid4()
     redis = fakeredis.FakeRedis(decode_responses=True)
-    session = _make_session()
+    from tdbot.db.models import UserProfile
+
+    profile = UserProfile(user_id=user_id)
+    session = _make_session(profile=profile)
     store = InMemorySnapshotStore()
 
     # Seed initial snapshot
@@ -332,14 +337,6 @@ async def test_confirmed_persona_change_encrypts_profile_name() -> None:
 
     assert reply == _CHANGE_APPLIED_MSG
 
-    # Find the UserProfile
-    added_objects = [call[0][0] for call in session.add.call_args_list]
-    from tdbot.db.models import UserProfile
-
-    profiles = [obj for obj in added_objects if isinstance(obj, UserProfile)]
-    assert len(profiles) == 1
-    profile = profiles[0]
-
     # persona_name should be encrypted
     assert profile.persona_name is not None
     assert profile.persona_name != "Alex"
@@ -362,7 +359,10 @@ async def test_disabled_encryptor_passes_through_profile_fields() -> None:
     enc = _make_encryptor(enabled=False)
     user_id = uuid4()
     redis = fakeredis.FakeRedis(decode_responses=True)
-    session = _make_session()
+    from tdbot.db.models import UserProfile
+
+    profile = UserProfile(user_id=user_id)
+    session = _make_session(profile=profile)
     store = InMemorySnapshotStore()
 
     version = await store.next_version(user_id)
@@ -395,13 +395,8 @@ async def test_disabled_encryptor_passes_through_profile_fields() -> None:
             encryptor=enc,
         )
 
-    added_objects = [call[0][0] for call in session.add.call_args_list]
-    from tdbot.db.models import UserProfile
-
-    profiles = [obj for obj in added_objects if isinstance(obj, UserProfile)]
-    assert len(profiles) == 1
     # With disabled encryptor, tone is stored as plaintext
-    assert profiles[0].tone == "playful"
+    assert profile.tone == "playful"
 
 
 # ---------------------------------------------------------------------------

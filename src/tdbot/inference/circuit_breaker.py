@@ -67,6 +67,7 @@ class CircuitBreaker:
         self._failure_count: int = 0
         self._success_count: int = 0
         self._opened_at: float | None = None
+        self._half_open_probe_in_flight: bool = False
         self._lock: asyncio.Lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
@@ -88,6 +89,7 @@ class CircuitBreaker:
     async def _record_success(self) -> None:
         async with self._lock:
             if self._state == CircuitState.HALF_OPEN:
+                self._half_open_probe_in_flight = False
                 self._success_count += 1
                 if self._success_count >= self.success_threshold:
                     self._state = CircuitState.CLOSED
@@ -100,6 +102,7 @@ class CircuitBreaker:
 
     async def _record_failure(self) -> None:
         async with self._lock:
+            self._half_open_probe_in_flight = False
             self._failure_count += 1
             self._success_count = 0
             if (
@@ -113,6 +116,8 @@ class CircuitBreaker:
         """Raise CircuitBreakerOpen if the circuit is open.
 
         Also transitions OPEN → HALF_OPEN when ``recovery_timeout`` has elapsed.
+        Only one probe is allowed in HALF_OPEN; concurrent callers are rejected
+        until the probe completes (preventing a thundering-herd on recovery).
         """
         async with self._lock:
             if self._state == CircuitState.OPEN:
@@ -120,9 +125,20 @@ class CircuitBreaker:
                 if elapsed >= self.recovery_timeout:
                     self._state = CircuitState.HALF_OPEN
                     self._success_count = 0
+                    self._half_open_probe_in_flight = True
                 else:
                     reset_at = (self._opened_at or 0.0) + self.recovery_timeout
                     raise CircuitBreakerOpen(self._failure_count, reset_at)
+            elif self._state == CircuitState.HALF_OPEN:
+                if self._half_open_probe_in_flight:
+                    reset_at = (self._opened_at or 0.0) + self.recovery_timeout
+                    raise CircuitBreakerOpen(self._failure_count, reset_at)
+                # Re-arm the gate so only one probe runs at a time.
+                # This is essential when success_threshold > 1: after a
+                # successful probe that does not yet meet the threshold,
+                # _record_success clears the flag; the next _check_state
+                # call re-arms it here, ensuring one-at-a-time semantics.
+                self._half_open_probe_in_flight = True
 
     # ------------------------------------------------------------------
     # Public interface
@@ -153,8 +169,15 @@ class CircuitBreaker:
         await self._check_state()
         try:
             result: Any = await func(*args, **kwargs)
-            await self._record_success()
-            return result
-        except Exception:
+        except BaseException:
             await self._record_failure()
             raise
+        try:
+            await self._record_success()
+        except BaseException:
+            # If CancelledError (or another BaseException) interrupts
+            # success recording, clear the probe flag directly so the
+            # circuit breaker does not get permanently stuck in HALF_OPEN.
+            self._half_open_probe_in_flight = False
+            raise
+        return result

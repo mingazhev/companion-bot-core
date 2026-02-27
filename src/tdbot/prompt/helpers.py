@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 
 from tdbot.db.models import UserProfile
 from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template, extract_section
@@ -33,16 +34,22 @@ async def get_or_create_profile(
     session: AsyncSession,
     user_id: uuid.UUID,
 ) -> UserProfile:
-    """Fetch the user's profile row, creating one if it doesn't exist."""
+    """Fetch the user's profile row, creating one if it doesn't exist.
+
+    Uses an upsert (INSERT … ON CONFLICT DO NOTHING) to avoid a race
+    condition when two concurrent requests arrive for the same user,
+    mirroring the pattern in :func:`bot.users.get_or_create_user`.
+    """
+    stmt = (
+        insert(UserProfile)
+        .values(user_id=user_id)
+        .on_conflict_do_nothing(index_elements=["user_id"])
+    )
+    await session.execute(stmt)
     result = await session.execute(
         select(UserProfile).where(UserProfile.user_id == user_id)
     )
-    profile = result.scalar_one_or_none()
-    if profile is None:
-        profile = UserProfile(user_id=user_id)
-        session.add(profile)
-        await session.flush()
-    return profile
+    return result.scalar_one()
 
 
 def build_persona_segment(

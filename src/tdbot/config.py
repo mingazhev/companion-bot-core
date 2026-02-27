@@ -6,6 +6,8 @@ runtime via environment variables or a `.env` file (never committed).
 
 from __future__ import annotations
 
+import ipaddress
+
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -127,12 +129,19 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_internal_host(self) -> Settings:
-        if self.internal_server_host in ("0.0.0.0", "::"):  # noqa: S104
-            msg = (
-                "internal_server_host must not be 0.0.0.0 or :: — "
-                "internal routes have no authentication"
-            )
-            raise ValueError(msg)
+        host = self.internal_server_host
+        try:
+            addr = ipaddress.ip_address(host)
+        except ValueError:
+            # Not a valid IP literal (e.g. "localhost") — not a wildcard.
+            pass
+        else:
+            if addr.is_unspecified:
+                msg = (
+                    f"internal_server_host must not be a wildcard address ({host}) — "
+                    "internal routes have no authentication"
+                )
+                raise ValueError(msg)
         return self
 
     # --- Local development ---
