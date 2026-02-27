@@ -109,6 +109,10 @@ _REFUSE_MSG = (
     "I can't make that change — it conflicts with safety guidelines. "
     "If you'd like to adjust your experience, try /set_tone or /set_persona."
 )
+_SAFETY_FALLBACK_MSG = (
+    "I wasn't able to generate a suitable response for that message. "
+    "Could you try rephrasing?"
+)
 _CHANGE_APPLIED_MSG = "Done! I've recorded your preference and will adapt accordingly."
 _CHANGE_CANCELLED_MSG = "No problem, keeping things as they are."
 
@@ -692,6 +696,19 @@ async def process_message(
 
             reply_text = inference_reply.reply
 
+            # Handle content-filtered or refused model responses gracefully
+            # instead of forwarding empty/truncated text to the user.
+            sf = inference_reply.safety_flags
+            if sf.content_filtered or sf.refusal:
+                log.warning(
+                    "inference_safety_flag_triggered",
+                    user_id=user_id_str,
+                    content_filtered=sf.content_filtered,
+                    refusal=sf.refusal,
+                    finish_reason=sf.finish_reason,
+                )
+                reply_text = _SAFETY_FALLBACK_MSG
+
             # Record token usage metrics (noqa: S106 — not a password, metric label)
             TOKENS_USED.labels(
                 provider="openai", model=model, token_type="prompt"  # noqa: S106
@@ -760,6 +777,11 @@ async def process_message(
                 prompt_tokens=inference_reply.usage.prompt_tokens,
                 completion_tokens=inference_reply.usage.completion_tokens,
             )
+
+            # Surface clarification question when behavior detection had
+            # a nonzero but below-threshold confidence score.
+            if detection.clarification_question is not None:
+                reply_text = f"{reply_text}\n\n{detection.clarification_question}"
 
             return reply_text
         finally:
