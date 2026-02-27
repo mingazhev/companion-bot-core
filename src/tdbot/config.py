@@ -114,7 +114,13 @@ class Settings(BaseSettings):
     )
     field_encryption_key: SecretStr = Field(
         default=SecretStr(""),
-        description="32-byte Fernet key for field-level encryption (empty → auto-generate)",
+        description=(
+            "URL-safe base64-encoded 32-byte Fernet key for field-level encryption. "
+            "Required (non-empty) when encrypt_sensitive_fields=True; "
+            "absence raises RuntimeError at startup. "
+            "Generate with: python -c \"from cryptography.fernet import Fernet; "
+            "print(Fernet.generate_key().decode())\""
+        ),
     )
 
     @model_validator(mode="after")
@@ -133,12 +139,23 @@ class Settings(BaseSettings):
         try:
             addr = ipaddress.ip_address(host)
         except ValueError:
-            # Not a valid IP literal (e.g. "localhost") — not a wildcard.
-            pass
-        else:
-            if addr.is_unspecified:
+            # Not a valid IP literal.  Only "localhost" is permitted as a
+            # non-numeric value — it reliably resolves to the loopback interface
+            # on all supported platforms.  Arbitrary hostnames (e.g.
+            # "my-public-host.example.com") are rejected because they can
+            # resolve to a public address and internal routes have no
+            # authentication.
+            if host != "localhost":
                 msg = (
-                    f"internal_server_host must not be a wildcard address ({host}) — "
+                    f"internal_server_host must be a loopback IP (127.0.0.1 / ::1), "
+                    f"'localhost', or another loopback address; got '{host}'. "
+                    "Internal routes have no authentication — only loopback binds are safe."
+                )
+                raise ValueError(msg) from None
+        else:
+            if not addr.is_loopback:
+                msg = (
+                    f"internal_server_host must be a loopback address ({host} is not) — "
                     "internal routes have no authentication"
                 )
                 raise ValueError(msg)

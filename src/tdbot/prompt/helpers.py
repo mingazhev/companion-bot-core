@@ -8,9 +8,10 @@ rebuild logic.
 
 from __future__ import annotations
 
+import struct
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 
 from tdbot.db.models import UserProfile
@@ -28,6 +29,29 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from tdbot.prompt.snapshot_store import SnapshotStore
+
+
+async def acquire_profile_advisory_lock(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+) -> None:
+    """Acquire a PostgreSQL advisory transaction lock for the user's profile.
+
+    Uses ``pg_advisory_xact_lock`` which blocks until the lock is available
+    and is automatically released when the enclosing transaction commits or
+    rolls back.  This provides a hard serialization guarantee — independent of
+    any TTL — for the profile read-modify-write cycle.
+
+    The lock key is derived from the first 8 bytes of the user UUID mapped to
+    a signed int64 (big-endian).  The Redis TTL lock in handlers still provides
+    a fast-path rejection that avoids a DB round-trip when a concurrent request
+    is clearly in-flight; this advisory lock covers the remaining edge case
+    where the TTL expires before the transaction commits.
+    """
+    lock_key = struct.unpack(">q", user_id.bytes[:8])[0]
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key}
+    )
 
 
 async def get_or_create_profile(

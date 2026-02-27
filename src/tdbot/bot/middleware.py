@@ -25,7 +25,12 @@ from aiogram import BaseMiddleware
 from tdbot.bot.users import get_or_create_user
 from tdbot.db.engine import get_async_session
 from tdbot.logging_config import bind_correlation_id, get_logger
-from tdbot.prompt.postgres_store import extract_deferred_redis_writes, flush_deferred_redis_writes
+from tdbot.prompt.postgres_store import (
+    extract_deferred_lock_releases,
+    extract_deferred_redis_writes,
+    flush_deferred_lock_releases,
+    flush_deferred_redis_writes,
+)
 from tdbot.redis.idempotency import clear_update_key, mark_update_seen
 from tdbot.redis.rate_limit import check_global_rate_limit, check_user_rate_limit
 
@@ -119,6 +124,7 @@ class IngressMiddleware(BaseMiddleware):
         # Provision internal User row and inject context into handler data.
         # ------------------------------------------------------------------ #
         deferred_writes: list[tuple[str, str]] = []
+        deferred_locks: list[tuple[str, str]] = []
         try:
             async with get_async_session(self._engine) as session:
                 db_user = await get_or_create_user(session, tg_user.id)
@@ -133,8 +139,10 @@ class IngressMiddleware(BaseMiddleware):
                     update_id=update_id,
                 )
                 result = await handler(event, data)
-                # Extract deferred writes while the session is still open.
+                # Extract deferred writes and lock releases while the session
+                # is still open (session.info is inaccessible after close).
                 deferred_writes = extract_deferred_redis_writes(session)
+                deferred_locks = extract_deferred_lock_releases(session)
         except Exception:
             # Handler or DB commit failed — clear the idempotency key so
             # Telegram retries of this update_id are not permanently dropped.
@@ -145,6 +153,18 @@ class IngressMiddleware(BaseMiddleware):
                     "idempotency_key_cleanup_failed",
                     update_id=update_id,
                 )
+            # Release any deferred profile locks immediately.  The DB commit
+            # failed so no profile state was persisted and there is no stale
+            # Redis pointer risk.  Release now so the user can retry without
+            # waiting for the 30-second TTL.
+            if deferred_locks:
+                try:
+                    await flush_deferred_lock_releases(deferred_locks, self._redis)
+                except Exception:  # noqa: BLE001
+                    log.warning(
+                        "deferred_lock_release_failed_on_error",
+                        update_id=update_id,
+                    )
             raise
 
         # Transaction committed — flush snapshot-pointer Redis writes
@@ -153,9 +173,11 @@ class IngressMiddleware(BaseMiddleware):
         # idempotency key: the handler already completed and the DB
         # committed, so allowing a Telegram retry would duplicate work.
         # Redis SET is idempotent so callers can safely retry.
+        redis_flush_ok = False
         for _attempt in range(3):
             try:
                 await flush_deferred_redis_writes(deferred_writes, self._redis)
+                redis_flush_ok = True
                 break
             except Exception:  # noqa: BLE001
                 if _attempt == 2:  # noqa: PLR2004
@@ -165,4 +187,39 @@ class IngressMiddleware(BaseMiddleware):
                     )
                 else:
                     await asyncio.sleep(0.25 * (_attempt + 1))
+
+        # If all flush attempts failed, delete the stale active pointer keys
+        # so the next get_active() falls back to the DB and returns the most
+        # recently committed snapshot, rather than serving the old pointer
+        # indefinitely.  Deleting is safe: get_active() treats a missing key
+        # as "no pointer" and queries the DB for the highest-version snapshot
+        # (the newly committed one), which is the correct recovery behaviour.
+        stale_cleanup_ok = False
+        if not redis_flush_ok and deferred_writes:
+            try:
+                stale_keys = [key for key, _ in deferred_writes]
+                await self._redis.delete(*stale_keys)
+                stale_cleanup_ok = True
+            except Exception:  # noqa: BLE001
+                log.warning(
+                    "deferred_redis_pointer_cleanup_failed",
+                    update_id=update_id,
+                )
+
+        # Release profile write locks after the Redis active pointer is in a
+        # known-good state: either the pointer was written successfully
+        # (redis_flush_ok) or the stale pointer was deleted so the next
+        # get_active() falls back to the DB (stale_cleanup_ok).  Only hold
+        # the lock until TTL expiry when both paths failed and a stale
+        # pointer could still exist, to prevent concurrent writers from
+        # reading stale Redis state.
+        if deferred_locks and (redis_flush_ok or stale_cleanup_ok):
+            try:
+                await flush_deferred_lock_releases(deferred_locks, self._redis)
+            except Exception:  # noqa: BLE001
+                log.warning(
+                    "deferred_lock_release_failed",
+                    update_id=update_id,
+                )
+
         return result

@@ -268,3 +268,178 @@ async def test_deferred_redis_flush_failure_preserves_idempotency_key() -> None:
     assert await redis.exists("idempotency:update:900") == 1
     # All 3 retry attempts must be made before giving up.
     assert flush_mock.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_deferred_redis_flush_failure_deletes_stale_pointer() -> None:
+    """When all deferred Redis pointer flush attempts fail, the middleware must
+    delete the stale active pointer keys so the next get_active() call falls
+    back to the DB rather than serving the old pointer indefinitely."""
+    redis = fakeredis.FakeRedis(decode_responses=True)
+    settings = _make_settings()
+    engine = MagicMock()
+    middleware = IngressMiddleware(settings=settings, engine=engine, redis=redis)
+
+    # Pre-populate a stale active pointer in Redis.
+    await redis.set("prompt:active:user-abc", "old-snapshot-id")
+
+    handler = AsyncMock(return_value="ok")
+    update = _make_update(update_id=903)
+
+    with patch("tdbot.bot.middleware.get_async_session") as mock_session_cm, patch(
+        "tdbot.bot.middleware.get_or_create_user", return_value=_make_db_user()
+    ), patch(
+        "tdbot.bot.middleware.extract_deferred_redis_writes",
+        return_value=[("prompt:active:user-abc", "new-snapshot-id")],
+    ), patch(
+        "tdbot.bot.middleware.flush_deferred_redis_writes",
+        new=AsyncMock(side_effect=ConnectionError("Redis unavailable")),
+    ):
+        mock_session = AsyncMock()
+        mock_session.info = {}
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session_cm.return_value = mock_session
+
+        result = await middleware(handler, update, {})
+
+    assert result == "ok"
+    # The stale pointer must be deleted so get_active() falls back to the DB.
+    assert await redis.exists("prompt:active:user-abc") == 0
+
+
+@pytest.mark.asyncio
+async def test_lock_not_released_when_redis_flush_and_cleanup_both_fail() -> None:
+    """When both the deferred Redis pointer flush and the stale-key cleanup fail,
+    the profile write lock must NOT be released.  Holding the lock until TTL
+    expiry prevents a concurrent request from acquiring it and reading a stale
+    Redis active pointer that still references the old snapshot."""
+    settings = _make_settings()
+    engine = MagicMock()
+
+    # Use a real fakeredis instance but patch its delete method to simulate failure.
+    redis = fakeredis.FakeRedis(decode_responses=True)
+    middleware = IngressMiddleware(settings=settings, engine=engine, redis=redis)
+
+    handler = AsyncMock(return_value="ok")
+    update = _make_update(update_id=901)
+
+    flush_lock_mock = AsyncMock()
+    with patch("tdbot.bot.middleware.get_async_session") as mock_session_cm, patch(
+        "tdbot.bot.middleware.get_or_create_user", return_value=_make_db_user()
+    ), patch(
+        "tdbot.bot.middleware.extract_deferred_redis_writes",
+        return_value=[("prompt:active:test", "snap-id")],
+    ), patch(
+        "tdbot.bot.middleware.extract_deferred_lock_releases",
+        return_value=[("profile:write:abc", "token-x")],
+    ), patch(
+        "tdbot.bot.middleware.flush_deferred_redis_writes",
+        new=AsyncMock(side_effect=ConnectionError("Redis unavailable")),
+    ), patch.object(
+        redis, "delete", AsyncMock(side_effect=ConnectionError("Redis unavailable")),
+    ), patch(
+        "tdbot.bot.middleware.flush_deferred_lock_releases",
+        new=flush_lock_mock,
+    ):
+        mock_session = AsyncMock()
+        mock_session.info = {}
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session_cm.return_value = mock_session
+
+        result = await middleware(handler, update, {})
+
+    assert result == "ok"
+    # Lock must NOT be released when both the Redis pointer flush and stale
+    # pointer cleanup failed — a stale pointer may still exist in Redis.
+    flush_lock_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_lock_released_when_flush_fails_but_stale_cleanup_succeeds() -> None:
+    """When the deferred Redis pointer flush fails but stale-key deletion succeeds,
+    the profile write lock must be released.  The deleted pointer means the next
+    get_active() falls back to the DB (no stale state risk), so there is no
+    reason to hold the lock until TTL expiry."""
+    settings = _make_settings()
+    engine = MagicMock()
+    redis = fakeredis.FakeRedis(decode_responses=True)
+    middleware = IngressMiddleware(settings=settings, engine=engine, redis=redis)
+
+    # Pre-populate a stale active pointer.
+    await redis.set("prompt:active:test", "old-snap-id")
+
+    handler = AsyncMock(return_value="ok")
+    update = _make_update(update_id=904)
+
+    flush_lock_mock = AsyncMock()
+    with patch("tdbot.bot.middleware.get_async_session") as mock_session_cm, patch(
+        "tdbot.bot.middleware.get_or_create_user", return_value=_make_db_user()
+    ), patch(
+        "tdbot.bot.middleware.extract_deferred_redis_writes",
+        return_value=[("prompt:active:test", "new-snap-id")],
+    ), patch(
+        "tdbot.bot.middleware.extract_deferred_lock_releases",
+        return_value=[("profile:write:abc", "token-x")],
+    ), patch(
+        "tdbot.bot.middleware.flush_deferred_redis_writes",
+        new=AsyncMock(side_effect=ConnectionError("Redis unavailable")),
+    ), patch(
+        "tdbot.bot.middleware.flush_deferred_lock_releases",
+        new=flush_lock_mock,
+    ):
+        mock_session = AsyncMock()
+        mock_session.info = {}
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session_cm.return_value = mock_session
+
+        result = await middleware(handler, update, {})
+
+    assert result == "ok"
+    # Stale pointer was deleted — no stale Redis state, so lock must be released.
+    assert await redis.exists("prompt:active:test") == 0
+    flush_lock_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_lock_released_immediately_on_db_commit_failure() -> None:
+    """When the DB transaction commit fails after the handler has already
+    deferred the lock release, the middleware must release the lock in the
+    exception path so the user can retry without waiting for the 30-second TTL."""
+    redis = fakeredis.FakeRedis(decode_responses=True)
+    settings = _make_settings()
+    engine = MagicMock()
+    middleware = IngressMiddleware(settings=settings, engine=engine, redis=redis)
+
+    handler = AsyncMock(return_value="ok")
+    update = _make_update(update_id=902)
+
+    flush_lock_mock = AsyncMock()
+    with patch("tdbot.bot.middleware.get_async_session") as mock_session_cm, patch(
+        "tdbot.bot.middleware.get_or_create_user", return_value=_make_db_user()
+    ), patch(
+        "tdbot.bot.middleware.extract_deferred_redis_writes",
+        return_value=[],
+    ), patch(
+        "tdbot.bot.middleware.extract_deferred_lock_releases",
+        return_value=[("profile:write:xyz", "token-y")],
+    ), patch(
+        "tdbot.bot.middleware.flush_deferred_lock_releases",
+        new=flush_lock_mock,
+    ):
+        mock_session = AsyncMock()
+        mock_session.info = {}
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        # Simulate commit failure on session exit
+        mock_session.__aexit__ = AsyncMock(side_effect=RuntimeError("commit failed"))
+        mock_session_cm.return_value = mock_session
+
+        with pytest.raises(RuntimeError, match="commit failed"):
+            await middleware(handler, update, {})
+
+    # Lock must be released immediately in the error path.
+    flush_lock_mock.assert_awaited_once()
+    call_args = flush_lock_mock.call_args[0]
+    assert call_args[0] == [("profile:write:xyz", "token-y")]

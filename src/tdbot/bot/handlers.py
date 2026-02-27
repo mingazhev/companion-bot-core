@@ -20,6 +20,7 @@ Commands implemented here
 from __future__ import annotations
 
 import html
+import secrets
 import time
 from typing import TYPE_CHECKING
 
@@ -32,7 +33,11 @@ from tdbot.db.models import UserProfile
 from tdbot.logging_config import get_logger
 from tdbot.orchestrator import process_message
 from tdbot.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
-from tdbot.prompt.helpers import get_or_create_profile, rebuild_and_save_snapshot
+from tdbot.prompt.helpers import (
+    acquire_profile_advisory_lock,
+    get_or_create_profile,
+    rebuild_and_save_snapshot,
+)
 from tdbot.tracing import span
 
 if TYPE_CHECKING:
@@ -46,6 +51,7 @@ if TYPE_CHECKING:
     from tdbot.prompt.snapshot_store import SnapshotStore
 
 from tdbot.privacy.delete_user import hard_delete_user
+from tdbot.prompt.postgres_store import PROFILE_LOCK_UNLOCK_SCRIPT, defer_lock_release
 from tdbot.prompt.rollback import RollbackError, rollback_to_previous
 from tdbot.redis.queues import enqueue_refinement_job
 from tdbot.refinement.worker import check_and_clear_user_notice
@@ -56,6 +62,7 @@ router = Router(name="commands")
 
 # Telegram limits plain-text messages to 4096 characters.
 _TG_MSG_LIMIT = 4096
+
 
 
 # --------------------------------------------------------------------------- #
@@ -136,6 +143,7 @@ async def cmd_set_tone(
     db_session: AsyncSession,
     snapshot_store: SnapshotStore,
     encryptor: FieldEncryptor | None = None,
+    redis: Redis | None = None,
 ) -> None:
     """Set the response tone. Usage: /set_tone <tone>"""
     enc = encryptor or NOOP_ENCRYPTOR
@@ -153,23 +161,64 @@ async def cmd_set_tone(
             f"Valid tones: {', '.join(sorted(VALID_TONES))}"
         )
         return
-    profile = await get_or_create_profile(db_session, db_user.id)
-    # Decrypt existing persona_name for prompt building before encrypting new tone.
-    raw_persona = (
-        enc.decrypt_safe(profile.persona_name, default="")
-        if profile.persona_name else None
-    )
-    profile.tone = enc.encrypt(tone)
-    await db_session.flush()
-    await rebuild_and_save_snapshot(
-        snapshot_store, db_user.id, raw_persona, tone,
-        session=db_session,
-    )
-    await message.answer(
-        f"Tone set to '{tone}'.\n"
-        "Changes will be applied starting from your next message."
-    )
-    log.info("set_tone", internal_user_id=str(db_user.id), tone=tone)
+
+    # Serialize concurrent profile updates for the same user to prevent a
+    # read-modify-write race where two simultaneous commands each read the
+    # same base snapshot and the last commit silently drops the other change.
+    lock_key = f"profile:write:{db_user.id}"
+    lock_token = secrets.token_hex(16)
+    lock_held = False
+    if redis is not None:
+        lock_held = bool(await redis.set(lock_key, lock_token, nx=True, ex=120))
+        if not lock_held:
+            await message.answer(
+                "A profile update is already in progress. Please try again in a moment."
+            )
+            return
+
+    # When the success path completes, the lock release is deferred until after
+    # the DB transaction commits and deferred Redis pointer writes are flushed
+    # (handled by IngressMiddleware).  On the error path (exception before
+    # deferral), the lock is released immediately in the finally block so the
+    # user can retry without waiting for the TTL to expire.
+    deferred = False
+    try:
+        # Acquire a PostgreSQL advisory transaction lock to guarantee
+        # serialization for the full duration of the DB transaction.  This
+        # complements the Redis TTL lock above: the Redis lock provides a fast
+        # rejection for obvious concurrency; the advisory lock eliminates the
+        # residual race where the TTL could expire before the transaction
+        # commits.  The advisory lock auto-releases when the transaction ends.
+        await acquire_profile_advisory_lock(db_session, db_user.id)
+        profile = await get_or_create_profile(db_session, db_user.id)
+        # Decrypt existing persona_name for prompt building before encrypting new tone.
+        raw_persona = (
+            enc.decrypt_safe(profile.persona_name, default="")
+            if profile.persona_name else None
+        )
+        profile.tone = enc.encrypt(tone)
+        await db_session.flush()
+        await rebuild_and_save_snapshot(
+            snapshot_store, db_user.id, raw_persona, tone,
+            session=db_session,
+        )
+        await message.answer(
+            f"Tone set to '{tone}'.\n"
+            "Changes will be applied starting from your next message."
+        )
+        log.info("set_tone", internal_user_id=str(db_user.id), tone=tone)
+        # Defer release until after commit + Redis pointer flush (success path).
+        if lock_held:
+            assert redis is not None  # lock_held is True only when redis was used
+            defer_lock_release(db_session, lock_key, lock_token)
+            deferred = True
+    finally:
+        if lock_held and not deferred:
+            assert redis is not None  # lock_held is True only when redis was used
+            try:
+                await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[no-untyped-call]
+            except Exception:  # noqa: BLE001
+                log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
 
 
 # --------------------------------------------------------------------------- #
@@ -185,6 +234,7 @@ async def cmd_set_persona(
     db_session: AsyncSession,
     snapshot_store: SnapshotStore,
     encryptor: FieldEncryptor | None = None,
+    redis: Redis | None = None,
 ) -> None:
     """Set the persona name. Usage: /set_persona <name>"""
     enc = encryptor or NOOP_ENCRYPTOR
@@ -210,20 +260,48 @@ async def cmd_set_persona(
     if any(c < " " or c in _banned_chars for c in name):
         await message.answer("Persona name must not contain control characters.")
         return
-    profile = await get_or_create_profile(db_session, db_user.id)
-    # Decrypt existing tone for prompt building before encrypting new persona name.
-    raw_tone = (
-        enc.decrypt_safe(profile.tone, default="")
-        if profile.tone else None
-    )
-    profile.persona_name = enc.encrypt(name)
-    await db_session.flush()
-    await rebuild_and_save_snapshot(
-        snapshot_store, db_user.id, name, raw_tone,
-        session=db_session,
-    )
-    await message.answer(f"Persona name set to '{html.escape(name)}'.")
-    log.info("set_persona", internal_user_id=str(db_user.id), persona_name=name)
+
+    # Serialize concurrent profile updates for the same user.
+    lock_key = f"profile:write:{db_user.id}"
+    lock_token = secrets.token_hex(16)
+    lock_held = False
+    if redis is not None:
+        lock_held = bool(await redis.set(lock_key, lock_token, nx=True, ex=120))
+        if not lock_held:
+            await message.answer(
+                "A profile update is already in progress. Please try again in a moment."
+            )
+            return
+
+    deferred = False
+    try:
+        await acquire_profile_advisory_lock(db_session, db_user.id)
+        profile = await get_or_create_profile(db_session, db_user.id)
+        # Decrypt existing tone for prompt building before encrypting new persona name.
+        raw_tone = (
+            enc.decrypt_safe(profile.tone, default="")
+            if profile.tone else None
+        )
+        profile.persona_name = enc.encrypt(name)
+        await db_session.flush()
+        await rebuild_and_save_snapshot(
+            snapshot_store, db_user.id, name, raw_tone,
+            session=db_session,
+        )
+        await message.answer(f"Persona name set to '{html.escape(name)}'.")
+        log.info("set_persona", internal_user_id=str(db_user.id), persona_name=name)
+        # Defer release until after commit + Redis pointer flush (success path).
+        if lock_held:
+            assert redis is not None  # lock_held is True only when redis was used
+            defer_lock_release(db_session, lock_key, lock_token)
+            deferred = True
+    finally:
+        if lock_held and not deferred:
+            assert redis is not None  # lock_held is True only when redis was used
+            try:
+                await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[no-untyped-call]
+            except Exception:  # noqa: BLE001
+                log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
 
 
 # --------------------------------------------------------------------------- #
@@ -232,7 +310,7 @@ async def cmd_set_persona(
 
 
 @router.message(Command("memory_compact_now"))
-async def cmd_memory_compact_now(message: Message, db_user: User, redis: Redis) -> None:
+async def cmd_memory_compact_now(message: Message, db_user: User, redis: Redis) -> None:  # type: ignore[type-arg]
     """Request an immediate memory compaction for this user."""
     user_id_str = str(db_user.id)
 
@@ -272,21 +350,49 @@ async def cmd_reset_persona(
     db_user: User,
     db_session: AsyncSession,
     snapshot_store: SnapshotStore,
+    redis: Redis | None = None,
 ) -> None:
     """Reset the user's persona and tone to defaults."""
-    profile = await get_or_create_profile(db_session, db_user.id)
-    profile.persona_name = None
-    profile.tone = None
-    await db_session.flush()
-    await rebuild_and_save_snapshot(
-        snapshot_store, db_user.id, None, None,
-        session=db_session,
-    )
-    await message.answer(
-        "Your persona has been reset to defaults.\n"
-        "Use /set_persona and /set_tone to customise again."
-    )
-    log.info("reset_persona", internal_user_id=str(db_user.id))
+    # Serialize concurrent profile updates for the same user.
+    lock_key = f"profile:write:{db_user.id}"
+    lock_token = secrets.token_hex(16)
+    lock_held = False
+    if redis is not None:
+        lock_held = bool(await redis.set(lock_key, lock_token, nx=True, ex=120))
+        if not lock_held:
+            await message.answer(
+                "A profile update is already in progress. Please try again in a moment."
+            )
+            return
+
+    deferred = False
+    try:
+        await acquire_profile_advisory_lock(db_session, db_user.id)
+        profile = await get_or_create_profile(db_session, db_user.id)
+        profile.persona_name = None
+        profile.tone = None
+        await db_session.flush()
+        await rebuild_and_save_snapshot(
+            snapshot_store, db_user.id, None, None,
+            session=db_session,
+        )
+        await message.answer(
+            "Your persona has been reset to defaults.\n"
+            "Use /set_persona and /set_tone to customise again."
+        )
+        log.info("reset_persona", internal_user_id=str(db_user.id))
+        # Defer release until after commit + Redis pointer flush (success path).
+        if lock_held:
+            assert redis is not None  # lock_held is True only when redis was used
+            defer_lock_release(db_session, lock_key, lock_token)
+            deferred = True
+    finally:
+        if lock_held and not deferred:
+            assert redis is not None  # lock_held is True only when redis was used
+            try:
+                await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[no-untyped-call]
+            except Exception:  # noqa: BLE001
+                log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
 
 
 # --------------------------------------------------------------------------- #
@@ -343,7 +449,7 @@ async def cmd_delete_my_data(
     message: Message,
     db_user: User,
     db_session: AsyncSession,
-    redis: Redis,
+    redis: Redis,  # type: ignore[type-arg]
     snapshot_store: SnapshotStore,
 ) -> None:
     """Hard-delete all personal data for the user.
@@ -377,7 +483,7 @@ async def handle_message(
     message: Message,
     db_user: User,
     db_session: AsyncSession,
-    redis: Redis,
+    redis: Redis,  # type: ignore[type-arg]
     snapshot_store: SnapshotStore,
     chat_client: ChatAPIClient,
     settings: Settings,

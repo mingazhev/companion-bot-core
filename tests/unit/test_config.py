@@ -57,3 +57,45 @@ class TestSettingsDefaults:
         s = _make_settings(database_pool_min=3, database_pool_max=20)
         assert s.database_pool_min == 3
         assert s.database_pool_max == 20
+
+
+class TestInternalHostValidation:
+    def test_loopback_ipv4_accepted(self) -> None:
+        s = _make_settings(internal_server_host="127.0.0.1")
+        assert s.internal_server_host == "127.0.0.1"
+
+    def test_loopback_ipv6_accepted(self) -> None:
+        s = _make_settings(internal_server_host="::1")
+        assert s.internal_server_host == "::1"
+
+    def test_hostname_accepted(self) -> None:
+        # Non-IP-literal hostnames pass validation (assumed loopback by deployer).
+        s = _make_settings(internal_server_host="localhost")
+        assert s.internal_server_host == "localhost"
+
+    def test_wildcard_ipv4_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="loopback"):
+            _make_settings(internal_server_host="0.0.0.0")
+
+    def test_wildcard_ipv6_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="loopback"):
+            _make_settings(internal_server_host="::")
+
+    def test_routable_ipv4_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="loopback"):
+            _make_settings(internal_server_host="192.168.1.100")
+
+    def test_private_rfc1918_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="loopback"):
+            _make_settings(internal_server_host="10.0.0.1")
+
+    def test_arbitrary_hostname_rejected(self) -> None:
+        # A public or private hostname must be rejected because it could
+        # resolve to a non-loopback address; internal routes have no auth.
+        with pytest.raises(ValidationError):
+            _make_settings(internal_server_host="my-public-host.example.com")
+
+    def test_internal_hostname_rejected(self) -> None:
+        # Even internal-sounding hostnames are rejected (cannot verify resolution).
+        with pytest.raises(ValidationError):
+            _make_settings(internal_server_host="internal-service")

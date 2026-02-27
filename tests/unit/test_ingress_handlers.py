@@ -60,13 +60,16 @@ def _make_profile_session(
     """Session mock that supports get_or_create_profile (upsert-then-SELECT).
 
     Always returns a real ``UserProfile`` from ``scalar_one()`` so the
-    handler code can set attributes on it.
+    handler code can set attributes on it.  ``info`` is a real dict so that
+    ``session.info.setdefault(...)`` used by the deferred lock/write helpers
+    works correctly.
     """
     profile = existing_profile or UserProfile(user_id=user_id or uuid.uuid4())
     select_result = MagicMock()
     select_result.scalar_one.return_value = profile
 
     db_session = AsyncMock()
+    db_session.info = {}  # real dict — required by defer_lock_release / deferred writes
     db_session.add = MagicMock()
     db_session.execute = AsyncMock(return_value=select_result)
     return db_session
@@ -107,6 +110,16 @@ async def test_profile_shows_telegram_id() -> None:
 # --------------------------------------------------------------------------- #
 # /set_tone
 # --------------------------------------------------------------------------- #
+
+
+def _make_redis(*, lock_acquired: bool = True) -> AsyncMock:
+    """Redis mock with controllable SET NX (lock) behaviour."""
+    redis = AsyncMock()
+    redis.set = AsyncMock(return_value=True if lock_acquired else None)
+    redis.delete = AsyncMock()
+    redis.eval = AsyncMock(return_value=1)
+    redis.rpush = AsyncMock(return_value=1)
+    return redis
 
 
 @pytest.mark.asyncio
@@ -203,6 +216,62 @@ async def test_set_tone_updates_existing_profile() -> None:
     assert "Name: Ada" in active.system_prompt
 
 
+@pytest.mark.asyncio
+async def test_set_tone_rejects_when_lock_held() -> None:
+    """When the profile write lock is already held, /set_tone returns an error."""
+    msg = _make_message()
+    user = _make_user()
+    cmd = _make_command(args="friendly")
+    redis = _make_redis(lock_acquired=False)
+
+    await cmd_set_tone(msg, cmd, user, AsyncMock(), InMemorySnapshotStore(), redis=redis)
+
+    text: str = msg.answer.call_args[0][0]
+    assert "in progress" in text.lower()
+    # Lock was not acquired so neither DEL nor eval-unlock must be called.
+    redis.delete.assert_not_called()
+    redis.eval.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_set_tone_acquires_and_defers_lock_release() -> None:
+    """Verify the profile write lock is acquired with a unique token then
+    deferred for post-commit release (not released inside the handler).
+
+    The lock release is stored in session.info so IngressMiddleware can
+    flush it after the DB transaction commits and the Redis active pointer
+    is updated — eliminating the race where a concurrent request acquires
+    the lock before A's changes are fully visible.
+    """
+    msg = _make_message()
+    user = _make_user()
+    cmd = _make_command(args="playful")
+    db_session = _make_profile_session()
+    snapshot_store = InMemorySnapshotStore()
+    redis = _make_redis(lock_acquired=True)
+
+    await cmd_set_tone(msg, cmd, user, db_session, snapshot_store, redis=redis)
+
+    expected_key = f"profile:write:{user.id}"
+    # Lock must be acquired with the correct key, nx=True, ex=30, and a
+    # non-static token (not the literal "1").
+    redis.set.assert_awaited_once()
+    set_args, set_kwargs = redis.set.call_args
+    assert set_args[0] == expected_key
+    assert isinstance(set_args[1], str) and len(set_args[1]) > 0
+    assert set_args[1] != "1", "token must be unique, not the static value '1'"
+    assert set_kwargs.get("nx") is True
+    assert set_kwargs.get("ex") == 120
+    # Lock release must be deferred — NOT released inside the handler.
+    redis.eval.assert_not_awaited()
+    redis.delete.assert_not_awaited()
+    # Lock info must be stored in session.info for post-commit release by
+    # IngressMiddleware via flush_deferred_lock_releases.
+    deferred = db_session.info.get("_profile_lock_releases", [])
+    assert len(deferred) == 1
+    assert deferred[0] == (expected_key, set_args[1])
+
+
 # --------------------------------------------------------------------------- #
 # /set_persona
 # --------------------------------------------------------------------------- #
@@ -293,6 +362,37 @@ async def test_set_persona_control_chars_rejected(name: str) -> None:
     await cmd_set_persona(msg, cmd, user, AsyncMock(), AsyncMock())
     text: str = msg.answer.call_args[0][0]
     assert "control characters" in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_set_persona_rejects_when_lock_held() -> None:
+    """When the profile write lock is held, /set_persona returns an error."""
+    msg = _make_message()
+    user = _make_user()
+    cmd = _make_command(args="Nova")
+    redis = _make_redis(lock_acquired=False)
+
+    await cmd_set_persona(msg, cmd, user, AsyncMock(), InMemorySnapshotStore(), redis=redis)
+
+    text: str = msg.answer.call_args[0][0]
+    assert "in progress" in text.lower()
+    redis.delete.assert_not_called()
+    redis.eval.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reset_persona_rejects_when_lock_held() -> None:
+    """When the profile write lock is held, /reset_persona returns an error."""
+    msg = _make_message()
+    user = _make_user()
+    redis = _make_redis(lock_acquired=False)
+
+    await cmd_reset_persona(msg, user, AsyncMock(), InMemorySnapshotStore(), redis=redis)
+
+    text: str = msg.answer.call_args[0][0]
+    assert "in progress" in text.lower()
+    redis.delete.assert_not_called()
+    redis.eval.assert_not_called()
 
 
 # --------------------------------------------------------------------------- #

@@ -14,7 +14,10 @@ import pytest
 
 from tdbot.prompt.postgres_store import (
     PostgresSnapshotStore,
+    defer_lock_release,
+    extract_deferred_lock_releases,
     extract_deferred_redis_writes,
+    flush_deferred_lock_releases,
 )
 from tdbot.prompt.schemas import SnapshotRecord
 
@@ -140,12 +143,77 @@ async def test_get_returns_none_when_not_found() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_active_returns_none_when_no_pointer() -> None:
+async def test_get_active_returns_none_when_no_pointer_and_no_db_snapshot() -> None:
+    """When Redis has no pointer AND the DB has no snapshot, get_active returns None."""
     store, _engine, redis = _make_store()
     redis.get = AsyncMock(return_value=None)
 
-    result = await store.get_active(uuid.uuid4())
+    mock_session = AsyncMock()
+    exec_result = MagicMock()
+    exec_result.scalar_one_or_none.return_value = None
+    mock_session.execute = AsyncMock(return_value=exec_result)
+
+    with patch("tdbot.prompt.postgres_store.get_async_session") as mock_get_session:
+        ctx = AsyncMock()
+        ctx.__aenter__ = AsyncMock(return_value=mock_session)
+        ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_get_session.return_value = ctx
+
+        result = await store.get_active(uuid.uuid4())
+
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_active_falls_back_to_db_when_redis_pointer_missing() -> None:
+    """When Redis has no pointer but DB has a snapshot, get_active returns it."""
+    store, _engine, redis = _make_store()
+    redis.get = AsyncMock(return_value=None)
+
+    record = _make_record()
+    orm_row = _make_orm_snapshot(record)
+
+    mock_session = AsyncMock()
+    exec_result = MagicMock()
+    exec_result.scalar_one_or_none.return_value = orm_row
+    mock_session.execute = AsyncMock(return_value=exec_result)
+
+    with patch("tdbot.prompt.postgres_store.get_async_session") as mock_get_session:
+        ctx = AsyncMock()
+        ctx.__aenter__ = AsyncMock(return_value=mock_session)
+        ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_get_session.return_value = ctx
+
+        result = await store.get_active(record.user_id)
+
+    assert result is not None
+    assert result.id == record.id
+
+
+@pytest.mark.asyncio
+async def test_get_active_falls_back_to_db_on_invalid_pointer() -> None:
+    """When Redis has a corrupt pointer, get_active falls back to DB."""
+    store, _engine, redis = _make_store()
+    redis.get = AsyncMock(return_value="not-a-uuid")
+
+    record = _make_record()
+    orm_row = _make_orm_snapshot(record)
+
+    mock_session = AsyncMock()
+    exec_result = MagicMock()
+    exec_result.scalar_one_or_none.return_value = orm_row
+    mock_session.execute = AsyncMock(return_value=exec_result)
+
+    with patch("tdbot.prompt.postgres_store.get_async_session") as mock_get_session:
+        ctx = AsyncMock()
+        ctx.__aenter__ = AsyncMock(return_value=mock_session)
+        ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_get_session.return_value = ctx
+
+        result = await store.get_active(record.user_id)
+
+    assert result is not None
+    assert result.id == record.id
 
 
 @pytest.mark.asyncio
@@ -303,3 +371,72 @@ def test_extract_deferred_redis_writes_is_idempotent_on_second_call() -> None:
     second = extract_deferred_redis_writes(session)
     assert first == [("prompt:active:x", "snap-1")]
     assert second == []
+
+
+# --------------------------------------------------------------------------- #
+# defer_lock_release / extract_deferred_lock_releases / flush_deferred_lock_releases
+# --------------------------------------------------------------------------- #
+
+_LOCK_RELEASES_KEY = "_profile_lock_releases"
+
+
+def test_defer_lock_release_appends_to_session_info() -> None:
+    """defer_lock_release stores (key, token) in session.info."""
+    session = MagicMock()
+    session.info = {}
+    defer_lock_release(session, "profile:write:abc", "token-1")
+    assert session.info[_LOCK_RELEASES_KEY] == [("profile:write:abc", "token-1")]
+
+
+def test_defer_lock_release_accumulates_multiple_entries() -> None:
+    """Multiple defer_lock_release calls accumulate in the same list."""
+    session = MagicMock()
+    session.info = {}
+    defer_lock_release(session, "profile:write:a", "tok-a")
+    defer_lock_release(session, "profile:write:b", "tok-b")
+    assert session.info[_LOCK_RELEASES_KEY] == [
+        ("profile:write:a", "tok-a"),
+        ("profile:write:b", "tok-b"),
+    ]
+
+
+def test_extract_deferred_lock_releases_returns_and_clears() -> None:
+    """extract_deferred_lock_releases pops the list from session.info."""
+    session = MagicMock()
+    session.info = {_LOCK_RELEASES_KEY: [("profile:write:x", "tok-x")]}
+    result = extract_deferred_lock_releases(session)
+    assert result == [("profile:write:x", "tok-x")]
+    assert _LOCK_RELEASES_KEY not in session.info
+
+
+def test_extract_deferred_lock_releases_returns_empty_when_no_key() -> None:
+    session = MagicMock()
+    session.info = {}
+    assert extract_deferred_lock_releases(session) == []
+
+
+@pytest.mark.asyncio
+async def test_flush_deferred_lock_releases_calls_eval_for_each_entry() -> None:
+    """flush_deferred_lock_releases runs the Lua unlock script for every entry."""
+    redis = AsyncMock()
+    redis.eval = AsyncMock(return_value=1)
+    releases = [("profile:write:a", "tok-a"), ("profile:write:b", "tok-b")]
+
+    await flush_deferred_lock_releases(releases, redis)
+
+    assert redis.eval.await_count == 2
+    first_call = redis.eval.call_args_list[0][0]
+    assert first_call[2] == "profile:write:a"
+    assert first_call[3] == "tok-a"
+    second_call = redis.eval.call_args_list[1][0]
+    assert second_call[2] == "profile:write:b"
+    assert second_call[3] == "tok-b"
+
+
+@pytest.mark.asyncio
+async def test_flush_deferred_lock_releases_noop_on_empty_list() -> None:
+    """flush_deferred_lock_releases is a no-op when given an empty list."""
+    redis = AsyncMock()
+    redis.eval = AsyncMock()
+    await flush_deferred_lock_releases([], redis)
+    redis.eval.assert_not_awaited()
