@@ -100,11 +100,18 @@ async def handle_refine(request: web.Request) -> web.Response:
             status=409,
         )
 
-    queue_length = await enqueue_refinement_job(
-        redis,
-        str(user_id),
-        {"trigger": req.trigger},
-    )
+    try:
+        queue_length = await enqueue_refinement_job(
+            redis,
+            str(user_id),
+            {"trigger": req.trigger},
+        )
+    except Exception:  # noqa: BLE001
+        try:
+            await redis.delete(guard_key)
+        except Exception:  # noqa: BLE001
+            log.warning("refine_guard_cleanup_failed", user_id=str(user_id))
+        return web.json_response({"error": "failed to enqueue refinement job"}, status=500)
 
     resp = RefineResponse(
         queued=True,
