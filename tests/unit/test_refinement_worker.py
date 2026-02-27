@@ -460,11 +460,18 @@ async def test_process_one_job_no_notice_on_redis_flush_failure() -> None:
     chat_client.chat_completion = AsyncMock(return_value=_make_openai_response(good_json))
 
     # Make flush_deferred_redis_writes always raise so all 3 attempts fail.
+    # Patch extract_deferred_redis_writes to return a non-empty list so the
+    # flush path is actually exercised.
+    flush_mock = AsyncMock(side_effect=RuntimeError("Redis down"))
     with (
         patch("tdbot.refinement.worker.get_async_session", new=_fake_session_ctx),
         patch(
+            "tdbot.refinement.worker.extract_deferred_redis_writes",
+            return_value=[("prompt:active:test", "snap-id")],
+        ),
+        patch(
             "tdbot.refinement.worker.flush_deferred_redis_writes",
-            new=AsyncMock(side_effect=RuntimeError("Redis down")),
+            new=flush_mock,
         ),
     ):
         await process_one_job(
@@ -477,3 +484,5 @@ async def test_process_one_job_no_notice_on_redis_flush_failure() -> None:
 
     # User notice must NOT be set (Redis pointer is stale).
     assert await check_and_clear_user_notice(redis, str(user_id)) is False
+    # All 3 retry attempts must be exhausted before marking the job failed.
+    assert flush_mock.await_count == 3

@@ -12,7 +12,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tdbot.prompt.postgres_store import PostgresSnapshotStore
+from tdbot.prompt.postgres_store import (
+    PostgresSnapshotStore,
+    extract_deferred_redis_writes,
+)
 from tdbot.prompt.schemas import SnapshotRecord
 
 # --------------------------------------------------------------------------- #
@@ -264,3 +267,39 @@ async def test_delete_for_user_cleans_redis_keys() -> None:
         f"prompt:active:{user_id}",
         f"prompt:version:{user_id}",
     )
+
+
+# --------------------------------------------------------------------------- #
+# extract_deferred_redis_writes
+# --------------------------------------------------------------------------- #
+
+
+_DEFERRED_KEY = "_snapshot_deferred_redis_writes"
+
+
+def test_extract_deferred_redis_writes_returns_and_clears() -> None:
+    """extract_deferred_redis_writes pops the deferred list from session.info."""
+    session = MagicMock()
+    session.info = {_DEFERRED_KEY: [("prompt:active:x", "snap-1")]}
+    result = extract_deferred_redis_writes(session)
+    assert result == [("prompt:active:x", "snap-1")]
+    assert _DEFERRED_KEY not in session.info
+
+
+def test_extract_deferred_redis_writes_returns_empty_when_no_key() -> None:
+    """extract_deferred_redis_writes returns [] when no deferred writes are queued."""
+    session = MagicMock()
+    session.info = {}
+    result = extract_deferred_redis_writes(session)
+    assert result == []
+
+
+def test_extract_deferred_redis_writes_is_idempotent_on_second_call() -> None:
+    """Calling extract_deferred_redis_writes twice on the same session returns []
+    on the second call — confirming pop semantics, not get."""
+    session = MagicMock()
+    session.info = {_DEFERRED_KEY: [("prompt:active:x", "snap-1")]}
+    first = extract_deferred_redis_writes(session)
+    second = extract_deferred_redis_writes(session)
+    assert first == [("prompt:active:x", "snap-1")]
+    assert second == []

@@ -33,7 +33,12 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from tdbot.behavior import classify
-from tdbot.behavior.extractor import extract_persona_name, extract_skill_topic, extract_tone
+from tdbot.behavior.extractor import (
+    VALID_TONES,
+    extract_persona_name,
+    extract_skill_topic,
+    extract_tone,
+)
 from tdbot.db.models import BehaviorChangeEvent, ConversationMessage
 from tdbot.inference import generate_reply
 from tdbot.inference.circuit_breaker import CircuitBreakerOpen
@@ -169,7 +174,7 @@ async def _apply_behavior_change(
 
     if intent == "tone_change":
         tone = extract_tone(message_text)
-        if tone is None:
+        if tone is None or tone not in VALID_TONES:
             log.info(
                 "behavior_change_tone_extraction_failed",
                 user_id=str(user_id),

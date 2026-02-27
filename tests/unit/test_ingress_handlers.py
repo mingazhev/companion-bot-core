@@ -310,6 +310,8 @@ async def test_memory_compact_now_replies() -> None:
     msg.answer.assert_called_once()
     text: str = msg.answer.call_args[0][0]
     assert "compaction" in text.lower()
+    assert "prompt profile" in text.lower()
+    assert "refined" in text.lower()
 
 
 @pytest.mark.asyncio

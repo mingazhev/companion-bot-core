@@ -243,11 +243,15 @@ async def test_deferred_redis_flush_failure_preserves_idempotency_key() -> None:
     handler = AsyncMock(return_value="ok")
     update = _make_update(update_id=900)
 
+    flush_mock = AsyncMock(side_effect=ConnectionError("Redis unavailable"))
     with patch("tdbot.bot.middleware.get_async_session") as mock_session_cm, patch(
         "tdbot.bot.middleware.get_or_create_user", return_value=_make_db_user()
     ), patch(
+        "tdbot.bot.middleware.extract_deferred_redis_writes",
+        return_value=[("prompt:active:test", "snap-id")],
+    ), patch(
         "tdbot.bot.middleware.flush_deferred_redis_writes",
-        side_effect=ConnectionError("Redis unavailable"),
+        new=flush_mock,
     ):
         mock_session = AsyncMock()
         mock_session.info = {}
@@ -262,3 +266,5 @@ async def test_deferred_redis_flush_failure_preserves_idempotency_key() -> None:
     handler.assert_called_once()
     # The idempotency key must still be present so retries are rejected.
     assert await redis.exists("idempotency:update:900") == 1
+    # All 3 retry attempts must be made before giving up.
+    assert flush_mock.await_count == 3

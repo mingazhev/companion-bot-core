@@ -195,8 +195,16 @@ async def cmd_set_persona(
     if len(name) > 64:
         await message.answer("Persona name must be 64 characters or fewer.")
         return
-    # Reject control characters (newlines, tabs, etc.) to prevent prompt injection.
-    if any(c < " " for c in name):
+    # Reject control characters (newlines, tabs, DEL, Unicode direction overrides,
+    # zero-width chars) to prevent stored prompt injection via persona names.
+    _banned_chars = frozenset(
+        "\x7f"                          # DEL
+        "\u200b\u200c\u200d\u200e\u200f"  # zero-width + directional marks
+        "\u2028\u2029"                  # line/paragraph separators
+        "\u202a\u202b\u202c\u202d\u202e"  # bidi embedding/override
+        "\ufeff"                        # BOM / zero-width no-break space
+    )
+    if any(c < " " or c in _banned_chars for c in name):
         await message.answer("Persona name must not contain control characters.")
         return
     profile = await get_or_create_profile(db_session, db_user.id)
@@ -245,7 +253,7 @@ async def cmd_memory_compact_now(message: Message, db_user: User, redis: Redis) 
 
     await message.answer(
         "Memory compaction requested.\n"
-        "Your conversation history will be summarised shortly."
+        "Your prompt profile will be refined based on recent conversations shortly."
     )
     log.info("memory_compact_now_requested", internal_user_id=user_id_str)
 
@@ -349,6 +357,7 @@ async def handle_message(
     user_id_str = str(db_user.id)
     text = message.text or ""
     ingress_start = time.perf_counter()
+    reply = ""
 
     async with span("ingress.handle_message", user_id=user_id_str):
         try:

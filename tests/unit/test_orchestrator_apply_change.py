@@ -182,6 +182,52 @@ async def test_auto_apply_tone_change_no_extraction_still_records_event() -> Non
     assert active.version == initial.version
 
 
+@pytest.mark.asyncio
+async def test_auto_apply_tone_change_invalid_tone_leaves_snapshot_unchanged() -> None:
+    """When extract_tone returns a value not in VALID_TONES the snapshot is not updated."""
+    user_id = uuid4()
+    redis = fakeredis.FakeRedis(decode_responses=True)
+    session = _make_session()
+    store = InMemorySnapshotStore()
+
+    version = await store.next_version(user_id)
+    initial = SnapshotRecord(
+        user_id=user_id,
+        version=version,
+        system_prompt="You are a helpful, friendly companion.",
+        skill_prompts_json={},
+        source="initial",
+    )
+    await store.save(initial)
+    await store.set_active(user_id, initial.id)
+
+    with patch(
+        "tdbot.orchestrator.orchestrator.classify",
+        return_value=_make_detection(
+            intent="tone_change", risk_level="low", action="auto_apply"
+        ),
+    ), patch(
+        "tdbot.orchestrator.orchestrator.extract_tone",
+        return_value="nonexistent_tone",  # a value not in VALID_TONES
+    ), patch(
+        "tdbot.orchestrator.orchestrator.generate_reply",
+        return_value=_make_inference_reply("OK"),
+    ):
+        await process_message(
+            user_id=user_id,
+            message_text="Use a completely different tone",
+            session=session,
+            snapshot_store=store,
+            redis=redis,
+            chat_client=MagicMock(),
+        )
+
+    # Snapshot must remain unchanged — invalid tone is rejected.
+    active = await store.get_active(user_id)
+    assert active is not None
+    assert active.version == initial.version
+
+
 # ---------------------------------------------------------------------------
 # Confirmed: persona_change updates snapshot
 # ---------------------------------------------------------------------------

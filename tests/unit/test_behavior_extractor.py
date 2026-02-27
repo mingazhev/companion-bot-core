@@ -92,6 +92,21 @@ class TestExtractPersonaName:
         result = extract_persona_name("You are now Captain Jack")
         assert result == "Captain Jack"
 
+    def test_exactly_64_char_name_accepted(self) -> None:
+        """A name of exactly 64 characters (the limit) must be extracted."""
+        name = "A" + "a" * 63  # 1 + 63 = 64 characters
+        assert len(name) == 64
+        result = extract_persona_name(f"You are now {name}")
+        assert result == name
+
+    def test_name_over_64_chars_rejected(self) -> None:
+        """A name exceeding 64 characters must not be extracted."""
+        name = "A" + "a" * 64  # 65 characters — regex captures at most 64
+        result = extract_persona_name(f"You are now {name}")
+        # The regex captures at most 64 chars total, so the full 65-char name
+        # is never returned (either truncated or not matched due to len guard).
+        assert result != name
+
 
 # ---------------------------------------------------------------------------
 # extract_skill_topic
