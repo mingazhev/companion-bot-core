@@ -76,7 +76,8 @@ _SAFETY_SIGNALS: Final[list[Signal]] = compile_signals(
         # Known jailbreak keywords
         (r"\bjailbreak\b", 0.9),
         (r"\bdan\b.{0,10}\bmode\b", 0.9),
-    ]
+    ],
+    dotall=True,
 )
 
 # ---------------------------------------------------------------------------
@@ -104,7 +105,8 @@ _CHANGE_SIGNALS: Final[dict[str, list[Signal]]] = {
                 r"(different |new )?(person|character|assistant|entity|ai|bot)\b",
                 0.5,
             ),
-        ]
+        ],
+        dotall=True,
     ),
     "tone_change": compile_signals(
         [
@@ -136,7 +138,8 @@ _CHANGE_SIGNALS: Final[dict[str, list[Signal]]] = {
                 0.4,
             ),
             (r"\bless (formal|verbose|casual|cold|stiff|technical|distant)\b", 0.4),
-        ]
+        ],
+        dotall=True,
     ),
     "skill_add_prompt": compile_signals(
         [
@@ -162,7 +165,8 @@ _CHANGE_SIGNALS: Final[dict[str, list[Signal]]] = {
                 0.5,
             ),
             (r"\blearn (about|to help with|how to help with)\b", 0.4),
-        ]
+        ],
+        dotall=True,
     ),
     "skill_remove": compile_signals(
         [
@@ -183,7 +187,8 @@ _CHANGE_SIGNALS: Final[dict[str, list[Signal]]] = {
                 r"\bforget (that you )?(help|assist|know about|can help with)\b",
                 0.4,
             ),
-        ]
+        ],
+        dotall=True,
     ),
 }
 

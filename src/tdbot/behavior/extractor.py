@@ -123,6 +123,18 @@ _SKILL_PATTERNS: Final[list[re.Pattern[str]]] = [
         r"\s+(?:from now on|always|going forward)",
         re.IGNORECASE,
     ),
+    # Matches the detector signal: "i (want|need|would like) you to (also)? (help|assist|...)"
+    re.compile(
+        r"\bi (?:want|need|would like) you to (?:also )?(?:help|assist|know about|learn|understand)"
+        r"(?:\s+(?:me\s+)?with)?\s+([a-zA-Z][a-zA-Z0-9 \-]{0,48})",
+        re.IGNORECASE,
+    ),
+    # Matches the detector signal: "you (should|can|could|may) also (help|assist|know|support)"
+    re.compile(
+        r"\byou (?:should|can|could|may) also (?:help|assist|know about|support)"
+        r"(?:\s+(?:me\s+)?with)?\s+([a-zA-Z][a-zA-Z0-9 \-]{0,48})",
+        re.IGNORECASE,
+    ),
     re.compile(
         r"\bstop (?:helping|assisting)\b\s+(?:me\s+)?with\b\s+"
         r"([a-zA-Z][a-zA-Z0-9 \-]{0,48})",

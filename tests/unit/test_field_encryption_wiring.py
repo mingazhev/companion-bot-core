@@ -86,6 +86,9 @@ def _make_session(
     session.execute = AsyncMock(return_value=scalar_result)
     session.add = MagicMock()
     session.flush = AsyncMock()
+    # begin_nested must be a sync callable returning an AsyncMock so that
+    # `async with session.begin_nested()` works as an async context manager.
+    session.begin_nested = MagicMock(return_value=AsyncMock())
     return session
 
 

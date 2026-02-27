@@ -209,16 +209,19 @@ async def cmd_set_tone(
         log.info("set_tone", internal_user_id=str(db_user.id), tone=tone)
         # Defer release until after commit + Redis pointer flush (success path).
         if lock_held:
-            assert redis is not None  # lock_held is True only when redis was used
+            # redis cannot be None here: lock_held is only True after a
+            # successful redis.set() inside `if redis is not None`.
             defer_lock_release(db_session, lock_key, lock_token)
             deferred = True
     finally:
         if lock_held and not deferred:
-            assert redis is not None  # lock_held is True only when redis was used
-            try:
-                await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[misc]
-            except Exception:  # noqa: BLE001
-                log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
+            if redis is None:  # invariant: should never happen
+                log.error("profile_lock_release_impossible", internal_user_id=str(db_user.id))
+            else:
+                try:
+                    await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[misc]
+                except Exception:  # noqa: BLE001
+                    log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
 
 
 # --------------------------------------------------------------------------- #
@@ -292,16 +295,19 @@ async def cmd_set_persona(
         log.info("set_persona", internal_user_id=str(db_user.id), persona_name=name)
         # Defer release until after commit + Redis pointer flush (success path).
         if lock_held:
-            assert redis is not None  # lock_held is True only when redis was used
+            # redis cannot be None here: lock_held is only True after a
+            # successful redis.set() inside `if redis is not None`.
             defer_lock_release(db_session, lock_key, lock_token)
             deferred = True
     finally:
         if lock_held and not deferred:
-            assert redis is not None  # lock_held is True only when redis was used
-            try:
-                await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[misc]
-            except Exception:  # noqa: BLE001
-                log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
+            if redis is None:  # invariant: should never happen
+                log.error("profile_lock_release_impossible", internal_user_id=str(db_user.id))
+            else:
+                try:
+                    await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[misc]
+                except Exception:  # noqa: BLE001
+                    log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
 
 
 # --------------------------------------------------------------------------- #
@@ -383,16 +389,19 @@ async def cmd_reset_persona(
         log.info("reset_persona", internal_user_id=str(db_user.id))
         # Defer release until after commit + Redis pointer flush (success path).
         if lock_held:
-            assert redis is not None  # lock_held is True only when redis was used
+            # redis cannot be None here: lock_held is only True after a
+            # successful redis.set() inside `if redis is not None`.
             defer_lock_release(db_session, lock_key, lock_token)
             deferred = True
     finally:
         if lock_held and not deferred:
-            assert redis is not None  # lock_held is True only when redis was used
-            try:
-                await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[misc]
-            except Exception:  # noqa: BLE001
-                log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
+            if redis is None:  # invariant: should never happen
+                log.error("profile_lock_release_impossible", internal_user_id=str(db_user.id))
+            else:
+                try:
+                    await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[misc]
+                except Exception:  # noqa: BLE001
+                    log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
 
 
 # --------------------------------------------------------------------------- #

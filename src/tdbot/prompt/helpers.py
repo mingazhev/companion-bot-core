@@ -8,6 +8,7 @@ rebuild logic.
 
 from __future__ import annotations
 
+import hashlib
 import struct
 from typing import TYPE_CHECKING, Any
 
@@ -42,18 +43,16 @@ async def acquire_profile_advisory_lock(
     rolls back.  This provides a hard serialization guarantee — independent of
     any TTL — for the profile read-modify-write cycle.
 
-    The lock key is derived by XOR-ing the two 8-byte halves of the user UUID
-    and mapping the result to a signed int64 (big-endian).  Using the full 128
-    bits avoids advisory-lock key collisions between users whose UUIDs share
-    the same first 8 bytes.  The Redis TTL lock in handlers still provides a
-    fast-path rejection that avoids a DB round-trip when a concurrent request
-    is clearly in-flight; this advisory lock covers the remaining edge case
-    where the TTL expires before the transaction commits.
+    The lock key is a 64-bit signed integer derived from the full 128-bit UUID
+    via BLAKE2b (8-byte digest).  A hash avoids the XOR symmetry flaw where two
+    users whose UUID halves are byte-swapped would share the same key.  The
+    Redis TTL lock in handlers still provides a fast-path rejection that avoids
+    a DB round-trip when a concurrent request is clearly in-flight; this
+    advisory lock covers the remaining edge case where the TTL expires before
+    the transaction commits.
     """
-    b = user_id.bytes
-    hi = struct.unpack(">q", b[:8])[0]
-    lo = struct.unpack(">q", b[8:])[0]
-    lock_key = hi ^ lo
+    digest = hashlib.blake2b(user_id.bytes, digest_size=8).digest()
+    lock_key = struct.unpack(">q", digest)[0]
     await session.execute(
         text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key}
     )

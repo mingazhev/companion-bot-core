@@ -13,20 +13,27 @@ class Signal(NamedTuple):
     weight: float
 
 
-def compile_signals(patterns: list[tuple[str, float]]) -> list[Signal]:
+def compile_signals(
+    patterns: list[tuple[str, float]],
+    *,
+    dotall: bool = False,
+) -> list[Signal]:
     """Compile *patterns* into :class:`Signal` objects.
 
     Args:
         patterns: List of ``(regex_string, weight)`` tuples.  Each pattern
-            is compiled with ``IGNORECASE | DOTALL`` so ``.`` matches newlines
-            and matching is case-insensitive.
+            is compiled with ``IGNORECASE`` and, when *dotall* is ``True``,
+            ``DOTALL`` so ``.`` also matches newlines.
+        dotall: When ``True`` add ``re.DOTALL`` to the flags.  Defaults to
+            ``False`` to avoid cross-line matches in security-critical patterns
+            where ``.{0,N}`` between keywords could produce false positives on
+            innocent multiline messages.
 
     Returns:
         List of compiled :class:`Signal` objects.
     """
-    return [
-        Signal(re.compile(p, re.IGNORECASE | re.DOTALL), w) for p, w in patterns
-    ]
+    flags = re.IGNORECASE | (re.DOTALL if dotall else 0)
+    return [Signal(re.compile(p, flags), w) for p, w in patterns]
 
 
 def score_signals(text: str, signals: list[Signal]) -> float:

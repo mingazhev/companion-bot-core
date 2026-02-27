@@ -181,19 +181,23 @@ async def _apply_behavior_change(
                 message_text=message_text[:100],
             )
             return False
-        profile = await get_or_create_profile(session, user_id)
-        profile.tone = enc.encrypt(tone)
-        await session.flush()
-        # Decrypt existing persona_name (may be encrypted in DB) for prompt building.
-        raw_persona = (
-            enc.decrypt_safe(profile.persona_name, default="")
-            if profile.persona_name
-            else None
-        )
-        await rebuild_and_save_snapshot(
-            snapshot_store, user_id, raw_persona, tone,
-            source="behavior_change", session=session,
-        )
+        # Wrap the profile update and snapshot rebuild in a savepoint so that
+        # if rebuild_and_save_snapshot raises, both operations are rolled back
+        # atomically.  Without a savepoint the profile change would be
+        # committed by the outer transaction even when the snapshot write fails.
+        async with session.begin_nested():
+            profile = await get_or_create_profile(session, user_id)
+            profile.tone = enc.encrypt(tone)
+            # Decrypt existing persona_name (may be encrypted in DB) for prompt building.
+            raw_persona = (
+                enc.decrypt_safe(profile.persona_name, default="")
+                if profile.persona_name
+                else None
+            )
+            await rebuild_and_save_snapshot(
+                snapshot_store, user_id, raw_persona, tone,
+                source="behavior_change", session=session,
+            )
         log.info(
             "behavior_change_snapshot_updated",
             user_id=str(user_id),
@@ -211,15 +215,19 @@ async def _apply_behavior_change(
                 message_text=message_text[:100],
             )
             return False
-        profile = await get_or_create_profile(session, user_id)
-        profile.persona_name = enc.encrypt(name)
-        await session.flush()
-        # Decrypt existing tone (may be encrypted in DB) for prompt building.
-        raw_tone = enc.decrypt_safe(profile.tone, default="") if profile.tone else None
-        await rebuild_and_save_snapshot(
-            snapshot_store, user_id, name, raw_tone,
-            source="behavior_change", session=session,
-        )
+        # Savepoint ensures that a snapshot-rebuild failure rolls back the
+        # profile update too, keeping profile and snapshot in sync.
+        async with session.begin_nested():
+            profile = await get_or_create_profile(session, user_id)
+            profile.persona_name = enc.encrypt(name)
+            # Decrypt existing tone (may be encrypted in DB) for prompt building.
+            raw_tone = (
+                enc.decrypt_safe(profile.tone, default="") if profile.tone else None
+            )
+            await rebuild_and_save_snapshot(
+                snapshot_store, user_id, name, raw_tone,
+                source="behavior_change", session=session,
+            )
         log.info(
             "behavior_change_snapshot_updated",
             user_id=str(user_id),
