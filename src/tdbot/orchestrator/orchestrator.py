@@ -322,15 +322,9 @@ async def _remove_skill_from_snapshot(
     persona_segment = extract_section(current.system_prompt, "Persona")
 
     skill_key = topic.lower().replace(" ", "_")
-    # Try exact match first, then case-insensitive prefix match.
-    if skill_key in skill_packs:
-        del skill_packs[skill_key]
-    else:
-        matching = [k for k in skill_packs if k.startswith(skill_key) or skill_key.startswith(k)]
-        if not matching:
-            return False
-        for k in matching:
-            del skill_packs[k]
+    if skill_key not in skill_packs:
+        return False
+    del skill_packs[skill_key]
 
     raw_skills = dict(skill_packs)
 

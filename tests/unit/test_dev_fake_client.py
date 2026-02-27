@@ -201,7 +201,7 @@ def test_fake_refinement_json_is_valid() -> None:
     result = RefinementResult.model_validate(data)
     assert result.proposed_delta.persona_segment is None
     assert result.proposed_delta.skill_packs is None
-    assert result.proposed_delta.long_term_profile is None
+    assert isinstance(result.proposed_delta.long_term_profile, str)
     assert result.risk_flags == []
 
 

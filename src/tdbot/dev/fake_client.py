@@ -25,15 +25,17 @@ from tdbot.inference.schemas import ChatMessage, OpenAIResponse
 # Substring that appears only in the refinement model's system prompt.
 _REFINEMENT_MARKER: str = "prompt-refinement assistant"
 
-# Canned JSON returned for refinement calls (no-op delta, no risk flags).
+# Canned JSON returned for refinement calls.  Returns a non-null
+# ``long_term_profile`` delta so the worker exercises the full save path
+# (new snapshot, audit event, user-visible notice) in dev mode.
 _FAKE_REFINEMENT_JSON: str = json.dumps(
     {
         "proposed_delta": {
             "persona_segment": None,
             "skill_packs": None,
-            "long_term_profile": None,
+            "long_term_profile": "User enjoys general conversation topics.",
         },
-        "rationale": "No changes proposed — running in dev mode with fake adapter.",
+        "rationale": "Simulated refinement — running in dev mode with fake adapter.",
         "risk_flags": [],
     }
 )
