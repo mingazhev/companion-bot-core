@@ -113,7 +113,6 @@ async def enqueue_if_cadence_due(
 
     try:
         await enqueue_refinement_job(redis, user_id, {"trigger": "cadence"})
-        await record_refinement_scheduled(redis, user_id, cadence_seconds)
     except Exception:  # noqa: BLE001
         try:
             await redis.delete(guard_key)
@@ -121,6 +120,13 @@ async def enqueue_if_cadence_due(
             log.warning("refinement_cadence_guard_cleanup_failed", user_id=user_id)
         log.warning("refinement_cadence_enqueue_failed", user_id=user_id)
         return False
+
+    try:
+        await record_refinement_scheduled(redis, user_id, cadence_seconds)
+    except Exception:  # noqa: BLE001
+        # Job is already enqueued; the guard prevents duplicate enqueues until
+        # its TTL expires.  Logging here is sufficient — no guard cleanup.
+        log.warning("refinement_cadence_record_failed", user_id=user_id)
 
     log.info("refinement_cadence_job_enqueued", user_id=user_id)
     return True

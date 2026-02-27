@@ -293,12 +293,13 @@ def extract_deferred_lock_releases(session: AsyncSession) -> list[tuple[str, str
     :func:`flush_deferred_lock_releases` after the transaction commits and
     after deferred Redis pointer writes are flushed.
     """
-    return session.info.pop(_DEFERRED_LOCK_RELEASES_KEY, [])
+    result: list[tuple[str, str]] = session.info.pop(_DEFERRED_LOCK_RELEASES_KEY, [])
+    return result
 
 
 async def flush_deferred_lock_releases(
     releases: list[tuple[str, str]],
-    redis: Redis,  # type: ignore[type-arg]
+    redis: Redis,
 ) -> None:
     """Run ownership-safe lock releases previously extracted via
     :func:`extract_deferred_lock_releases`.
@@ -309,4 +310,4 @@ async def flush_deferred_lock_releases(
     If *releases* is empty the call is a no-op.
     """
     for lock_key, lock_token in releases:
-        await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[no-untyped-call]
+        await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[misc]

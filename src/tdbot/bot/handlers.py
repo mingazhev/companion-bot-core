@@ -216,7 +216,7 @@ async def cmd_set_tone(
         if lock_held and not deferred:
             assert redis is not None  # lock_held is True only when redis was used
             try:
-                await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[no-untyped-call]
+                await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[misc]
             except Exception:  # noqa: BLE001
                 log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
 
@@ -299,7 +299,7 @@ async def cmd_set_persona(
         if lock_held and not deferred:
             assert redis is not None  # lock_held is True only when redis was used
             try:
-                await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[no-untyped-call]
+                await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[misc]
             except Exception:  # noqa: BLE001
                 log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
 
@@ -310,7 +310,7 @@ async def cmd_set_persona(
 
 
 @router.message(Command("memory_compact_now"))
-async def cmd_memory_compact_now(message: Message, db_user: User, redis: Redis) -> None:  # type: ignore[type-arg]
+async def cmd_memory_compact_now(message: Message, db_user: User, redis: Redis) -> None:
     """Request an immediate memory compaction for this user."""
     user_id_str = str(db_user.id)
 
@@ -390,7 +390,7 @@ async def cmd_reset_persona(
         if lock_held and not deferred:
             assert redis is not None  # lock_held is True only when redis was used
             try:
-                await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[no-untyped-call]
+                await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[misc]
             except Exception:  # noqa: BLE001
                 log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
 
@@ -413,7 +413,7 @@ async def cmd_rollback(
             snapshot_store, db_user.id, session=db_session,
         )
     except RollbackError as exc:
-        await message.answer(str(exc))
+        await message.answer(str(exc), parse_mode=None)
         return
     await message.answer(
         f"Prompt rolled back to version {rolled_back.version}.\n"
@@ -449,7 +449,7 @@ async def cmd_delete_my_data(
     message: Message,
     db_user: User,
     db_session: AsyncSession,
-    redis: Redis,  # type: ignore[type-arg]
+    redis: Redis,
     snapshot_store: SnapshotStore,
 ) -> None:
     """Hard-delete all personal data for the user.
@@ -483,7 +483,7 @@ async def handle_message(
     message: Message,
     db_user: User,
     db_session: AsyncSession,
-    redis: Redis,  # type: ignore[type-arg]
+    redis: Redis,
     snapshot_store: SnapshotStore,
     chat_client: ChatAPIClient,
     settings: Settings,

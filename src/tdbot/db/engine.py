@@ -14,6 +14,7 @@ At application startup (after settings are loaded):
 
 from __future__ import annotations
 
+import weakref
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -29,9 +30,13 @@ if TYPE_CHECKING:
 
     from tdbot.config import Settings
 
-# Cache sessionmaker instances per engine to avoid re-creating the factory on
-# every call.  Keyed by engine id() so distinct engines get their own factory.
-_session_factories: dict[int, async_sessionmaker[AsyncSession]] = {}
+# Cache sessionmaker instances per engine using weak references so that a
+# disposed engine's entry is automatically evicted.  Using id() was unsafe
+# because CPython can reuse the same integer for a new object after the
+# original is GC'd, causing the wrong factory to be returned.
+_session_factories: weakref.WeakKeyDictionary[
+    AsyncEngine, async_sessionmaker[AsyncSession]
+] = weakref.WeakKeyDictionary()
 
 
 def create_engine(settings: Settings) -> AsyncEngine:
@@ -48,11 +53,10 @@ def create_engine(settings: Settings) -> AsyncEngine:
 
 def _get_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     """Return the cached sessionmaker for *engine*, creating it on first call."""
-    key = id(engine)
-    factory = _session_factories.get(key)
+    factory = _session_factories.get(engine)
     if factory is None:
         factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-        _session_factories[key] = factory
+        _session_factories[engine] = factory
     return factory
 
 
