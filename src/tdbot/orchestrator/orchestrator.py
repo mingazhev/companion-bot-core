@@ -764,6 +764,26 @@ async def process_message(
                     applied=applied,
                 )
 
+            # Append any post-inference annotations to reply_text BEFORE
+            # persisting so that the stored assistant message matches what the
+            # user actually receives.
+
+            # Notify user when a skill_remove auto-apply found no matching skill.
+            if (
+                action == "auto_apply"
+                and detection.intent == "skill_remove"
+                and not applied
+            ):
+                reply_text = (
+                    f"{reply_text}\n\n"
+                    "(I couldn't find a skill matching that topic to remove.)"
+                )
+
+            # Surface clarification question when behavior detection had
+            # a nonzero but below-threshold confidence score.
+            if detection.clarification_question is not None:
+                reply_text = f"{reply_text}\n\n{detection.clarification_question}"
+
             # ------------------------------------------------------------------
             # Step 6 — Persist conversation messages
             # ------------------------------------------------------------------
@@ -795,22 +815,6 @@ async def process_message(
                 prompt_tokens=inference_reply.usage.prompt_tokens,
                 completion_tokens=inference_reply.usage.completion_tokens,
             )
-
-            # Notify user when a skill_remove auto-apply found no matching skill.
-            if (
-                action == "auto_apply"
-                and detection.intent == "skill_remove"
-                and not applied
-            ):
-                reply_text = (
-                    f"{reply_text}\n\n"
-                    "(I couldn't find a skill matching that topic to remove.)"
-                )
-
-            # Surface clarification question when behavior detection had
-            # a nonzero but below-threshold confidence score.
-            if detection.clarification_question is not None:
-                reply_text = f"{reply_text}\n\n{detection.clarification_question}"
 
             return reply_text
         finally:
