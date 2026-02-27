@@ -236,7 +236,17 @@ async def cmd_memory_compact_now(message: Message, db_user: User, redis: Redis) 
         await message.answer("A compaction is already in progress. Please wait.")
         return
 
-    await enqueue_refinement_job(redis, user_id_str, {"trigger": "manual_compact"})
+    try:
+        await enqueue_refinement_job(redis, user_id_str, {"trigger": "manual_compact"})
+    except Exception:  # noqa: BLE001
+        try:
+            await redis.delete(guard_key)
+        except Exception:  # noqa: BLE001
+            log.warning("compact_guard_cleanup_failed", internal_user_id=user_id_str)
+        await message.answer("Failed to enqueue compaction. Please try again.")
+        log.warning("memory_compact_enqueue_failed", internal_user_id=user_id_str)
+        return
+
     await message.answer(
         "Memory compaction requested.\n"
         "Your conversation history will be summarised shortly."

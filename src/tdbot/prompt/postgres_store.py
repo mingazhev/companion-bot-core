@@ -20,7 +20,10 @@ from sqlalchemy import select
 
 from tdbot.db.engine import get_async_session
 from tdbot.db.models import PromptSnapshot
+from tdbot.logging_config import get_logger
 from tdbot.prompt.schemas import SnapshotRecord
+
+log = get_logger(__name__)
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
@@ -87,7 +90,11 @@ class PostgresSnapshotStore:
         raw = await self._redis.get(f"prompt:active:{user_id}")
         if raw is None:
             return None
-        snapshot_id = UUID(raw)
+        try:
+            snapshot_id = UUID(raw)
+        except ValueError:
+            log.warning("invalid_active_pointer", user_id=str(user_id), raw=raw)
+            return None
         return await self.get(snapshot_id)
 
     async def set_active(self, user_id: UUID, snapshot_id: UUID) -> None:

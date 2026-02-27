@@ -111,7 +111,16 @@ async def enqueue_if_cadence_due(
         log.debug("refinement_cadence_skipped_guard", user_id=user_id)
         return False
 
-    await enqueue_refinement_job(redis, user_id, {"trigger": "cadence"})
-    await record_refinement_scheduled(redis, user_id, cadence_seconds)
+    try:
+        await enqueue_refinement_job(redis, user_id, {"trigger": "cadence"})
+        await record_refinement_scheduled(redis, user_id, cadence_seconds)
+    except Exception:  # noqa: BLE001
+        try:
+            await redis.delete(guard_key)
+        except Exception:  # noqa: BLE001
+            log.warning("refinement_cadence_guard_cleanup_failed", user_id=user_id)
+        log.warning("refinement_cadence_enqueue_failed", user_id=user_id)
+        return False
+
     log.info("refinement_cadence_job_enqueued", user_id=user_id)
     return True
