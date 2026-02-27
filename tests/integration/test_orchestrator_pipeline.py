@@ -101,6 +101,7 @@ def _make_db_session(history_rows: list[Any] | None = None) -> AsyncMock:
 async def _fake_session_ctx(_engine: Any) -> Any:
     """Async context manager that yields a fresh mock session for the refinement worker."""
     session = AsyncMock()
+    session.info = {}
     result_mock = MagicMock()
     result_mock.scalars.return_value.all.return_value = []
     session.execute = AsyncMock(return_value=result_mock)
