@@ -267,6 +267,27 @@ async def test_set_persona_persists_profile_and_creates_snapshot() -> None:
     assert "Name: Nova" in active.system_prompt
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Hello\nWorld",
+        "Name\tWith\tTabs",
+        "Null\x00Byte",
+        "CR\rInMiddle",
+    ],
+    ids=["newline", "tab", "null_byte", "carriage_return"],
+)
+async def test_set_persona_control_chars_rejected(name: str) -> None:
+    """Control characters in persona name must be rejected (prompt injection defense)."""
+    msg = _make_message()
+    user = _make_user()
+    cmd = _make_command(args=name)
+    await cmd_set_persona(msg, cmd, user, AsyncMock(), AsyncMock())
+    text: str = msg.answer.call_args[0][0]
+    assert "control characters" in text.lower()
+
+
 # --------------------------------------------------------------------------- #
 # /memory_compact_now
 # --------------------------------------------------------------------------- #

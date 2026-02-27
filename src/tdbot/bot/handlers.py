@@ -31,13 +31,15 @@ from tdbot.db.models import UserProfile
 from tdbot.logging_config import get_logger
 from tdbot.orchestrator import process_message
 from tdbot.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
-from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template, extract_section
-from tdbot.prompt.schemas import DEFAULT_SYSTEM_TEMPLATE, PromptComponents, SnapshotRecord
+from tdbot.prompt.helpers import (
+    get_or_create_profile as _get_or_create_profile,
+)
+from tdbot.prompt.helpers import (
+    rebuild_and_save_snapshot as _rebuild_and_save_snapshot,
+)
 from tdbot.tracing import span
 
 if TYPE_CHECKING:
-    import uuid
-
     from aiogram.types import Message
     from redis.asyncio import Redis
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,82 +60,6 @@ router = Router(name="commands")
 _VALID_TONES = VALID_TONES  # re-export from extractor (single source of truth)
 # Telegram limits plain-text messages to 4096 characters.
 _TG_MSG_LIMIT = 4096
-
-
-# --------------------------------------------------------------------------- #
-# Profile / snapshot helpers
-# --------------------------------------------------------------------------- #
-
-
-async def _get_or_create_profile(
-    session: AsyncSession,
-    user_id: uuid.UUID,
-) -> UserProfile:
-    """Fetch the user's profile row, creating one if it doesn't exist."""
-    result = await session.execute(
-        select(UserProfile).where(UserProfile.user_id == user_id)
-    )
-    profile = result.scalar_one_or_none()
-    if profile is None:
-        profile = UserProfile(user_id=user_id)
-        session.add(profile)
-        await session.flush()
-    return profile
-
-
-def _build_persona_segment(
-    persona_name: str | None,
-    tone: str | None,
-) -> str:
-    """Build the persona section content from profile fields."""
-    parts: list[str] = []
-    if persona_name:
-        parts.append(f"Name: {persona_name}")
-    if tone:
-        parts.append(f"Tone: {tone}")
-    return "\n".join(parts)
-
-
-async def _rebuild_and_save_snapshot(
-    snapshot_store: SnapshotStore,
-    user_id: uuid.UUID,
-    persona_name: str | None,
-    tone: str | None,
-) -> None:
-    """Build a new prompt snapshot reflecting updated profile and set it active."""
-    current = await snapshot_store.get_active(user_id)
-
-    raw_skills: dict[str, object] = {}
-    if current is not None:
-        base_template = extract_base_template(current.system_prompt)
-        skill_packs: dict[str, str] = {
-            k: str(v) for k, v in current.skill_prompts_json.items()
-        }
-        long_term_profile = extract_section(current.system_prompt, "Long-term Profile")
-        raw_skills = dict(current.skill_prompts_json)
-    else:
-        base_template = DEFAULT_SYSTEM_TEMPLATE
-        skill_packs = {}
-        long_term_profile = ""
-
-    components = PromptComponents(
-        base_system_template=base_template,
-        persona_segment=_build_persona_segment(persona_name, tone),
-        skill_packs=skill_packs,
-        long_term_profile=long_term_profile,
-    )
-    system_prompt = build_system_prompt(components)
-
-    version = await snapshot_store.next_version(user_id)
-    record = SnapshotRecord(
-        user_id=user_id,
-        version=version,
-        system_prompt=system_prompt,
-        skill_prompts_json=raw_skills,
-        source="user_command",
-    )
-    await snapshot_store.save(record)
-    await snapshot_store.set_active(user_id, record.id)
 
 
 # --------------------------------------------------------------------------- #
@@ -181,9 +107,9 @@ async def cmd_profile(
     tone_display = "(not set)"
     if profile is not None:
         if profile.persona_name:
-            persona_display = enc.decrypt_safe(profile.persona_name, default=profile.persona_name)
+            persona_display = enc.decrypt_safe(profile.persona_name, default="(unable to decrypt)")
         if profile.tone:
-            tone_display = enc.decrypt_safe(profile.tone, default=profile.tone)
+            tone_display = enc.decrypt_safe(profile.tone, default="(unable to decrypt)")
 
     lines = [
         f"Telegram ID: {db_user.telegram_user_id}",
@@ -233,7 +159,7 @@ async def cmd_set_tone(
     profile = await _get_or_create_profile(db_session, db_user.id)
     # Decrypt existing persona_name for prompt building before encrypting new tone.
     raw_persona = (
-        enc.decrypt_safe(profile.persona_name, default=profile.persona_name)
+        enc.decrypt_safe(profile.persona_name, default="")
         if profile.persona_name else None
     )
     profile.tone = enc.encrypt(tone)
@@ -281,7 +207,7 @@ async def cmd_set_persona(
     profile = await _get_or_create_profile(db_session, db_user.id)
     # Decrypt existing tone for prompt building before encrypting new persona name.
     raw_tone = (
-        enc.decrypt_safe(profile.tone, default=profile.tone)
+        enc.decrypt_safe(profile.tone, default="")
         if profile.tone else None
     )
     profile.persona_name = enc.encrypt(name)

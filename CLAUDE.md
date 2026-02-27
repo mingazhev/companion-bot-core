@@ -19,7 +19,9 @@ src/tdbot/
   metrics.py    — Prometheus counter/histogram registry (singleton)
   tracing.py    — in-process span context managers (structlog-based, NOT OpenTelemetry)
   logging_config.py — structlog configuration with correlation IDs
+  signals.py    — shared regex signal scoring (compiled patterns + weight-based scorer)
   config.py     — pydantic-settings Settings singleton; access via get_settings()
+  main.py       — application entry point; wires bot, refinement worker, TTL sweeper, internal server
 ```
 
 ## Key architectural patterns
@@ -30,6 +32,9 @@ src/tdbot/
 - Fake adapter mode: `USE_FAKE_ADAPTERS=true` replaces `ChatAPIClient` with `FakeChatAPIClient` and uses `InMemorySnapshotStore`. In production mode, `PostgresSnapshotStore` (backed by `prompt_snapshots` table with Redis active-pointer caching) is used. Seed personas from `dev/seeds.py`.
 - User provisioning: `get_or_create_user(session, telegram_user_id)` in `bot/users.py` uses a PostgreSQL upsert (`INSERT … ON CONFLICT DO NOTHING` on `telegram_user_id`) followed by a SELECT. This is race-condition-safe for concurrent first messages. The caller (`IngressMiddleware`) is responsible for committing the enclosing transaction.
 - Internal route body parsing: always use `await request.read()` to read the request body; do not rely on `Content-Length`. This supports chunked transfer encoding. Parse JSON manually from the raw bytes with `json.loads()`. See `internal/routes.py` for the reference pattern.
+- Orchestrator pipeline: `process_message()` runs a strict step sequence: (0a) abuse block check, (0b) guardrail checks (prompt injection, unsafe role, risky capability), (1) pending confirmation dialogue resolution, (2) behavior intent classification, (3) route by action (refuse/confirm/auto_apply/pass_through), (4) context assembly, (5) inference call, (6) message persistence, (7) refinement trigger. `CHAT_LATENCY` is recorded on every exit path including early exits.
+- Dual-path profile updates: User profile and prompt snapshots can be modified via two paths: (1) explicit commands (`/set_tone`, `/set_persona`, `/reset_persona`) in `bot/handlers.py`, and (2) in-chat behavior detection in `orchestrator/orchestrator.py` (`_apply_behavior_change`). Both paths use shared helpers from `prompt/helpers.py`. When adding new profile fields, ensure both paths are updated.
+- Refinement worker queue priority: The worker drains the retry queue (`retry_jobs`, non-blocking 1-second poll) before blocking on the primary queue (`refinement_jobs`, 30-second poll). This ensures retried jobs are processed promptly.
 
 ## Build and test commands
 

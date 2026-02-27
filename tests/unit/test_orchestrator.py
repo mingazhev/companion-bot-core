@@ -609,8 +609,6 @@ async def test_prompt_injection_blocked_by_guardrail() -> None:
     # Guardrail should block; classify should never be called
     mock_classify.assert_not_called()
     assert "override bot instructions" in reply.lower() or "override" in reply.lower()
-    # No inference call
-    client.chat_completion = getattr(client, "chat_completion", None)
 
 
 @pytest.mark.asyncio

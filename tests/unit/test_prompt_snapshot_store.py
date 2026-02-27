@@ -171,3 +171,52 @@ async def test_next_version_after_multiple_snapshots() -> None:
     for v in (1, 2, 5):  # non-contiguous versions
         await store.save(_make_snap(user_id, v))
     assert await store.next_version(user_id) == 6
+
+
+# ---------------------------------------------------------------------------
+# delete_for_user
+# ---------------------------------------------------------------------------
+
+
+async def test_delete_for_user_clears_active_pointer() -> None:
+    store = InMemorySnapshotStore()
+    user_id = uuid.uuid4()
+    snap = _make_snap(user_id, 1)
+    await store.save(snap)
+    await store.set_active(user_id, snap.id)
+    assert await store.get_active(user_id) is not None
+
+    await store.delete_for_user(user_id)
+    assert await store.get_active(user_id) is None
+
+
+async def test_delete_for_user_removes_all_snapshots() -> None:
+    store = InMemorySnapshotStore()
+    user_id = uuid.uuid4()
+    snaps = [_make_snap(user_id, v) for v in (1, 2, 3)]
+    for s in snaps:
+        await store.save(s)
+
+    await store.delete_for_user(user_id)
+
+    assert await store.list_for_user(user_id) == []
+    for s in snaps:
+        assert await store.get(s.id) is None
+
+
+async def test_delete_for_user_does_not_affect_other_users() -> None:
+    store = InMemorySnapshotStore()
+    user_a = uuid.uuid4()
+    user_b = uuid.uuid4()
+    snap_a = _make_snap(user_a, 1)
+    snap_b = _make_snap(user_b, 1)
+    await store.save(snap_a)
+    await store.save(snap_b)
+    await store.set_active(user_a, snap_a.id)
+    await store.set_active(user_b, snap_b.id)
+
+    await store.delete_for_user(user_a)
+
+    assert await store.get_active(user_a) is None
+    assert await store.get_active(user_b) is not None
+    assert await store.get(snap_b.id) is not None

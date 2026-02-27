@@ -54,6 +54,15 @@ Notable optional variables (see `.env.example` for full list):
 | `INTERNAL_SERVER_HOST` | `127.0.0.1` | Internal service bind address (never expose externally) |
 | `INTERNAL_SERVER_PORT` | `8080` | Internal service port |
 | `CONVERSATION_TTL_SECONDS` | `604800` | Message retention window (7 days) |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Override to route requests to a compatible API proxy |
+| `RATE_LIMIT_MESSAGES_PER_MINUTE` | `20` | Per-user message rate limit (sliding window) |
+| `RATE_LIMIT_GLOBAL_RPS` | `100` | Global requests-per-second cap across all users |
+| `REFINEMENT_CADENCE_SECONDS` | `3600` | Minimum seconds between cadence-triggered refinements per user |
+| `REFINEMENT_ACTIVITY_THRESHOLD` | `5` | Messages before an activity-triggered refinement job is enqueued |
+| `LOG_LEVEL` | `INFO` | Root log level |
+| `LOG_FORMAT` | `json` | Log renderer: `json` for production, `console` for development |
+| `DATABASE_POOL_MIN` | `2` | Minimum connections in the async database pool |
+| `DATABASE_POOL_MAX` | `10` | Maximum connections in the async database pool |
 
 To generate a `FIELD_ENCRYPTION_KEY`:
 
@@ -69,6 +78,8 @@ alembic upgrade head
 
 # Start the bot (polling mode)
 tdbot
+# Or run directly:
+# python -m tdbot.main
 ```
 
 Webhook mode (`TELEGRAM_WEBHOOK_HOST != ''`) is not yet implemented and will raise `NotImplementedError` at startup. Use polling mode for all current deployments.
@@ -100,7 +111,7 @@ Seed personas available: `friendly` (default), `professional`, `concise`, and sk
 
 The internal service binds to `127.0.0.1:8080` by default. Do not expose externally — there is no authentication.
 
-- `POST /internal/refine/{user_id}` — enqueue a refinement job; optional body `{"trigger": "string"}`, returns 202
+- `POST /internal/refine/{user_id}` — enqueue a refinement job; optional body `{"trigger": "string"}`, returns 202 (or 409 if a refinement is already in progress)
 - `POST /internal/detect-change` — classify intent; required body `{"text": "string"}`, returns DetectionResult JSON
 - `GET /metrics` — Prometheus metrics
 

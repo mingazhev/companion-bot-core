@@ -15,8 +15,8 @@ Flow per incoming user message
 3. Route by risk / action:
    - ``refuse``      → log + return refusal message (no inference call).
    - ``confirm``     → store pending change, ask confirmation question.
-   - ``auto_apply``  → log event as applied, apply change to snapshot, then
-     generate reply.
+   - ``auto_apply``  → generate reply with current snapshot, then apply
+     change to snapshot (takes effect from the next message).
    - ``pass_through``→ generate reply without recording a behavior event.
 4. Assemble per-user context (active snapshot + recent history).
 5. Call the inference adapter; handle ``CircuitBreakerOpen``.
@@ -32,11 +32,9 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
-
 from tdbot.behavior import classify
 from tdbot.behavior.extractor import extract_persona_name, extract_skill_topic, extract_tone
-from tdbot.db.models import BehaviorChangeEvent, ConversationMessage, UserProfile
+from tdbot.db.models import BehaviorChangeEvent, ConversationMessage
 from tdbot.inference import generate_reply
 from tdbot.inference.circuit_breaker import CircuitBreakerOpen
 from tdbot.logging_config import get_logger
@@ -66,6 +64,12 @@ from tdbot.policy.guardrails import (
     check_unsafe_role_change,
 )
 from tdbot.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
+from tdbot.prompt.helpers import (
+    get_or_create_profile as _get_or_create_profile,
+)
+from tdbot.prompt.helpers import (
+    rebuild_and_save_snapshot as _rebuild_snapshot,
+)
 from tdbot.prompt.merge_builder import build_system_prompt, extract_base_template, extract_section
 from tdbot.prompt.schemas import DEFAULT_SYSTEM_TEMPLATE, PromptComponents, SnapshotRecord
 from tdbot.redis.queues import enqueue_refinement_job
@@ -146,35 +150,6 @@ async def _record_behavior_event(
     await session.flush()
 
 
-def _build_persona_segment(
-    persona_name: str | None,
-    tone: str | None,
-) -> str:
-    """Build the persona section content from profile fields."""
-    parts: list[str] = []
-    if persona_name:
-        parts.append(f"Name: {persona_name}")
-    if tone:
-        parts.append(f"Tone: {tone}")
-    return "\n".join(parts)
-
-
-async def _get_or_create_profile(
-    session: AsyncSession,
-    user_id: UUID,
-) -> UserProfile:
-    """Fetch the user's profile row, creating one if it doesn't exist."""
-    result = await session.execute(
-        select(UserProfile).where(UserProfile.user_id == user_id)
-    )
-    profile = result.scalar_one_or_none()
-    if profile is None:
-        profile = UserProfile(user_id=user_id)
-        session.add(profile)
-        await session.flush()
-    return profile
-
-
 async def _apply_behavior_change(
     intent: DetectedIntent,
     message_text: str,
@@ -207,11 +182,13 @@ async def _apply_behavior_change(
         await session.flush()
         # Decrypt existing persona_name (may be encrypted in DB) for prompt building.
         raw_persona = (
-            enc.decrypt_safe(profile.persona_name, default=profile.persona_name)
+            enc.decrypt_safe(profile.persona_name, default="")
             if profile.persona_name
             else None
         )
-        await _rebuild_snapshot(snapshot_store, user_id, raw_persona, tone)
+        await _rebuild_snapshot(
+            snapshot_store, user_id, raw_persona, tone, source="behavior_change",
+        )
         log.info(
             "behavior_change_snapshot_updated",
             user_id=str(user_id),
@@ -233,8 +210,8 @@ async def _apply_behavior_change(
         profile.persona_name = enc.encrypt(name)
         await session.flush()
         # Decrypt existing tone (may be encrypted in DB) for prompt building.
-        raw_tone = enc.decrypt_safe(profile.tone, default=profile.tone) if profile.tone else None
-        await _rebuild_snapshot(snapshot_store, user_id, name, raw_tone)
+        raw_tone = enc.decrypt_safe(profile.tone, default="") if profile.tone else None
+        await _rebuild_snapshot(snapshot_store, user_id, name, raw_tone, source="behavior_change")
         log.info(
             "behavior_change_snapshot_updated",
             user_id=str(user_id),
@@ -281,48 +258,6 @@ async def _apply_behavior_change(
         return removed
 
     return False
-
-
-async def _rebuild_snapshot(
-    snapshot_store: SnapshotStore,
-    user_id: UUID,
-    persona_name: str | None,
-    tone: str | None,
-) -> None:
-    """Rebuild and activate a prompt snapshot reflecting updated profile fields."""
-    current = await snapshot_store.get_active(user_id)
-
-    raw_skills: dict[str, object] = {}
-    if current is not None:
-        base_template = extract_base_template(current.system_prompt)
-        skill_packs: dict[str, str] = {
-            k: str(v) for k, v in current.skill_prompts_json.items()
-        }
-        long_term_profile = extract_section(current.system_prompt, "Long-term Profile")
-        raw_skills = dict(current.skill_prompts_json)
-    else:
-        base_template = DEFAULT_SYSTEM_TEMPLATE
-        skill_packs = {}
-        long_term_profile = ""
-
-    components = PromptComponents(
-        base_system_template=base_template,
-        persona_segment=_build_persona_segment(persona_name, tone),
-        skill_packs=skill_packs,
-        long_term_profile=long_term_profile,
-    )
-    system_prompt = build_system_prompt(components)
-
-    version = await snapshot_store.next_version(user_id)
-    record = SnapshotRecord(
-        user_id=user_id,
-        version=version,
-        system_prompt=system_prompt,
-        skill_prompts_json=raw_skills,
-        source="behavior_change",
-    )
-    await snapshot_store.save(record)
-    await snapshot_store.set_active(user_id, record.id)
 
 
 async def _add_skill_to_snapshot(
