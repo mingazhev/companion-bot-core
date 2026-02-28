@@ -7,8 +7,6 @@ Features
 - Non-retryable errors (HTTP 400, 401, 403, …) are raised immediately.
 - Circuit breaker that opens after ``failure_threshold`` exhausted-retry calls,
   preventing further traffic when the provider is persistently unavailable.
-- Streaming mode: ``chat_completion_stream`` calls the endpoint with
-  ``stream=True`` and invokes an ``on_delta`` callback for each content chunk.
 """
 
 from __future__ import annotations
@@ -16,9 +14,6 @@ from __future__ import annotations
 import json
 import time
 from typing import TYPE_CHECKING, Any, cast
-
-if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
 
 import httpx
 from tenacity import (
@@ -29,8 +24,16 @@ from tenacity import (
 )
 
 from companion_bot_core.inference.circuit_breaker import CircuitBreaker
-from companion_bot_core.inference.schemas import ChatMessage, OpenAIResponse
+from companion_bot_core.inference.schemas import (
+    ChatMessage,
+    OpenAIResponse,
+    _OpenAIStreamChunk,
+    _StreamEnd,
+)
 from companion_bot_core.logging_config import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 log = get_logger(__name__)
 
@@ -44,10 +47,6 @@ def _is_retryable(exc: BaseException) -> bool:
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code in _RETRYABLE_STATUS
     return False
-
-
-async def _noop_delta(_chunk: str) -> None:
-    """No-op delta callback used when the caller does not need per-chunk processing."""
 
 
 class ChatAPIClient:
@@ -169,27 +168,41 @@ class ChatAPIClient:
         )
         return response
 
-
-    async def _raw_completion_stream(
+    async def chat_completion_stream(
         self,
-        messages: list[dict[str, str]],
-        max_tokens: int,
-        temperature: float,
-        on_delta: Callable[[str], Awaitable[None]],
-    ) -> dict[str, Any]:
-        """Make a single streaming HTTP request to the Chat Completions endpoint.
+        messages: list[ChatMessage],
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+    ) -> AsyncGenerator[str | _StreamEnd, None]:
+        """Stream the Chat Completions API response as text chunks.
 
-        Parses Server-Sent Events (SSE) and calls *on_delta* for each text
-        chunk.  Returns a raw dict that can be validated as an
-        :class:`~companion_bot_core.inference.schemas.OpenAIResponse`.
+        Yields individual text tokens as they arrive via Server-Sent Events,
+        then yields a single :class:`_StreamEnd` sentinel carrying final token
+        usage, the finish reason, and whether the model issued a refusal.
+        The sentinel is emitted only when the provider supports
+        ``stream_options.include_usage``; callers must tolerate its absence.
 
-        Unlike ``_raw_completion``, this method does **not** carry a retry
-        decorator because retrying mid-stream would replay already-delivered
-        chunks through *on_delta*.
+        Unlike :meth:`chat_completion`, this path does not retry on failure.
+        The circuit breaker still applies: if the circuit is open a
+        ``CircuitBreakerOpen`` exception is raised before any yielding begins.
+
+        Args:
+            messages:    Full message list (system + history + new user turn).
+            max_tokens:  Maximum completion tokens (default 1024).
+            temperature: Sampling temperature (default 0.7; ignored for gpt-5
+                         family models).
+
+        Yields:
+            ``str`` — incremental text token from the model.
+            ``_StreamEnd`` — final sentinel with usage stats and refusal flag (last item).
+
+        Raises:
+            CircuitBreakerOpen: Provider error rate exceeded the threshold.
+            httpx.HTTPStatusError: Non-retryable HTTP error.
         """
         payload: dict[str, Any] = {
             "model": self._model,
-            "messages": messages,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
             self._max_tokens_param: max_tokens,
             "stream": True,
             "stream_options": {"include_usage": True},
@@ -197,133 +210,55 @@ class ChatAPIClient:
         if not self._is_gpt5_family:
             payload["temperature"] = temperature
 
-        full_content = ""
-        full_refusal: str | None = None
-        finish_reason: str | None = None
-        response_id = ""
-        usage_dict: dict[str, int] = {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-        }
-
-        async with self._http.stream("POST", "/chat/completions", json=payload) as http_resp:
-            http_resp.raise_for_status()
-            async for line in http_resp.aiter_lines():
-                # Normalise any trailing whitespace / carriage-return from SSE framing
-                # before all subsequent checks so the prefix and [DONE] tests are
-                # consistent.
-                line = line.strip()
-                if not line.startswith("data: "):
-                    continue
-                data_str = line[6:]
-                if data_str == "[DONE]":
-                    break
-                try:
-                    data: dict[str, Any] = json.loads(data_str)
-                except json.JSONDecodeError:
-                    continue
-
-                if not response_id and "id" in data:
-                    response_id = str(data["id"])
-
-                # Usage arrives in a terminal chunk that has an empty choices list.
-                raw_usage = data.get("usage")
-                if isinstance(raw_usage, dict) and raw_usage:
-                    usage_dict = {
-                        "prompt_tokens": int(raw_usage.get("prompt_tokens", 0)),
-                        "completion_tokens": int(raw_usage.get("completion_tokens", 0)),
-                        "total_tokens": int(raw_usage.get("total_tokens", 0)),
-                    }
-
-                choices: list[Any] = data.get("choices") or []
-                if choices:
-                    choice = choices[0]
-                    fr = choice.get("finish_reason")
-                    if fr:
-                        finish_reason = str(fr)
-                    delta: dict[str, Any] = choice.get("delta") or {}
-                    delta_content = delta.get("content") or ""
-                    if delta_content:
-                        full_content += delta_content
-                        await on_delta(delta_content)
-                    delta_refusal = delta.get("refusal")
-                    if delta_refusal:
-                        full_refusal = (full_refusal or "") + str(delta_refusal)
-
-        return {
-            "id": response_id or "stream-unknown",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": full_content,
-                        "refusal": full_refusal,
-                    },
-                    "finish_reason": finish_reason or "stop",
-                }
-            ],
-            "usage": usage_dict,
-        }
-
-    async def chat_completion_stream(
-        self,
-        messages: list[ChatMessage],
-        max_tokens: int = 1024,
-        temperature: float = 0.7,
-        on_delta: Callable[[str], Awaitable[None]] | None = None,
-    ) -> OpenAIResponse:
-        """Call the Chat Completions API in streaming mode.
-
-        Invokes *on_delta* with each text chunk as it is received so the
-        caller can forward tokens to the end-user before the full response is
-        complete.  When *on_delta* is ``None`` the chunks are accumulated
-        silently and only the final :class:`OpenAIResponse` is returned.
-
-        Unlike :meth:`chat_completion`, this method does **not** retry
-        mid-stream — retrying would re-deliver already-streamed chunks to the
-        user.  The circuit breaker is still applied: if it is open the call
-        raises :class:`~companion_bot_core.inference.circuit_breaker.CircuitBreakerOpen`
-        before any streaming begins.
-
-        Args:
-            messages:    Full message list (system + history + new user turn).
-            max_tokens:  Maximum completion tokens (default 1024).
-            temperature: Sampling temperature (default 0.7).
-            on_delta:    Async callback invoked with each content chunk.
-                         ``None`` accumulates chunks without callbacks.
-
-        Returns:
-            Validated ``OpenAIResponse`` with the fully accumulated reply.
-
-        Raises:
-            CircuitBreakerOpen: Provider error rate exceeded the threshold.
-            httpx.HTTPStatusError: Non-retryable HTTP error (400, 401, …).
-        """
-        delta_fn: Callable[[str], Awaitable[None]] = (
-            on_delta if on_delta is not None else _noop_delta
-        )
-        payload = [{"role": m.role, "content": m.content} for m in messages]
-
         call_start = time.perf_counter()
-        raw = cast(
-            "dict[str, Any]",
-            await self._circuit_breaker.call(
-                self._raw_completion_stream,
-                payload,
-                max_tokens,
-                temperature,
-                delta_fn,
-            ),
-        )
+        await self._circuit_breaker._check_state()
+        try:
+            finish_reason = "stop"
+            refusal_seen = False
+            async with self._http.stream("POST", "/chat/completions", json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:]
+                    if data.strip() == "[DONE]":
+                        break
+                    try:
+                        raw = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    try:
+                        chunk = _OpenAIStreamChunk.model_validate(raw)
+                    except Exception as exc:  # noqa: BLE001
+                        log.debug(
+                            "stream_chunk_validation_failed",
+                            model=self._model,
+                            error=str(exc),
+                        )
+                        continue
+                    if chunk.choices:
+                        choice = chunk.choices[0]
+                        if choice.delta.content:
+                            yield choice.delta.content
+                        if choice.delta.refusal:
+                            refusal_seen = True
+                        if choice.finish_reason is not None:
+                            finish_reason = choice.finish_reason
+                    if chunk.usage is not None:
+                        yield _StreamEnd(
+                            finish_reason=finish_reason,
+                            prompt_tokens=chunk.usage.prompt_tokens,
+                            completion_tokens=chunk.usage.completion_tokens,
+                            total_tokens=chunk.usage.total_tokens,
+                            refusal=refusal_seen,
+                        )
+        except Exception:
+            await self._circuit_breaker._record_failure()
+            raise
         elapsed_ms = round((time.perf_counter() - call_start) * 1000, 2)
-        response = OpenAIResponse.model_validate(raw)
+        await self._circuit_breaker._record_success()
         log.info(
             "model_api_stream_completed",
             model=self._model,
             elapsed_ms=elapsed_ms,
-            prompt_tokens=response.usage.prompt_tokens,
-            completion_tokens=response.usage.completion_tokens,
         )
-        return response

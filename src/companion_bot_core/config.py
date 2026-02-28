@@ -170,6 +170,17 @@ class Settings(BaseSettings):
         ),
     )
 
+    # --- Streaming ---
+    streaming_enabled: bool = Field(
+        default=False,
+        description=(
+            "Stream model responses to Telegram via progressive message edits. "
+            "When enabled, the bot sends an initial partial message and edits it "
+            "as tokens arrive, reducing perceived latency. "
+            "Telegram edit-rate throttling applies (~1 edit per second per message)."
+        ),
+    )
+
     @model_validator(mode="after")
     def _validate_openai_api_key(self) -> Settings:
         if not self.use_fake_adapters and not self.openai_api_key.get_secret_value():

@@ -20,10 +20,10 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from companion_bot_core.inference.client import ChatAPIClient
-from companion_bot_core.inference.schemas import ChatMessage, OpenAIResponse
+from companion_bot_core.inference.schemas import ChatMessage, OpenAIResponse, _StreamEnd
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import AsyncGenerator
 
 # Substring that appears only in the refinement model's system prompt.
 _REFINEMENT_MARKER: str = "prompt-refinement assistant"
@@ -126,29 +126,42 @@ class FakeChatAPIClient(ChatAPIClient):
         messages: list[ChatMessage],
         max_tokens: int = 1024,
         temperature: float = 0.7,
-        on_delta: Callable[[str], Awaitable[None]] | None = None,
-    ) -> OpenAIResponse:
-        """Return a canned streaming response without any network I/O.
+    ) -> AsyncGenerator[str | _StreamEnd, None]:
+        """Yield the fake reply word by word, then a usage sentinel.
 
-        Calls *on_delta* once with the full fake reply content so callers that
-        depend on incremental delivery still exercise the callback path.
+        Simulates streaming by splitting the canned reply on spaces and
+        yielding each word with a trailing space, followed by a
+        :class:`~companion_bot_core.inference.schemas._StreamEnd` sentinel
+        carrying placeholder token counts.
 
         Args:
             messages:    Full message list assembled by the caller.
             max_tokens:  Ignored — included only for interface compatibility.
             temperature: Ignored — included only for interface compatibility.
-            on_delta:    Optional callback invoked with the reply content.
 
-        Returns:
-            A schema-valid :class:`~companion_bot_core.inference.schemas.OpenAIResponse`.
+        Yields:
+            ``str`` — individual word tokens from the fake reply.
+            ``_StreamEnd`` — usage sentinel (last item).
         """
         _ = max_tokens, temperature  # unused in fake implementation
-        response = await self.chat_completion(messages)
-        if on_delta is not None:
-            content = response.choices[0].message.content or ""
-            if content:
-                await on_delta(content)
-        return response
+        if self._is_refinement_call(messages):
+            content = _FAKE_REFINEMENT_JSON
+        else:
+            user_content = next(
+                (m.content for m in reversed(messages) if m.role == "user"),
+                "Hello!",
+            )
+            content = f"[Dev mode] Echo: {user_content}"
+
+        words = content.split(" ")
+        for i, word in enumerate(words):
+            yield word if i == len(words) - 1 else f"{word} "
+        yield _StreamEnd(
+            finish_reason="stop",
+            prompt_tokens=10,
+            completion_tokens=len(words),
+            total_tokens=10 + len(words),
+        )
 
     async def close(self) -> None:
         """No-op — no real HTTP client to close."""

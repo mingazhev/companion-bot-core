@@ -63,8 +63,6 @@ router = Router(name="commands")
 
 # Telegram limits plain-text messages to 4096 characters.
 _TG_MSG_LIMIT = 4096
-# Minimum interval between Telegram message edits during streaming (seconds).
-_STREAM_EDIT_INTERVAL = 1.0
 
 
 def _user_locale(db_user: User | None) -> str:
@@ -538,117 +536,129 @@ async def handle_message(
     ingress_start = time.perf_counter()
     reply = ""
 
-    # State shared with the streaming callback closure.
-    placeholder: Message | None = None
-    accumulated_stream = ""
-    stream_last_edit = 0.0
-
-    async def _on_partial_reply(chunk: str) -> None:
-        """Send or throttle-edit the streaming placeholder message."""
-        nonlocal placeholder, accumulated_stream, stream_last_edit
-        accumulated_stream += chunk
-        now = time.perf_counter()
-        if placeholder is None:
-            try:
-                placeholder = await message.answer(
-                    accumulated_stream[:_TG_MSG_LIMIT], parse_mode=None
-                )
-                stream_last_edit = now
-            except Exception as exc:  # noqa: BLE001
-                log.debug(
-                    "stream_placeholder_send_failed",
-                    internal_user_id=user_id_str,
-                    error=str(exc),
-                )
-        elif now - stream_last_edit >= _STREAM_EDIT_INTERVAL:
-            try:
-                await placeholder.edit_text(
-                    accumulated_stream[:_TG_MSG_LIMIT], parse_mode=None
-                )
-                stream_last_edit = now
-            except Exception as exc:  # noqa: BLE001
-                log.debug(
-                    "stream_edit_failed",
-                    internal_user_id=user_id_str,
-                    error=str(exc),
-                )
-
     async with span("ingress.handle_message", user_id=user_id_str):
-        try:
-            reply = await process_message(
-                user_id=db_user.id,
-                message_text=text,
-                session=db_session,
-                snapshot_store=snapshot_store,
-                redis=redis,
-                chat_client=chat_client,
-                model=settings.chat_model,
-                conversation_ttl_seconds=settings.conversation_ttl_seconds,
-                refinement_activity_threshold=settings.refinement_activity_threshold,
-                refinement_cadence_seconds=settings.refinement_cadence_seconds,
-                encryptor=encryptor,
-                locale=locale,
-                on_partial_reply=_on_partial_reply,
-            )
-        except Exception:
-            log.exception(
-                "process_message_failed",
-                internal_user_id=user_id_str,
-            )
-            # Send a user-facing error reply before re-raising.  If a
-            # streaming placeholder was already sent, edit it so the user
-            # does not see a hanging message.
-            try:
-                if placeholder is not None:
-                    await placeholder.edit_text(tr("handle.error", locale), parse_mode=None)
-                else:
-                    await message.answer(tr("handle.error", locale), parse_mode=None)
-            except Exception:  # noqa: BLE001
-                log.warning("error_reply_send_failed", internal_user_id=user_id_str)
-            raise
+        # When streaming is enabled, send a placeholder message as soon as the
+        # first token arrives and edit it at most once per second as more
+        # tokens accumulate.  Early-exit paths (guardrail, refuse, confirm)
+        # never call on_stream_chunk, so sent_msg stays None and the reply is
+        # delivered through the normal single-send path.
+        sent_msg: Message | None = None
 
-        # Deliver the final reply.
-        #
-        # Streaming path  (placeholder was sent during inference):
-        #   Edit the placeholder to show the definitive reply text, then send
-        #   any overflow chunks beyond the Telegram message-length limit.
-        #
-        # Non-streaming path (early exits: guardrails, confirmations, ...):
-        #   Send the reply as one or more new messages as before.
-        if placeholder is not None:
-            try:
-                await placeholder.edit_text(reply[:_TG_MSG_LIMIT], parse_mode=None)
-            except Exception as exc:
-                log.warning(
-                    "stream_final_edit_failed",
-                    internal_user_id=user_id_str,
-                    error=str(exc),
-                )
-            for i in range(_TG_MSG_LIMIT, len(reply), _TG_MSG_LIMIT):
+        if settings.streaming_enabled:
+            _accumulated = ""
+            _last_edit = 0.0
+
+            async def _on_chunk(chunk: str) -> None:
+                nonlocal sent_msg, _accumulated, _last_edit
+                _accumulated += chunk
+                now = time.monotonic()
+                # Clamp displayed text to Telegram's single-message limit.
+                # The final edit after streaming delivers the full paginated reply.
+                display_text = _accumulated[:_TG_MSG_LIMIT]
                 try:
-                    await message.answer(reply[i : i + _TG_MSG_LIMIT], parse_mode=None)
-                except Exception as exc:
-                    log.warning(
-                        "stream_overflow_send_failed",
+                    if sent_msg is None:
+                        sent_msg = await message.answer(display_text, parse_mode=None)
+                        _last_edit = now
+                    elif now - _last_edit >= 1.0:
+                        await sent_msg.edit_text(display_text, parse_mode=None)
+                        _last_edit = now
+                except Exception as _exc:  # noqa: BLE001
+                    log.debug(
+                        "stream_chunk_edit_failed",
                         internal_user_id=user_id_str,
-                        error=str(exc),
+                        error=str(_exc),
                     )
-                    break
-        else:
-            # Split if the reply exceeds Telegram's message-length limit.
-            # Wrap in try/except so a Telegram API failure (timeout, rate limit)
-            # does not propagate and roll back the DB transaction \u2014 Redis state
-            # (activity counter, refinement jobs) is already committed.
+
             try:
+                reply = await process_message(
+                    user_id=db_user.id,
+                    message_text=text,
+                    session=db_session,
+                    snapshot_store=snapshot_store,
+                    redis=redis,
+                    chat_client=chat_client,
+                    model=settings.chat_model,
+                    conversation_ttl_seconds=settings.conversation_ttl_seconds,
+                    refinement_activity_threshold=settings.refinement_activity_threshold,
+                    refinement_cadence_seconds=settings.refinement_cadence_seconds,
+                    encryptor=encryptor,
+                    locale=locale,
+                    on_stream_chunk=_on_chunk,
+                )
+            except Exception:
+                log.exception("process_message_failed", internal_user_id=user_id_str)
+                error_text = tr("handle.error", locale)
+                try:
+                    if sent_msg is not None:
+                        try:
+                            await sent_msg.edit_text(error_text, parse_mode=None)
+                        except Exception:  # noqa: BLE001
+                            log.warning(
+                                "error_reply_edit_failed",
+                                internal_user_id=user_id_str,
+                            )
+                            await message.answer(error_text, parse_mode=None)
+                    else:
+                        await message.answer(error_text, parse_mode=None)
+                except Exception:  # noqa: BLE001
+                    log.warning("error_reply_send_failed", internal_user_id=user_id_str)
+                raise
+        else:
+            try:
+                reply = await process_message(
+                    user_id=db_user.id,
+                    message_text=text,
+                    session=db_session,
+                    snapshot_store=snapshot_store,
+                    redis=redis,
+                    chat_client=chat_client,
+                    model=settings.chat_model,
+                    conversation_ttl_seconds=settings.conversation_ttl_seconds,
+                    refinement_activity_threshold=settings.refinement_activity_threshold,
+                    refinement_cadence_seconds=settings.refinement_cadence_seconds,
+                    encryptor=encryptor,
+                    locale=locale,
+                )
+            except Exception:
+                log.exception(
+                    "process_message_failed",
+                    internal_user_id=user_id_str,
+                )
+                # Send a user-facing error reply before re-raising so the
+                # middleware rolls back the DB transaction (prevents committing
+                # partially-flushed state such as assistant messages the user
+                # never saw).
+                try:
+                    await message.answer(
+                        tr("handle.error", locale),
+                        parse_mode=None,
+                    )
+                except Exception:  # noqa: BLE001
+                    log.warning("error_reply_send_failed", internal_user_id=user_id_str)
+                raise
+
+        # Deliver / finalise the reply.
+        # If streaming produced a partial message (sent_msg is not None), update
+        # it with the complete reply text and send any overflow chunks.
+        # Otherwise (non-streaming or early-exit path) send from scratch.
+        # Wrap in try/except so a Telegram API failure (timeout, rate limit)
+        # does not propagate and roll back the DB transaction — Redis state
+        # (activity counter, refinement jobs) is already committed.
+        try:
+            if sent_msg is not None:
+                await sent_msg.edit_text(reply[:_TG_MSG_LIMIT], parse_mode=None)
+                for i in range(_TG_MSG_LIMIT, len(reply), _TG_MSG_LIMIT):
+                    await message.answer(reply[i : i + _TG_MSG_LIMIT], parse_mode=None)
+            else:
                 for i in range(0, len(reply), _TG_MSG_LIMIT):
                     await message.answer(reply[i : i + _TG_MSG_LIMIT], parse_mode=None)
-            except Exception as exc:
-                log.warning(
-                    "reply_send_failed",
-                    internal_user_id=user_id_str,
-                    reply_length=len(reply),
-                    error=str(exc),
-                )
+        except Exception as exc:
+            log.warning(
+                "reply_send_failed",
+                internal_user_id=user_id_str,
+                reply_length=len(reply),
+                error=str(exc),
+            )
 
         # Surface "profile updated" notice if the refinement worker finished
         # updating this user's prompt snapshot since their last message.
