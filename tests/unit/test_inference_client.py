@@ -43,6 +43,7 @@ def _make_http_response(status_code: int = 200, body: object = None) -> httpx.Re
 def _make_client(
     http_response: httpx.Response | None = None,
     circuit_breaker: CircuitBreaker | None = None,
+    model: str = "gpt-4o-mini",
 ) -> tuple[ChatAPIClient, AsyncMock]:
     mock_http = AsyncMock(spec=httpx.AsyncClient)
     if http_response is not None:
@@ -51,7 +52,7 @@ def _make_client(
     cb = circuit_breaker or CircuitBreaker(failure_threshold=10)
     client = ChatAPIClient(
         api_key="sk-test",
-        model="gpt-4o-mini",
+        model=model,
         circuit_breaker=cb,
         http_client=mock_http,
     )
@@ -105,7 +106,7 @@ async def test_chat_completion_returns_validated_response() -> None:
 
 
 async def test_chat_completion_sends_correct_payload() -> None:
-    client, mock_http = _make_client(http_response=_make_http_response())
+    client, mock_http = _make_client(http_response=_make_http_response(), model="gpt-4o-mini")
     await client.chat_completion(_MESSAGES, max_tokens=512, temperature=0.5)
 
     mock_http.post.assert_called_once()
@@ -118,6 +119,18 @@ async def test_chat_completion_sends_correct_payload() -> None:
         {"role": "system", "content": "You are helpful."},
         {"role": "user", "content": "Hi"},
     ]
+
+
+async def test_chat_completion_uses_max_completion_tokens_for_gpt5_models() -> None:
+    client, mock_http = _make_client(http_response=_make_http_response(), model="gpt-5-mini")
+    await client.chat_completion(_MESSAGES, max_tokens=256, temperature=0.2)
+
+    mock_http.post.assert_called_once()
+    _, kwargs = mock_http.post.call_args
+    body = kwargs["json"]
+    assert body["model"] == "gpt-5-mini"
+    assert body["max_completion_tokens"] == 256
+    assert "max_tokens" not in body
 
 
 # ---------------------------------------------------------------------------

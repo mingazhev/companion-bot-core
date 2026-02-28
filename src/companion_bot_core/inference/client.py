@@ -64,6 +64,9 @@ class ChatAPIClient:
     ) -> None:
         self._model = model
         self._circuit_breaker = circuit_breaker or CircuitBreaker()
+        self._max_tokens_param = (
+            "max_completion_tokens" if model.startswith("gpt-5") else "max_tokens"
+        )
         self._http = http_client or httpx.AsyncClient(
             base_url=base_url,
             headers={
@@ -100,15 +103,13 @@ class ChatAPIClient:
         Decorated with tenacity retry; this method should only be called via
         ``chat_completion`` which wraps it in the circuit breaker.
         """
-        response = await self._http.post(
-            "/chat/completions",
-            json={
-                "model": self._model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-            },
-        )
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": messages,
+            self._max_tokens_param: max_tokens,
+            "temperature": temperature,
+        }
+        response = await self._http.post("/chat/completions", json=payload)
         response.raise_for_status()
         return cast("dict[str, Any]", response.json())
 
