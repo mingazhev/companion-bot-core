@@ -584,8 +584,19 @@ async def handle_message(
                 )
             except Exception:
                 log.exception("process_message_failed", internal_user_id=user_id_str)
+                error_text = tr("handle.error", locale)
                 try:
-                    await message.answer(tr("handle.error", locale), parse_mode=None)
+                    if sent_msg is not None:
+                        try:
+                            await sent_msg.edit_text(error_text, parse_mode=None)
+                        except Exception:  # noqa: BLE001
+                            log.warning(
+                                "error_reply_edit_failed",
+                                internal_user_id=user_id_str,
+                            )
+                            await message.answer(error_text, parse_mode=None)
+                    else:
+                        await message.answer(error_text, parse_mode=None)
                 except Exception:  # noqa: BLE001
                     log.warning("error_reply_send_failed", internal_user_id=user_id_str)
                 raise
