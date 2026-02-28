@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from tdbot.config import Settings, get_settings
+from companion_bot_core.config import Settings, get_settings
 
 
 def _make_settings(**kwargs: object) -> Settings:
@@ -51,7 +51,7 @@ class TestSettingsDefaults:
         assert test_settings.environment == "test"
 
     def test_service_name_default(self) -> None:
-        assert _make_settings().service_name == "tdbot"
+        assert _make_settings().service_name == "companion_bot_core"
 
     def test_pool_bounds(self) -> None:
         s = _make_settings(database_pool_min=3, database_pool_max=20)

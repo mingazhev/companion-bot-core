@@ -11,7 +11,7 @@ import pytest_asyncio
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-from tdbot.redis.rate_limit import (
+from companion_bot_core.redis.rate_limit import (
     _KEY_GLOBAL,
     _PREFIX_USER,
     check_global_rate_limit,

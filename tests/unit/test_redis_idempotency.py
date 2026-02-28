@@ -11,7 +11,7 @@ import pytest_asyncio
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-from tdbot.redis.idempotency import (
+from companion_bot_core.redis.idempotency import (
     _PREFIX,
     DEFAULT_TTL_SECONDS,
     clear_update_key,

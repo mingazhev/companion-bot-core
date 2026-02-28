@@ -1,4 +1,4 @@
-"""Unit tests for tdbot.inference.client (ChatAPIClient)."""
+"""Unit tests for companion_bot_core.inference.client (ChatAPIClient)."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from tdbot.inference.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
-from tdbot.inference.client import ChatAPIClient, _is_retryable
-from tdbot.inference.schemas import ChatMessage, OpenAIResponse
+from companion_bot_core.inference.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
+from companion_bot_core.inference.client import ChatAPIClient, _is_retryable
+from companion_bot_core.inference.schemas import ChatMessage, OpenAIResponse
 
 # ---------------------------------------------------------------------------
 # Helpers

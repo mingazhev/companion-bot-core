@@ -1,4 +1,4 @@
-# TdBot — Multi-User Telegram Companion Bot
+# Companion Bot Core — Multi-User Telegram Companion Bot
 
 A production-grade Telegram bot that gives each user a personalized, evolvable AI persona. Each user's persona is shaped by in-chat preferences and refined asynchronously in the background.
 
@@ -39,7 +39,7 @@ Required environment variables:
 | Variable | Description |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token from @BotFather |
-| `DATABASE_URL` | PostgreSQL async DSN, e.g. `postgresql+asyncpg://user:pass@localhost/tdbot` |
+| `DATABASE_URL` | PostgreSQL async DSN, e.g. `postgresql+asyncpg://user:pass@localhost/companion_bot_core` |
 | `REDIS_URL` | Redis URL, e.g. `redis://localhost:6379/0` |
 | `OPENAI_API_KEY` | OpenAI API key (or proxy key) |
 
@@ -77,9 +77,9 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 alembic upgrade head
 
 # Start the bot (polling mode)
-tdbot
+companion-bot-core
 # Or run directly:
-# python -m tdbot.main
+# python -m companion_bot_core.main
 ```
 
 Webhook mode (`TELEGRAM_WEBHOOK_HOST != ''`) is not yet implemented and will raise `NotImplementedError` at startup. Use polling mode for all current deployments.
@@ -87,7 +87,7 @@ Webhook mode (`TELEGRAM_WEBHOOK_HOST != ''`) is not yet implemented and will rai
 ## Local development with fake adapters
 
 ```bash
-USE_FAKE_ADAPTERS=true tdbot
+USE_FAKE_ADAPTERS=true companion-bot-core
 ```
 
 Replaces the real OpenAI client with a deterministic fake. The full pipeline runs without valid API credentials. Responses are prefixed with `[Dev mode]`. Never enable in production.

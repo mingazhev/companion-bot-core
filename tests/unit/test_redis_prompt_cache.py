@@ -11,7 +11,7 @@ import pytest_asyncio
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-from tdbot.redis.prompt_cache import (
+from companion_bot_core.redis.prompt_cache import (
     _PREFIX,
     DEFAULT_TTL_SECONDS,
     cache_prompt,

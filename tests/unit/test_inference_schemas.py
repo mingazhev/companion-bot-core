@@ -1,11 +1,11 @@
-"""Unit tests for tdbot.inference.schemas."""
+"""Unit tests for companion_bot_core.inference.schemas."""
 
 from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
 
-from tdbot.inference.schemas import (
+from companion_bot_core.inference.schemas import (
     ChatMessage,
     InferenceReply,
     OpenAIResponse,

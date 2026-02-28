@@ -1,12 +1,12 @@
-"""Unit tests for tdbot.inference.adapter (generate_reply)."""
+"""Unit tests for companion_bot_core.inference.adapter (generate_reply)."""
 
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-from tdbot.inference.adapter import generate_reply
-from tdbot.inference.client import ChatAPIClient
-from tdbot.inference.schemas import (
+from companion_bot_core.inference.adapter import generate_reply
+from companion_bot_core.inference.client import ChatAPIClient
+from companion_bot_core.inference.schemas import (
     ChatMessage,
     InferenceReply,
     OpenAIResponse,

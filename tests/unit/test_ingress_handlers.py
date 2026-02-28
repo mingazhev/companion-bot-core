@@ -1,4 +1,4 @@
-"""Unit tests for command handlers in tdbot.bot.handlers.
+"""Unit tests for command handlers in companion_bot_core.bot.handlers.
 
 Handlers are called directly with mocked aiogram Message objects to verify
 the response text and logging without a live Telegram connection.
@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tdbot.behavior.extractor import VALID_TONES
-from tdbot.bot.handlers import (
+from companion_bot_core.behavior.extractor import VALID_TONES
+from companion_bot_core.bot.handlers import (
     cmd_delete_my_data,
     cmd_memory_compact_now,
     cmd_privacy,
@@ -24,8 +24,8 @@ from tdbot.bot.handlers import (
     cmd_start,
     handle_message,
 )
-from tdbot.db.models import User, UserProfile
-from tdbot.prompt.snapshot_store import InMemorySnapshotStore
+from companion_bot_core.db.models import User, UserProfile
+from companion_bot_core.prompt.snapshot_store import InMemorySnapshotStore
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -574,8 +574,11 @@ async def test_handle_message_sends_reply() -> None:
     settings.refinement_activity_threshold = 10
 
     with (
-        patch("tdbot.bot.handlers.process_message", return_value="Hello back") as mock_process,
-        patch("tdbot.bot.handlers.check_and_clear_user_notice", return_value=False),
+        patch(
+            "companion_bot_core.bot.handlers.process_message",
+            return_value="Hello back",
+        ) as mock_process,
+        patch("companion_bot_core.bot.handlers.check_and_clear_user_notice", return_value=False),
     ):
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
@@ -597,8 +600,8 @@ async def test_handle_message_sends_profile_updated_notice_when_set() -> None:
     settings.conversation_ttl_seconds = 604800
     settings.refinement_activity_threshold = 10
 
-    with patch("tdbot.bot.handlers.process_message", return_value="Reply text"), patch(
-        "tdbot.bot.handlers.check_and_clear_user_notice", return_value=True
+    with patch("companion_bot_core.bot.handlers.process_message", return_value="Reply text"), patch(
+        "companion_bot_core.bot.handlers.check_and_clear_user_notice", return_value=True
     ):
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
@@ -637,8 +640,8 @@ async def test_handle_message_no_notice_when_not_set() -> None:
     settings.conversation_ttl_seconds = 604800
     settings.refinement_activity_threshold = 10
 
-    with patch("tdbot.bot.handlers.process_message", return_value="Goodbye"), patch(
-        "tdbot.bot.handlers.check_and_clear_user_notice", return_value=False
+    with patch("companion_bot_core.bot.handlers.process_message", return_value="Goodbye"), patch(
+        "companion_bot_core.bot.handlers.check_and_clear_user_notice", return_value=False
     ):
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 

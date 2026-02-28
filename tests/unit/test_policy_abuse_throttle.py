@@ -1,4 +1,4 @@
-"""Unit tests for tdbot.policy.abuse_throttle.
+"""Unit tests for companion_bot_core.policy.abuse_throttle.
 
 Uses fakeredis for in-memory Redis without an external dependency.
 """
@@ -9,7 +9,7 @@ import pytest
 import pytest_asyncio
 from fakeredis.aioredis import FakeRedis
 
-from tdbot.policy.abuse_throttle import (
+from companion_bot_core.policy.abuse_throttle import (
     ABUSE_BLOCK_MESSAGE,
     clear_abuse_block,
     get_violation_count,

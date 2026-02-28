@@ -1,4 +1,4 @@
-"""Unit tests for tdbot.refinement.client (refine_prompt)."""
+"""Unit tests for companion_bot_core.refinement.client (refine_prompt)."""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from tdbot.inference.schemas import ChatMessage
-from tdbot.prompt.schemas import SnapshotRecord
-from tdbot.refinement.client import _build_refinement_messages, refine_prompt
-from tdbot.refinement.schemas import RefinementResult
+from companion_bot_core.inference.schemas import ChatMessage
+from companion_bot_core.prompt.schemas import SnapshotRecord
+from companion_bot_core.refinement.client import _build_refinement_messages, refine_prompt
+from companion_bot_core.refinement.schemas import RefinementResult
 
 # ---------------------------------------------------------------------------
 # Helpers

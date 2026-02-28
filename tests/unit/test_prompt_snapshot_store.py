@@ -1,4 +1,4 @@
-"""Unit tests for tdbot.prompt.snapshot_store.InMemorySnapshotStore."""
+"""Unit tests for companion_bot_core.prompt.snapshot_store.InMemorySnapshotStore."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import uuid
 
 import pytest
 
-from tdbot.prompt.schemas import SnapshotRecord
-from tdbot.prompt.snapshot_store import InMemorySnapshotStore
+from companion_bot_core.prompt.schemas import SnapshotRecord
+from companion_bot_core.prompt.snapshot_store import InMemorySnapshotStore
 
 # ---------------------------------------------------------------------------
 # Helpers

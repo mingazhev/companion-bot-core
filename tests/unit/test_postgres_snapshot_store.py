@@ -12,14 +12,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tdbot.prompt.postgres_store import (
+from companion_bot_core.prompt.postgres_store import (
     PostgresSnapshotStore,
     defer_lock_release,
     extract_deferred_lock_releases,
     extract_deferred_redis_writes,
     flush_deferred_lock_releases,
 )
-from tdbot.prompt.schemas import SnapshotRecord
+from companion_bot_core.prompt.schemas import SnapshotRecord
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -73,7 +73,7 @@ async def test_save_persists_to_db() -> None:
     mock_session = AsyncMock()
     mock_session.add = MagicMock()
 
-    with patch("tdbot.prompt.postgres_store.get_async_session") as mock_get_session:
+    with patch("companion_bot_core.prompt.postgres_store.get_async_session") as mock_get_session:
         ctx = AsyncMock()
         ctx.__aenter__ = AsyncMock(return_value=mock_session)
         ctx.__aexit__ = AsyncMock(return_value=False)
@@ -104,7 +104,7 @@ async def test_get_returns_record_when_found() -> None:
     exec_result.scalar_one_or_none.return_value = orm_row
     mock_session.execute = AsyncMock(return_value=exec_result)
 
-    with patch("tdbot.prompt.postgres_store.get_async_session") as mock_get_session:
+    with patch("companion_bot_core.prompt.postgres_store.get_async_session") as mock_get_session:
         ctx = AsyncMock()
         ctx.__aenter__ = AsyncMock(return_value=mock_session)
         ctx.__aexit__ = AsyncMock(return_value=False)
@@ -126,7 +126,7 @@ async def test_get_returns_none_when_not_found() -> None:
     exec_result.scalar_one_or_none.return_value = None
     mock_session.execute = AsyncMock(return_value=exec_result)
 
-    with patch("tdbot.prompt.postgres_store.get_async_session") as mock_get_session:
+    with patch("companion_bot_core.prompt.postgres_store.get_async_session") as mock_get_session:
         ctx = AsyncMock()
         ctx.__aenter__ = AsyncMock(return_value=mock_session)
         ctx.__aexit__ = AsyncMock(return_value=False)
@@ -153,7 +153,7 @@ async def test_get_active_returns_none_when_no_pointer_and_no_db_snapshot() -> N
     exec_result.scalar_one_or_none.return_value = None
     mock_session.execute = AsyncMock(return_value=exec_result)
 
-    with patch("tdbot.prompt.postgres_store.get_async_session") as mock_get_session:
+    with patch("companion_bot_core.prompt.postgres_store.get_async_session") as mock_get_session:
         ctx = AsyncMock()
         ctx.__aenter__ = AsyncMock(return_value=mock_session)
         ctx.__aexit__ = AsyncMock(return_value=False)
@@ -178,7 +178,7 @@ async def test_get_active_falls_back_to_db_when_redis_pointer_missing() -> None:
     exec_result.scalar_one_or_none.return_value = orm_row
     mock_session.execute = AsyncMock(return_value=exec_result)
 
-    with patch("tdbot.prompt.postgres_store.get_async_session") as mock_get_session:
+    with patch("companion_bot_core.prompt.postgres_store.get_async_session") as mock_get_session:
         ctx = AsyncMock()
         ctx.__aenter__ = AsyncMock(return_value=mock_session)
         ctx.__aexit__ = AsyncMock(return_value=False)
@@ -204,7 +204,7 @@ async def test_get_active_falls_back_to_db_on_invalid_pointer() -> None:
     exec_result.scalar_one_or_none.return_value = orm_row
     mock_session.execute = AsyncMock(return_value=exec_result)
 
-    with patch("tdbot.prompt.postgres_store.get_async_session") as mock_get_session:
+    with patch("companion_bot_core.prompt.postgres_store.get_async_session") as mock_get_session:
         ctx = AsyncMock()
         ctx.__aenter__ = AsyncMock(return_value=mock_session)
         ctx.__aexit__ = AsyncMock(return_value=False)
@@ -229,7 +229,7 @@ async def test_set_active_raises_key_error_for_missing_snapshot() -> None:
     mock_session.execute = AsyncMock(return_value=exec_result)
 
     with (
-        patch("tdbot.prompt.postgres_store.get_async_session") as mock_get_session,
+        patch("companion_bot_core.prompt.postgres_store.get_async_session") as mock_get_session,
         pytest.raises(KeyError, match=str(snapshot_id)),
     ):
         ctx = AsyncMock()
@@ -252,7 +252,7 @@ async def test_set_active_sets_redis_key() -> None:
     mock_session.execute = AsyncMock(return_value=exec_result)
     redis.set = AsyncMock()
 
-    with patch("tdbot.prompt.postgres_store.get_async_session") as mock_get_session:
+    with patch("companion_bot_core.prompt.postgres_store.get_async_session") as mock_get_session:
         ctx = AsyncMock()
         ctx.__aenter__ = AsyncMock(return_value=mock_session)
         ctx.__aexit__ = AsyncMock(return_value=False)
@@ -303,7 +303,7 @@ async def test_list_for_user_returns_records_newest_first() -> None:
     exec_result.scalars.return_value = scalars_result
     mock_session.execute = AsyncMock(return_value=exec_result)
 
-    with patch("tdbot.prompt.postgres_store.get_async_session") as mock_get_session:
+    with patch("companion_bot_core.prompt.postgres_store.get_async_session") as mock_get_session:
         ctx = AsyncMock()
         ctx.__aenter__ = AsyncMock(return_value=mock_session)
         ctx.__aexit__ = AsyncMock(return_value=False)

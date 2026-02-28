@@ -1,13 +1,13 @@
-"""Unit tests for tdbot.refinement.validator (validate_refinement_result)."""
+"""Unit tests for companion_bot_core.refinement.validator (validate_refinement_result)."""
 
 from __future__ import annotations
 
-from tdbot.refinement.schemas import (
+from companion_bot_core.refinement.schemas import (
     RefinementResult,
     RefinementRiskFlag,
     SnapshotDelta,
 )
-from tdbot.refinement.validator import (
+from companion_bot_core.refinement.validator import (
     _contains_injection_pattern,
     validate_refinement_result,
 )

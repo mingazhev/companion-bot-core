@@ -1,4 +1,4 @@
-"""Unit tests for the Prometheus metrics registry (tdbot.metrics).
+"""Unit tests for the Prometheus metrics registry (companion_bot_core.metrics).
 
 Tests verify that:
 - All expected metric objects are importable.
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from tdbot.metrics import (
+from companion_bot_core.metrics import (
     BEHAVIOR_CHANGE_CONFIRMATIONS,
     BEHAVIOR_CHANGE_REVERSALS,
     CHAT_LATENCY,

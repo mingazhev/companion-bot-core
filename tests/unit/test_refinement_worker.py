@@ -1,4 +1,4 @@
-"""Unit tests for tdbot.refinement.worker."""
+"""Unit tests for companion_bot_core.refinement.worker."""
 
 from __future__ import annotations
 
@@ -9,12 +9,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import fakeredis.aioredis as fakeredis
 
-from tdbot.inference.circuit_breaker import CircuitBreakerOpen
-from tdbot.prompt.schemas import SnapshotRecord
-from tdbot.prompt.snapshot_store import InMemorySnapshotStore
-from tdbot.redis.queues import QUEUE_REFINEMENT_JOBS, QUEUE_RETRY_JOBS, get_queue_length
-from tdbot.refinement.schemas import RefinementResult, RefinementRiskFlag, SnapshotDelta
-from tdbot.refinement.worker import (
+from companion_bot_core.inference.circuit_breaker import CircuitBreakerOpen
+from companion_bot_core.prompt.schemas import SnapshotRecord
+from companion_bot_core.prompt.snapshot_store import InMemorySnapshotStore
+from companion_bot_core.redis.queues import (
+    QUEUE_REFINEMENT_JOBS,
+    QUEUE_RETRY_JOBS,
+    get_queue_length,
+)
+from companion_bot_core.refinement.schemas import (
+    RefinementResult,
+    RefinementRiskFlag,
+    SnapshotDelta,
+)
+from companion_bot_core.refinement.worker import (
     MAX_ATTEMPTS,
     _apply_delta,
     check_and_clear_user_notice,
@@ -187,7 +195,7 @@ async def test_process_one_job_applies_delta_and_saves_snapshot() -> None:
 
     engine = MagicMock()
 
-    with patch("tdbot.refinement.worker.get_async_session", new=_fake_session_ctx):
+    with patch("companion_bot_core.refinement.worker.get_async_session", new=_fake_session_ctx):
         await process_one_job(
             {"user_id": str(user_id)},
             redis=redis,
@@ -225,7 +233,7 @@ async def test_process_one_job_sets_user_notice() -> None:
     chat_client = AsyncMock()
     chat_client.chat_completion = AsyncMock(return_value=_make_openai_response(good_json))
 
-    with patch("tdbot.refinement.worker.get_async_session", new=_fake_session_ctx):
+    with patch("companion_bot_core.refinement.worker.get_async_session", new=_fake_session_ctx):
         await process_one_job(
             {"user_id": str(user_id)},
             redis=redis,
@@ -249,7 +257,7 @@ async def test_process_one_job_skips_when_no_snapshot() -> None:
 
     chat_client = AsyncMock()
 
-    with patch("tdbot.refinement.worker.get_async_session", new=_fake_session_ctx):
+    with patch("companion_bot_core.refinement.worker.get_async_session", new=_fake_session_ctx):
         await process_one_job(
             {"user_id": str(user_id)},
             redis=redis,
@@ -293,7 +301,7 @@ async def test_process_one_job_rejects_policy_violation() -> None:
     chat_client = AsyncMock()
     chat_client.chat_completion = AsyncMock(return_value=_make_openai_response(bad_json))
 
-    with patch("tdbot.refinement.worker.get_async_session", new=_fake_session_ctx):
+    with patch("companion_bot_core.refinement.worker.get_async_session", new=_fake_session_ctx):
         await process_one_job(
             {"user_id": str(user_id)},
             redis=redis,
@@ -326,7 +334,7 @@ async def test_process_one_job_enqueues_retry_on_failure() -> None:
     chat_client = AsyncMock()
     chat_client.chat_completion = AsyncMock(side_effect=RuntimeError("API down"))
 
-    with patch("tdbot.refinement.worker.get_async_session", new=_fake_session_ctx):
+    with patch("companion_bot_core.refinement.worker.get_async_session", new=_fake_session_ctx):
         await process_one_job(
             {"user_id": str(user_id), "attempt": 0},
             redis=redis,
@@ -352,7 +360,7 @@ async def test_process_one_job_dead_letters_after_max_attempts() -> None:
     chat_client.chat_completion = AsyncMock(side_effect=RuntimeError("Persistent failure"))
 
     # Simulate job already at MAX_ATTEMPTS - 1 so this is the final attempt
-    with patch("tdbot.refinement.worker.get_async_session", new=_fake_session_ctx):
+    with patch("companion_bot_core.refinement.worker.get_async_session", new=_fake_session_ctx):
         await process_one_job(
             {"user_id": str(user_id), "attempt": MAX_ATTEMPTS - 1},
             redis=redis,
@@ -371,7 +379,7 @@ async def test_process_one_job_invalid_user_id_is_skipped() -> None:
     snapshot_store = InMemorySnapshotStore()
     chat_client = AsyncMock()
 
-    with patch("tdbot.refinement.worker.get_async_session", new=_fake_session_ctx):
+    with patch("companion_bot_core.refinement.worker.get_async_session", new=_fake_session_ctx):
         # Should not raise — just log and return
         await process_one_job(
             {"user_id": "not-a-uuid"},
@@ -403,7 +411,7 @@ async def test_process_one_job_defers_on_circuit_breaker_open() -> None:
         side_effect=CircuitBreakerOpen(failure_count=5, reset_at=0.0)
     )
 
-    with patch("tdbot.refinement.worker.get_async_session", new=_fake_session_ctx):
+    with patch("companion_bot_core.refinement.worker.get_async_session", new=_fake_session_ctx):
         await process_one_job(
             {"user_id": str(user_id), "attempt": 1},
             redis=redis,
@@ -464,13 +472,13 @@ async def test_process_one_job_no_notice_on_redis_flush_failure() -> None:
     # flush path is actually exercised.
     flush_mock = AsyncMock(side_effect=RuntimeError("Redis down"))
     with (
-        patch("tdbot.refinement.worker.get_async_session", new=_fake_session_ctx),
+        patch("companion_bot_core.refinement.worker.get_async_session", new=_fake_session_ctx),
         patch(
-            "tdbot.refinement.worker.extract_deferred_redis_writes",
+            "companion_bot_core.refinement.worker.extract_deferred_redis_writes",
             return_value=[("prompt:active:test", "snap-id")],
         ),
         patch(
-            "tdbot.refinement.worker.flush_deferred_redis_writes",
+            "companion_bot_core.refinement.worker.flush_deferred_redis_writes",
             new=flush_mock,
         ),
     ):

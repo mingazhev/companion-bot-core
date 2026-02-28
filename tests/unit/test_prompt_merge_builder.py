@@ -1,9 +1,9 @@
-"""Unit tests for tdbot.prompt.merge_builder.build_system_prompt."""
+"""Unit tests for companion_bot_core.prompt.merge_builder.build_system_prompt."""
 
 from __future__ import annotations
 
-from tdbot.prompt.merge_builder import SECTION_SEP, build_system_prompt
-from tdbot.prompt.schemas import PromptComponents
+from companion_bot_core.prompt.merge_builder import SECTION_SEP, build_system_prompt
+from companion_bot_core.prompt.schemas import PromptComponents
 
 # ---------------------------------------------------------------------------
 # Helpers

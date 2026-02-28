@@ -6,8 +6,8 @@ import pytest
 from cryptography.fernet import Fernet, InvalidToken
 from pydantic import SecretStr
 
-from tdbot.config import Settings
-from tdbot.privacy.field_encryption import FieldEncryptor
+from companion_bot_core.config import Settings
+from companion_bot_core.privacy.field_encryption import FieldEncryptor
 
 
 def _make_key() -> bytes:

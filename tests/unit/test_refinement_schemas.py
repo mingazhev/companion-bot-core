@@ -1,8 +1,8 @@
-"""Unit tests for tdbot.refinement.schemas."""
+"""Unit tests for companion_bot_core.refinement.schemas."""
 
 from __future__ import annotations
 
-from tdbot.refinement.schemas import (
+from companion_bot_core.refinement.schemas import (
     RefinementResult,
     RefinementRiskFlag,
     SnapshotDelta,

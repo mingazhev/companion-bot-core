@@ -20,8 +20,8 @@ import uuid
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-from tdbot.db.models import AuditLog
-from tdbot.privacy.delete_user import hard_delete_user
+from companion_bot_core.db.models import AuditLog
+from companion_bot_core.privacy.delete_user import hard_delete_user
 
 # ---------------------------------------------------------------------------
 # Helpers

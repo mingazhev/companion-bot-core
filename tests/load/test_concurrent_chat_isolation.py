@@ -18,12 +18,12 @@ from unittest.mock import AsyncMock, MagicMock
 import fakeredis.aioredis as fakeredis
 import pytest
 
-from tdbot.inference.schemas import OpenAIResponse
-from tdbot.orchestrator.dialogue_state import get_pending_change
-from tdbot.orchestrator.orchestrator import process_message
-from tdbot.prompt.schemas import SnapshotRecord
-from tdbot.prompt.snapshot_store import InMemorySnapshotStore
-from tdbot.redis.queues import QUEUE_REFINEMENT_JOBS, get_queue_length
+from companion_bot_core.inference.schemas import OpenAIResponse
+from companion_bot_core.orchestrator.dialogue_state import get_pending_change
+from companion_bot_core.orchestrator.orchestrator import process_message
+from companion_bot_core.prompt.schemas import SnapshotRecord
+from companion_bot_core.prompt.snapshot_store import InMemorySnapshotStore
+from companion_bot_core.redis.queues import QUEUE_REFINEMENT_JOBS, get_queue_length
 
 # SLO: 95th-percentile latency must stay below this value (seconds).
 # The pipeline uses mocked HTTP and in-memory data structures; 200 ms is generous.

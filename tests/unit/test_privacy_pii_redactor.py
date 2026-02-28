@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from tdbot.privacy.pii_redactor import _PII_FIELDS, _REDACTED, redact_pii
+from companion_bot_core.privacy.pii_redactor import _PII_FIELDS, _REDACTED, redact_pii
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping

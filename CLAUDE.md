@@ -1,9 +1,9 @@
-# TdBot — AI Knowledge Base
+# Companion Bot Core — AI Knowledge Base
 
 ## Project structure
 
 ```
-src/tdbot/
+src/companion_bot_core/
   bot/          — aiogram app, handlers (commands + message), outer middleware
   orchestrator/ — full message pipeline: context loader, dialogue state, orchestrator
   behavior/     — intent classifier (tone_change, persona_change, skill_*, safety_override_attempt, normal_chat)
@@ -26,7 +26,7 @@ src/tdbot/
 
 ## Key architectural patterns
 
-- Settings singleton: `get_settings()` returns a cached `Settings` instance. Tests must patch `tdbot.config._settings` before imports that call it.
+- Settings singleton: `get_settings()` returns a cached `Settings` instance. Tests must patch `companion_bot_core.config._settings` before imports that call it.
 - DB session lifecycle: `get_async_session(engine)` is an async context manager that opens a `session.begin()` block and commits on clean exit. The `async_sessionmaker` is cached per engine via `_get_session_factory()`.
 - Middleware injection: `IngressMiddleware` injects `db_user`, `db_session`, `tg_user`, and `redis` into the aiogram handler data dict via the middleware pattern. The dispatcher's `workflow_data` additionally provides `snapshot_store`, `chat_client`, `encryptor`, and `settings` to all handlers.
 - Fake adapter mode: `USE_FAKE_ADAPTERS=true` replaces `ChatAPIClient` with `FakeChatAPIClient` and uses `InMemorySnapshotStore`. In production mode, `PostgresSnapshotStore` (backed by `prompt_snapshots` table with Redis active-pointer caching) is used. Seed personas from `dev/seeds.py`.
@@ -53,14 +53,14 @@ pytest tests/load/          # concurrent isolation and latency SLO
 ruff check .                # lint
 mypy .                      # type-check (strict)
 alembic upgrade head        # apply DB migrations
-tdbot                       # run the bot
+companion-bot-core                       # run the bot
 ```
 
 ## Observability
 
 - Prometheus metrics: `metrics.py` defines all counters and histograms. `GET /metrics` on the internal service exposes them.
-- Tracing: `from tdbot.tracing import span, sync_span` — creates structlog-annotated spans propagated via `contextvars`. Not OpenTelemetry.
-- Structured logging: always use `log = get_logger(__name__)` from `tdbot.logging_config`, never stdlib `logging` directly.
+- Tracing: `from companion_bot_core.tracing import span, sync_span` — creates structlog-annotated spans propagated via `contextvars`. Not OpenTelemetry.
+- Structured logging: always use `log = get_logger(__name__)` from `companion_bot_core.logging_config`, never stdlib `logging` directly.
 - `CHAT_LATENCY` is recorded only for requests that reach the model inference call (`auto_apply` and `pass_through` actions) and for all early-exit paths (refuse, confirm, pending-change confirmation/cancellation). Do not skip latency recording on new early-exit paths.
 
 ## Redis key layout

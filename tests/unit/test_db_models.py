@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 
-from tdbot.db.models import (
+from companion_bot_core.db.models import (
     AuditLog,
     Base,
     BehaviorChangeEvent,

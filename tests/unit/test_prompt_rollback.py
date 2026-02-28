@@ -1,4 +1,4 @@
-"""Unit tests for tdbot.prompt.rollback (rollback_to_previous, rollback_to_version)."""
+"""Unit tests for companion_bot_core.prompt.rollback (rollback_to_previous, rollback_to_version)."""
 
 from __future__ import annotations
 
@@ -6,9 +6,13 @@ import uuid
 
 import pytest
 
-from tdbot.prompt.rollback import RollbackError, rollback_to_previous, rollback_to_version
-from tdbot.prompt.schemas import SnapshotRecord
-from tdbot.prompt.snapshot_store import InMemorySnapshotStore
+from companion_bot_core.prompt.rollback import (
+    RollbackError,
+    rollback_to_previous,
+    rollback_to_version,
+)
+from companion_bot_core.prompt.schemas import SnapshotRecord
+from companion_bot_core.prompt.snapshot_store import InMemorySnapshotStore
 
 # ---------------------------------------------------------------------------
 # Helpers

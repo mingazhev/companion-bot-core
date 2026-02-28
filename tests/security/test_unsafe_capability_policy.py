@@ -21,14 +21,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tdbot.behavior.detector import classify
-from tdbot.policy.guardrails import (
+from companion_bot_core.behavior.detector import classify
+from companion_bot_core.policy.guardrails import (
     check_risky_capability,
     check_unsafe_role_change,
 )
 
 if TYPE_CHECKING:
-    from tdbot.policy.schemas import GuardrailResult
+    from companion_bot_core.policy.schemas import GuardrailResult
 
 # ---------------------------------------------------------------------------
 # Helpers

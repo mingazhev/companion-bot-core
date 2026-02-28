@@ -12,12 +12,12 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from tdbot.policy.guardrails import (
+from companion_bot_core.policy.guardrails import (
     check_prompt_injection,
     check_risky_capability,
     check_unsafe_role_change,
 )
-from tdbot.policy.schemas import GuardrailResult
+from companion_bot_core.policy.schemas import GuardrailResult
 
 # ---------------------------------------------------------------------------
 # Helpers

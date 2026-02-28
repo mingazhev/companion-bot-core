@@ -1,4 +1,4 @@
-"""Unit tests for tdbot.internal.routes.
+"""Unit tests for companion_bot_core.internal.routes.
 
 Tests use the aiohttp test utilities (no external dependencies) together with
 fakeredis so no real Redis or Telegram infrastructure is needed.
@@ -14,8 +14,8 @@ import fakeredis.aioredis as fakeredis
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from tdbot.internal.server import build_internal_app
-from tdbot.redis.queues import QUEUE_REFINEMENT_JOBS, get_queue_length
+from companion_bot_core.internal.server import build_internal_app
+from companion_bot_core.redis.queues import QUEUE_REFINEMENT_JOBS, get_queue_length
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator

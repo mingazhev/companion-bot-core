@@ -6,13 +6,13 @@ import uuid
 
 import pytest
 
-from tdbot.dev.seeds import (
+from companion_bot_core.dev.seeds import (
     BASE_SYSTEM_TEMPLATE,
     PERSONAS,
     SKILL_PACKS,
     make_seed_snapshot,
 )
-from tdbot.prompt.schemas import SnapshotRecord
+from companion_bot_core.prompt.schemas import SnapshotRecord
 
 # ---------------------------------------------------------------------------
 # BASE_SYSTEM_TEMPLATE

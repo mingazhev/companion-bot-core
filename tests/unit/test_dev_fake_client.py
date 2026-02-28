@@ -6,9 +6,13 @@ import json
 
 import pytest
 
-from tdbot.dev.fake_client import _FAKE_REFINEMENT_JSON, FakeChatAPIClient, _make_openai_response
-from tdbot.inference.schemas import ChatMessage, OpenAIResponse
-from tdbot.refinement.schemas import RefinementResult
+from companion_bot_core.dev.fake_client import (
+    _FAKE_REFINEMENT_JSON,
+    FakeChatAPIClient,
+    _make_openai_response,
+)
+from companion_bot_core.inference.schemas import ChatMessage, OpenAIResponse
+from companion_bot_core.refinement.schemas import RefinementResult
 
 # ---------------------------------------------------------------------------
 # Helpers

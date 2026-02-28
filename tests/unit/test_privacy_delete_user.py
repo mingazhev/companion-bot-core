@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-from tdbot.privacy.delete_user import hard_delete_user
+from companion_bot_core.privacy.delete_user import hard_delete_user
 
 
 def _make_session(user_exists: bool = True, user_id: uuid.UUID | None = None) -> AsyncMock:
@@ -41,7 +41,7 @@ class TestHardDeleteUser:
         session.add.assert_called_once()
         added = session.add.call_args[0][0]
 
-        from tdbot.db.models import AuditLog
+        from companion_bot_core.db.models import AuditLog
 
         assert isinstance(added, AuditLog)
         assert added.user_id == user_id

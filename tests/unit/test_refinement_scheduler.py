@@ -1,4 +1,4 @@
-"""Unit tests for tdbot.refinement.scheduler."""
+"""Unit tests for companion_bot_core.refinement.scheduler."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from unittest.mock import patch
 import fakeredis.aioredis as fakeredis
 import pytest
 
-from tdbot.redis.queues import QUEUE_REFINEMENT_JOBS, get_queue_length
-from tdbot.refinement.scheduler import (
+from companion_bot_core.redis.queues import QUEUE_REFINEMENT_JOBS, get_queue_length
+from companion_bot_core.refinement.scheduler import (
     _last_scheduled_key,
     enqueue_if_cadence_due,
     record_refinement_scheduled,
@@ -63,7 +63,7 @@ async def test_should_schedule_exactly_at_cadence_boundary() -> None:
 async def test_record_refinement_scheduled_sets_key() -> None:
     redis = fakeredis.FakeRedis()
     cadence = 3600
-    with patch("tdbot.refinement.scheduler.time") as mock_time:
+    with patch("companion_bot_core.refinement.scheduler.time") as mock_time:
         now = 1_700_000_000.0
         mock_time.time.return_value = now
         await record_refinement_scheduled(redis, "user-4", cadence)

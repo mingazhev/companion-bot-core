@@ -20,11 +20,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tdbot.behavior.detector import classify
-from tdbot.policy.guardrails import check_prompt_injection
+from companion_bot_core.behavior.detector import classify
+from companion_bot_core.policy.guardrails import check_prompt_injection
 
 if TYPE_CHECKING:
-    from tdbot.policy.schemas import GuardrailResult
+    from companion_bot_core.policy.schemas import GuardrailResult
 
 # ---------------------------------------------------------------------------
 # Helpers

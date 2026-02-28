@@ -12,15 +12,15 @@ from uuid import uuid4
 import fakeredis.aioredis as fakeredis
 import pytest
 
-from tdbot.behavior.schemas import DetectionResult
-from tdbot.inference.schemas import InferenceReply, SafetyFlags, TokenUsage
-from tdbot.orchestrator.dialogue_state import PendingChange, set_pending_change
-from tdbot.orchestrator.orchestrator import (
+from companion_bot_core.behavior.schemas import DetectionResult
+from companion_bot_core.inference.schemas import InferenceReply, SafetyFlags, TokenUsage
+from companion_bot_core.orchestrator.dialogue_state import PendingChange, set_pending_change
+from companion_bot_core.orchestrator.orchestrator import (
     _CHANGE_APPLIED_MSG,
     process_message,
 )
-from tdbot.prompt.schemas import SnapshotRecord
-from tdbot.prompt.snapshot_store import InMemorySnapshotStore
+from companion_bot_core.prompt.schemas import SnapshotRecord
+from companion_bot_core.prompt.snapshot_store import InMemorySnapshotStore
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -57,7 +57,7 @@ def _make_session() -> AsyncMock:
     Configures ``scalar_one()`` to return a real ``UserProfile`` so the
     upsert-then-SELECT pattern in ``get_or_create_profile`` works.
     """
-    from tdbot.db.models import UserProfile
+    from companion_bot_core.db.models import UserProfile
 
     scalar_result = MagicMock()
     scalar_result.scalars.return_value.all.return_value = []
@@ -117,12 +117,12 @@ async def test_auto_apply_tone_change_updates_snapshot() -> None:
     await store.set_active(user_id, initial.id)
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(
             intent="tone_change", risk_level="low", action="auto_apply"
         ),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("Sure, I'll be more playful!"),
     ):
         await process_message(
@@ -162,12 +162,12 @@ async def test_auto_apply_tone_change_no_extraction_still_records_event() -> Non
     await store.set_active(user_id, initial.id)
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(
             intent="tone_change", risk_level="low", action="auto_apply"
         ),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("OK"),
     ):
         await process_message(
@@ -205,15 +205,15 @@ async def test_auto_apply_tone_change_invalid_tone_leaves_snapshot_unchanged() -
     await store.set_active(user_id, initial.id)
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(
             intent="tone_change", risk_level="low", action="auto_apply"
         ),
     ), patch(
-        "tdbot.orchestrator.orchestrator.extract_tone",
+        "companion_bot_core.orchestrator.orchestrator.extract_tone",
         return_value="nonexistent_tone",  # a value not in VALID_TONES
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("OK"),
     ):
         await process_message(
@@ -307,12 +307,12 @@ async def test_auto_apply_skill_add_updates_snapshot() -> None:
     await store.set_active(user_id, initial.id)
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(
             intent="skill_add_prompt", risk_level="low", action="auto_apply"
         ),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("I can help with cooking!"),
     ):
         await process_message(
@@ -361,12 +361,12 @@ async def test_auto_apply_skill_remove_updates_snapshot() -> None:
     await store.set_active(user_id, initial.id)
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(
             intent="skill_remove", risk_level="low", action="auto_apply"
         ),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("OK, I'll stop helping with cooking."),
     ):
         await process_message(

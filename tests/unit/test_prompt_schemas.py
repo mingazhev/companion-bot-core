@@ -1,4 +1,4 @@
-"""Unit tests for tdbot.prompt.schemas."""
+"""Unit tests for companion_bot_core.prompt.schemas."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from tdbot.prompt.schemas import PromptComponents, SnapshotRecord
+from companion_bot_core.prompt.schemas import PromptComponents, SnapshotRecord
 
 # ---------------------------------------------------------------------------
 # PromptComponents

@@ -1,4 +1,4 @@
-"""Unit tests for tdbot.bot.users — get_or_create_user helper."""
+"""Unit tests for companion_bot_core.bot.users — get_or_create_user helper."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from tdbot.bot.users import get_or_create_user
-from tdbot.db.models import User
+from companion_bot_core.bot.users import get_or_create_user
+from companion_bot_core.db.models import User
 
 
 def _make_session(returned_user: User) -> MagicMock:

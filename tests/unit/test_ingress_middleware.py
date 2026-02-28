@@ -10,9 +10,9 @@ import fakeredis.aioredis as fakeredis
 import pytest
 from pydantic import SecretStr
 
-from tdbot.bot.middleware import IngressMiddleware
-from tdbot.config import Settings
-from tdbot.db.models import User
+from companion_bot_core.bot.middleware import IngressMiddleware
+from companion_bot_core.config import Settings
+from companion_bot_core.db.models import User
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -71,8 +71,8 @@ async def test_duplicate_update_is_dropped() -> None:
     update = _make_update(update_id=1)
 
     # First call — should pass through
-    with patch("tdbot.bot.middleware.get_async_session") as mock_session_cm, patch(
-        "tdbot.bot.middleware.get_or_create_user", return_value=_make_db_user()
+    with patch("companion_bot_core.bot.middleware.get_async_session") as mock_session_cm, patch(
+        "companion_bot_core.bot.middleware.get_or_create_user", return_value=_make_db_user()
     ):
         mock_session = AsyncMock()
         mock_session.info = {}
@@ -101,8 +101,8 @@ async def test_new_update_calls_handler() -> None:
     db_user = _make_db_user()
     handler = AsyncMock(return_value="response")
 
-    with patch("tdbot.bot.middleware.get_async_session") as mock_session_cm, patch(
-        "tdbot.bot.middleware.get_or_create_user", return_value=db_user
+    with patch("companion_bot_core.bot.middleware.get_async_session") as mock_session_cm, patch(
+        "companion_bot_core.bot.middleware.get_or_create_user", return_value=db_user
     ):
         mock_session = AsyncMock()
         mock_session.info = {}
@@ -128,8 +128,8 @@ async def test_user_provisioned_in_data() -> None:
     db_user = _make_db_user(telegram_user_id=777)
     handler = AsyncMock(return_value=None)
 
-    with patch("tdbot.bot.middleware.get_async_session") as mock_session_cm, patch(
-        "tdbot.bot.middleware.get_or_create_user", return_value=db_user
+    with patch("companion_bot_core.bot.middleware.get_async_session") as mock_session_cm, patch(
+        "companion_bot_core.bot.middleware.get_or_create_user", return_value=db_user
     ):
         mock_session = AsyncMock()
         mock_session.info = {}
@@ -179,8 +179,8 @@ async def test_per_user_rate_limit_drops_excess() -> None:
     handler = AsyncMock(return_value=None)
 
     async def run_update(update_id: int) -> Any:
-        with patch("tdbot.bot.middleware.get_async_session") as mock_cm, patch(
-            "tdbot.bot.middleware.get_or_create_user", return_value=db_user
+        with patch("companion_bot_core.bot.middleware.get_async_session") as mock_cm, patch(
+            "companion_bot_core.bot.middleware.get_or_create_user", return_value=db_user
         ):
             sess = AsyncMock()
             sess.info = {}
@@ -211,8 +211,8 @@ async def test_global_rate_limit_drops_excess() -> None:
     handler = AsyncMock(return_value=None)
 
     async def run_update(update_id: int) -> Any:
-        with patch("tdbot.bot.middleware.get_async_session") as mock_cm, patch(
-            "tdbot.bot.middleware.get_or_create_user", return_value=db_user
+        with patch("companion_bot_core.bot.middleware.get_async_session") as mock_cm, patch(
+            "companion_bot_core.bot.middleware.get_or_create_user", return_value=db_user
         ):
             sess = AsyncMock()
             sess.info = {}
@@ -244,13 +244,13 @@ async def test_deferred_redis_flush_failure_preserves_idempotency_key() -> None:
     update = _make_update(update_id=900)
 
     flush_mock = AsyncMock(side_effect=ConnectionError("Redis unavailable"))
-    with patch("tdbot.bot.middleware.get_async_session") as mock_session_cm, patch(
-        "tdbot.bot.middleware.get_or_create_user", return_value=_make_db_user()
+    with patch("companion_bot_core.bot.middleware.get_async_session") as mock_session_cm, patch(
+        "companion_bot_core.bot.middleware.get_or_create_user", return_value=_make_db_user()
     ), patch(
-        "tdbot.bot.middleware.extract_deferred_redis_writes",
+        "companion_bot_core.bot.middleware.extract_deferred_redis_writes",
         return_value=[("prompt:active:test", "snap-id")],
     ), patch(
-        "tdbot.bot.middleware.flush_deferred_redis_writes",
+        "companion_bot_core.bot.middleware.flush_deferred_redis_writes",
         new=flush_mock,
     ):
         mock_session = AsyncMock()
@@ -286,13 +286,13 @@ async def test_deferred_redis_flush_failure_deletes_stale_pointer() -> None:
     handler = AsyncMock(return_value="ok")
     update = _make_update(update_id=903)
 
-    with patch("tdbot.bot.middleware.get_async_session") as mock_session_cm, patch(
-        "tdbot.bot.middleware.get_or_create_user", return_value=_make_db_user()
+    with patch("companion_bot_core.bot.middleware.get_async_session") as mock_session_cm, patch(
+        "companion_bot_core.bot.middleware.get_or_create_user", return_value=_make_db_user()
     ), patch(
-        "tdbot.bot.middleware.extract_deferred_redis_writes",
+        "companion_bot_core.bot.middleware.extract_deferred_redis_writes",
         return_value=[("prompt:active:user-abc", "new-snapshot-id")],
     ), patch(
-        "tdbot.bot.middleware.flush_deferred_redis_writes",
+        "companion_bot_core.bot.middleware.flush_deferred_redis_writes",
         new=AsyncMock(side_effect=ConnectionError("Redis unavailable")),
     ):
         mock_session = AsyncMock()
@@ -325,21 +325,21 @@ async def test_lock_not_released_when_redis_flush_and_cleanup_both_fail() -> Non
     update = _make_update(update_id=901)
 
     flush_lock_mock = AsyncMock()
-    with patch("tdbot.bot.middleware.get_async_session") as mock_session_cm, patch(
-        "tdbot.bot.middleware.get_or_create_user", return_value=_make_db_user()
+    with patch("companion_bot_core.bot.middleware.get_async_session") as mock_session_cm, patch(
+        "companion_bot_core.bot.middleware.get_or_create_user", return_value=_make_db_user()
     ), patch(
-        "tdbot.bot.middleware.extract_deferred_redis_writes",
+        "companion_bot_core.bot.middleware.extract_deferred_redis_writes",
         return_value=[("prompt:active:test", "snap-id")],
     ), patch(
-        "tdbot.bot.middleware.extract_deferred_lock_releases",
+        "companion_bot_core.bot.middleware.extract_deferred_lock_releases",
         return_value=[("profile:write:abc", "token-x")],
     ), patch(
-        "tdbot.bot.middleware.flush_deferred_redis_writes",
+        "companion_bot_core.bot.middleware.flush_deferred_redis_writes",
         new=AsyncMock(side_effect=ConnectionError("Redis unavailable")),
     ), patch.object(
         redis, "delete", AsyncMock(side_effect=ConnectionError("Redis unavailable")),
     ), patch(
-        "tdbot.bot.middleware.flush_deferred_lock_releases",
+        "companion_bot_core.bot.middleware.flush_deferred_lock_releases",
         new=flush_lock_mock,
     ):
         mock_session = AsyncMock()
@@ -374,19 +374,19 @@ async def test_lock_released_when_flush_fails_but_stale_cleanup_succeeds() -> No
     update = _make_update(update_id=904)
 
     flush_lock_mock = AsyncMock()
-    with patch("tdbot.bot.middleware.get_async_session") as mock_session_cm, patch(
-        "tdbot.bot.middleware.get_or_create_user", return_value=_make_db_user()
+    with patch("companion_bot_core.bot.middleware.get_async_session") as mock_session_cm, patch(
+        "companion_bot_core.bot.middleware.get_or_create_user", return_value=_make_db_user()
     ), patch(
-        "tdbot.bot.middleware.extract_deferred_redis_writes",
+        "companion_bot_core.bot.middleware.extract_deferred_redis_writes",
         return_value=[("prompt:active:test", "new-snap-id")],
     ), patch(
-        "tdbot.bot.middleware.extract_deferred_lock_releases",
+        "companion_bot_core.bot.middleware.extract_deferred_lock_releases",
         return_value=[("profile:write:abc", "token-x")],
     ), patch(
-        "tdbot.bot.middleware.flush_deferred_redis_writes",
+        "companion_bot_core.bot.middleware.flush_deferred_redis_writes",
         new=AsyncMock(side_effect=ConnectionError("Redis unavailable")),
     ), patch(
-        "tdbot.bot.middleware.flush_deferred_lock_releases",
+        "companion_bot_core.bot.middleware.flush_deferred_lock_releases",
         new=flush_lock_mock,
     ):
         mock_session = AsyncMock()
@@ -417,16 +417,16 @@ async def test_lock_released_immediately_on_db_commit_failure() -> None:
     update = _make_update(update_id=902)
 
     flush_lock_mock = AsyncMock()
-    with patch("tdbot.bot.middleware.get_async_session") as mock_session_cm, patch(
-        "tdbot.bot.middleware.get_or_create_user", return_value=_make_db_user()
+    with patch("companion_bot_core.bot.middleware.get_async_session") as mock_session_cm, patch(
+        "companion_bot_core.bot.middleware.get_or_create_user", return_value=_make_db_user()
     ), patch(
-        "tdbot.bot.middleware.extract_deferred_redis_writes",
+        "companion_bot_core.bot.middleware.extract_deferred_redis_writes",
         return_value=[],
     ), patch(
-        "tdbot.bot.middleware.extract_deferred_lock_releases",
+        "companion_bot_core.bot.middleware.extract_deferred_lock_releases",
         return_value=[("profile:write:xyz", "token-y")],
     ), patch(
-        "tdbot.bot.middleware.flush_deferred_lock_releases",
+        "companion_bot_core.bot.middleware.flush_deferred_lock_releases",
         new=flush_lock_mock,
     ):
         mock_session = AsyncMock()

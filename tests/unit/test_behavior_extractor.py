@@ -1,10 +1,14 @@
-"""Unit tests for tdbot.behavior.extractor (parameter extraction)."""
+"""Unit tests for companion_bot_core.behavior.extractor (parameter extraction)."""
 
 from __future__ import annotations
 
 import pytest
 
-from tdbot.behavior.extractor import extract_persona_name, extract_skill_topic, extract_tone
+from companion_bot_core.behavior.extractor import (
+    extract_persona_name,
+    extract_skill_topic,
+    extract_tone,
+)
 
 # ---------------------------------------------------------------------------
 # extract_tone

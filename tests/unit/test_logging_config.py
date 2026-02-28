@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pydantic import SecretStr
 
-import tdbot.logging_config as lc
-from tdbot.config import Settings
-from tdbot.logging_config import (
+import companion_bot_core.logging_config as lc
+from companion_bot_core.config import Settings
+from companion_bot_core.logging_config import (
     bind_correlation_id,
     configure_logging,
     get_correlation_id,

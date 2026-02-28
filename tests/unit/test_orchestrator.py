@@ -1,4 +1,4 @@
-"""Unit tests for tdbot.orchestrator.orchestrator (process_message)."""
+"""Unit tests for companion_bot_core.orchestrator.orchestrator (process_message)."""
 
 from __future__ import annotations
 
@@ -9,16 +9,20 @@ from uuid import uuid4
 import fakeredis.aioredis as fakeredis
 import pytest
 
-from tdbot.behavior.schemas import DetectionResult
-from tdbot.inference.circuit_breaker import CircuitBreakerOpen
-from tdbot.inference.schemas import (
+from companion_bot_core.behavior.schemas import DetectionResult
+from companion_bot_core.inference.circuit_breaker import CircuitBreakerOpen
+from companion_bot_core.inference.schemas import (
     InferenceReply,
     OpenAIResponse,
     SafetyFlags,
     TokenUsage,
 )
-from tdbot.orchestrator.dialogue_state import PendingChange, get_pending_change, set_pending_change
-from tdbot.orchestrator.orchestrator import (
+from companion_bot_core.orchestrator.dialogue_state import (
+    PendingChange,
+    get_pending_change,
+    set_pending_change,
+)
+from companion_bot_core.orchestrator.orchestrator import (
     _CHANGE_APPLIED_MSG,
     _CHANGE_CANCELLED_MSG,
     _CIRCUIT_OPEN_MSG,
@@ -26,8 +30,8 @@ from tdbot.orchestrator.orchestrator import (
     _REFUSE_MSG,
     process_message,
 )
-from tdbot.policy.abuse_throttle import ABUSE_BLOCK_MESSAGE
-from tdbot.prompt.snapshot_store import InMemorySnapshotStore
+from companion_bot_core.policy.abuse_throttle import ABUSE_BLOCK_MESSAGE
+from companion_bot_core.prompt.snapshot_store import InMemorySnapshotStore
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -108,10 +112,10 @@ async def test_process_message_normal_chat_returns_reply() -> None:
     client = _make_mock_client(_make_inference_reply("How can I help?"))
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("How can I help?"),
     ):
         reply = await process_message(
@@ -135,10 +139,10 @@ async def test_process_message_persists_user_and_assistant_messages() -> None:
     client = _make_mock_client(_make_inference_reply("Response text"))
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("Response text"),
     ):
         await process_message(
@@ -169,12 +173,12 @@ async def test_process_message_auto_apply_records_behavior_event() -> None:
     client = _make_mock_client(_make_inference_reply("Sure!"))
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(
             intent="tone_change", risk_level="low", action="auto_apply"
         ),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("Sure!"),
     ):
         reply = await process_message(
@@ -205,7 +209,7 @@ async def test_process_message_refuse_returns_refuse_message() -> None:
     client = MagicMock()
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(
             intent="safety_override_attempt", risk_level="high", action="refuse"
         ),
@@ -233,7 +237,7 @@ async def test_process_message_refuse_records_behavior_event_not_applied() -> No
     client = MagicMock()
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(
             intent="safety_override_attempt", risk_level="high", action="refuse"
         ),
@@ -267,7 +271,7 @@ async def test_process_message_confirm_stores_pending_and_asks() -> None:
     client = MagicMock()
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(
             intent="persona_change", risk_level="medium", action="confirm"
         ),
@@ -364,10 +368,10 @@ async def test_process_message_confirm_unrelated_reply_clears_and_proceeds() -> 
     await set_pending_change(redis, str(user_id), pending)
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("Normal response"),
     ):
         reply = await process_message(
@@ -397,10 +401,10 @@ async def test_process_message_circuit_breaker_open_returns_error_message() -> N
     client = MagicMock()
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         side_effect=CircuitBreakerOpen(failure_count=5, reset_at=0.0),
     ):
         reply = await process_message(
@@ -438,16 +442,16 @@ async def test_process_message_enqueues_refinement_at_threshold() -> None:
         return False
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("OK"),
     ), patch(
-        "tdbot.orchestrator.orchestrator.enqueue_refinement_job",
+        "companion_bot_core.orchestrator.orchestrator.enqueue_refinement_job",
         side_effect=fake_enqueue,
     ), patch(
-        "tdbot.orchestrator.orchestrator.enqueue_if_cadence_due",
+        "companion_bot_core.orchestrator.orchestrator.enqueue_if_cadence_due",
         side_effect=_noop_cadence,
     ):
         # Call process_message exactly at the activity threshold
@@ -482,13 +486,13 @@ async def test_process_message_no_refinement_below_threshold() -> None:
         return 1
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("OK"),
     ), patch(
-        "tdbot.orchestrator.orchestrator.enqueue_refinement_job",
+        "companion_bot_core.orchestrator.orchestrator.enqueue_refinement_job",
         side_effect=fake_enqueue,
     ):
         # Send fewer messages than the threshold
@@ -527,13 +531,13 @@ async def test_process_message_calls_cadence_scheduler() -> None:
         return False
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("OK"),
     ), patch(
-        "tdbot.orchestrator.orchestrator.enqueue_if_cadence_due",
+        "companion_bot_core.orchestrator.orchestrator.enqueue_if_cadence_due",
         side_effect=fake_cadence,
     ):
         await process_message(
@@ -560,13 +564,13 @@ async def test_process_message_cadence_enqueues_job() -> None:
     client = MagicMock()
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("OK"),
     ), patch(
-        "tdbot.orchestrator.orchestrator.enqueue_if_cadence_due",
+        "companion_bot_core.orchestrator.orchestrator.enqueue_if_cadence_due",
         return_value=True,
     ) as mock_cadence:
         await process_message(
@@ -597,7 +601,7 @@ async def test_prompt_injection_blocked_by_guardrail() -> None:
     client = MagicMock()
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ) as mock_classify:
         reply = await process_message(
@@ -624,7 +628,7 @@ async def test_unsafe_role_change_blocked_by_guardrail() -> None:
     client = MagicMock()
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ) as mock_classify:
         reply = await process_message(
@@ -650,7 +654,7 @@ async def test_risky_capability_blocked_by_guardrail() -> None:
     client = MagicMock()
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ) as mock_classify:
         reply = await process_message(
@@ -676,7 +680,7 @@ async def test_guardrail_violation_records_abuse_violation() -> None:
     client = MagicMock()
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ):
         await process_message(
@@ -689,7 +693,7 @@ async def test_guardrail_violation_records_abuse_violation() -> None:
         )
 
     # Verify a violation was recorded in the abuse throttle sorted set
-    from tdbot.policy.abuse_throttle import get_violation_count
+    from companion_bot_core.policy.abuse_throttle import get_violation_count
 
     count = await get_violation_count(redis, str(user_id))
     assert count == 1
@@ -708,7 +712,7 @@ async def test_abuse_blocked_user_gets_block_message() -> None:
     await redis.set(f"abuse:block:{user_id}", "1", ex=600)
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ) as mock_classify:
         reply = await process_message(
@@ -735,10 +739,10 @@ async def test_clean_message_passes_guardrails() -> None:
     client = _make_mock_client(_make_inference_reply("Hi there!"))
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ) as mock_classify, patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("Hi there!"),
     ):
         reply = await process_message(
@@ -767,7 +771,7 @@ async def test_repeated_violations_trigger_abuse_block() -> None:
     # Send 5 injection attempts (default threshold is 5)
     for _ in range(5):
         with patch(
-            "tdbot.orchestrator.orchestrator.classify",
+            "companion_bot_core.orchestrator.orchestrator.classify",
             return_value=_make_detection(action="pass_through"),
         ):
             await process_message(
@@ -780,13 +784,13 @@ async def test_repeated_violations_trigger_abuse_block() -> None:
             )
 
     # The user should now be abuse-blocked
-    from tdbot.policy.abuse_throttle import is_user_abuse_blocked
+    from companion_bot_core.policy.abuse_throttle import is_user_abuse_blocked
 
     assert await is_user_abuse_blocked(redis, str(user_id))
 
     # Next message (even clean) should return the block message
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ):
         reply = await process_message(

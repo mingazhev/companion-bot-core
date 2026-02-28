@@ -1,12 +1,12 @@
-"""Unit tests for tdbot.orchestrator.dialogue_state."""
+"""Unit tests for companion_bot_core.orchestrator.dialogue_state."""
 
 from __future__ import annotations
 
 import fakeredis.aioredis as fakeredis
 import pytest
 
-from tdbot.behavior.schemas import DetectionResult
-from tdbot.orchestrator.dialogue_state import (
+from companion_bot_core.behavior.schemas import DetectionResult
+from companion_bot_core.orchestrator.dialogue_state import (
     PendingChange,
     clear_pending_change,
     get_pending_change,

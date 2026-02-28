@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
 
 # Import metadata so Alembic can auto-generate migrations.
-from tdbot.db.models import Base
+from companion_bot_core.db.models import Base
 
 # ---------------------------------------------------------------------------
 # Alembic Config object

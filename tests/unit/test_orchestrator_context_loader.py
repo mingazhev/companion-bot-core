@@ -1,4 +1,4 @@
-"""Unit tests for tdbot.orchestrator.context_loader."""
+"""Unit tests for companion_bot_core.orchestrator.context_loader."""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ from uuid import uuid4
 
 import pytest
 
-from tdbot.inference.schemas import ChatMessage, UserContext
-from tdbot.orchestrator.context_loader import load_recent_messages, load_user_context
-from tdbot.prompt.schemas import SnapshotRecord
-from tdbot.prompt.snapshot_store import InMemorySnapshotStore
+from companion_bot_core.inference.schemas import ChatMessage, UserContext
+from companion_bot_core.orchestrator.context_loader import load_recent_messages, load_user_context
+from companion_bot_core.prompt.schemas import SnapshotRecord
+from companion_bot_core.prompt.snapshot_store import InMemorySnapshotStore
 
 # ---------------------------------------------------------------------------
 # Helpers

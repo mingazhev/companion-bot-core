@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "tdbot"
+name = "companion-bot-core"
 version = "0.1.0"
 description = "Multi-User Configurable Telegram Companion Bot"
 requires-python = ">=3.11"
@@ -35,10 +35,10 @@ dev = [
 ]
 
 [project.scripts]
-tdbot = "tdbot.main:main"
+"companion-bot-core" = "companion_bot_core.main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tdbot"]
+packages = ["src/companion_bot_core"]
 
 [tool.ruff]
 src = ["src"]
@@ -59,7 +59,7 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel", "pydantic_settings.BaseS
 "tests/**" = ["ANN", "S"]
 # SQLAlchemy resolves Mapped[] annotations at runtime, so stdlib types
 # (datetime) used in Mapped[datetime] must remain as real imports.
-"src/tdbot/db/models.py" = ["TC003"]
+"src/companion_bot_core/db/models.py" = ["TC003"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -68,7 +68,7 @@ warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = false
 mypy_path = "src"
-packages = ["tdbot"]
+packages = ["companion_bot_core"]
 exclude = ["alembic/"]
 
 [[tool.mypy.overrides]]
@@ -97,5 +97,5 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 
 [tool.coverage.run]
-source = ["src/tdbot"]
+source = ["src/companion_bot_core"]
 omit = ["tests/*"]

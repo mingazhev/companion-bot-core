@@ -19,17 +19,17 @@ import fakeredis.aioredis as fakeredis
 import pytest
 from cryptography.fernet import Fernet
 
-from tdbot.behavior.schemas import DetectionResult
-from tdbot.inference.schemas import InferenceReply, SafetyFlags, TokenUsage
-from tdbot.orchestrator.context_loader import load_recent_messages
-from tdbot.orchestrator.dialogue_state import PendingChange, set_pending_change
-from tdbot.orchestrator.orchestrator import (
+from companion_bot_core.behavior.schemas import DetectionResult
+from companion_bot_core.inference.schemas import InferenceReply, SafetyFlags, TokenUsage
+from companion_bot_core.orchestrator.context_loader import load_recent_messages
+from companion_bot_core.orchestrator.dialogue_state import PendingChange, set_pending_change
+from companion_bot_core.orchestrator.orchestrator import (
     _CHANGE_APPLIED_MSG,
     process_message,
 )
-from tdbot.privacy.field_encryption import FieldEncryptor
-from tdbot.prompt.schemas import SnapshotRecord
-from tdbot.prompt.snapshot_store import InMemorySnapshotStore
+from companion_bot_core.privacy.field_encryption import FieldEncryptor
+from companion_bot_core.prompt.schemas import SnapshotRecord
+from companion_bot_core.prompt.snapshot_store import InMemorySnapshotStore
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -76,7 +76,7 @@ def _make_session(
     When *profile* is provided, ``scalar_one()`` returns it so that the
     upsert-then-SELECT pattern in ``get_or_create_profile`` works correctly.
     """
-    from tdbot.db.models import UserProfile
+    from companion_bot_core.db.models import UserProfile
 
     scalar_result = MagicMock()
     scalar_result.scalars.return_value.all.return_value = []
@@ -124,10 +124,10 @@ async def test_persist_messages_encrypts_content_when_enabled() -> None:
     store = InMemorySnapshotStore()
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("Hello there!"),
     ):
         await process_message(
@@ -163,10 +163,10 @@ async def test_persist_messages_passthrough_when_no_encryptor() -> None:
     store = InMemorySnapshotStore()
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(action="pass_through"),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("Hello there!"),
     ):
         await process_message(
@@ -241,7 +241,7 @@ async def test_auto_apply_tone_change_encrypts_profile_tone() -> None:
     enc = _make_encryptor(enabled=True)
     user_id = uuid4()
     redis = fakeredis.FakeRedis(decode_responses=True)
-    from tdbot.db.models import UserProfile
+    from companion_bot_core.db.models import UserProfile
 
     profile = UserProfile(user_id=user_id)
     session = _make_session(profile=profile)
@@ -260,12 +260,12 @@ async def test_auto_apply_tone_change_encrypts_profile_tone() -> None:
     await store.set_active(user_id, initial.id)
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(
             intent="tone_change", risk_level="low", action="auto_apply"
         ),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("Sure!"),
     ):
         await process_message(
@@ -300,7 +300,7 @@ async def test_confirmed_persona_change_encrypts_profile_name() -> None:
     enc = _make_encryptor(enabled=True)
     user_id = uuid4()
     redis = fakeredis.FakeRedis(decode_responses=True)
-    from tdbot.db.models import UserProfile
+    from companion_bot_core.db.models import UserProfile
 
     profile = UserProfile(user_id=user_id)
     session = _make_session(profile=profile)
@@ -362,7 +362,7 @@ async def test_disabled_encryptor_passes_through_profile_fields() -> None:
     enc = _make_encryptor(enabled=False)
     user_id = uuid4()
     redis = fakeredis.FakeRedis(decode_responses=True)
-    from tdbot.db.models import UserProfile
+    from companion_bot_core.db.models import UserProfile
 
     profile = UserProfile(user_id=user_id)
     session = _make_session(profile=profile)
@@ -380,12 +380,12 @@ async def test_disabled_encryptor_passes_through_profile_fields() -> None:
     await store.set_active(user_id, initial.id)
 
     with patch(
-        "tdbot.orchestrator.orchestrator.classify",
+        "companion_bot_core.orchestrator.orchestrator.classify",
         return_value=_make_detection(
             intent="tone_change", risk_level="low", action="auto_apply"
         ),
     ), patch(
-        "tdbot.orchestrator.orchestrator.generate_reply",
+        "companion_bot_core.orchestrator.orchestrator.generate_reply",
         return_value=_make_inference_reply("Sure!"),
     ):
         await process_message(

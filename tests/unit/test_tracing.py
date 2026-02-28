@@ -1,4 +1,4 @@
-"""Unit tests for the lightweight tracing module (tdbot.tracing).
+"""Unit tests for the lightweight tracing module (companion_bot_core.tracing).
 
 Tests verify that:
 - Async and synchronous span context managers complete normally.
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from tdbot.tracing import get_span_id, span, sync_span
+from companion_bot_core.tracing import get_span_id, span, sync_span
 
 
 class TestAsyncSpan:

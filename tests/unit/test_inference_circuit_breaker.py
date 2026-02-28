@@ -1,4 +1,4 @@
-"""Unit tests for tdbot.inference.circuit_breaker."""
+"""Unit tests for companion_bot_core.inference.circuit_breaker."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from tdbot.inference.circuit_breaker import (
+from companion_bot_core.inference.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerOpen,
     CircuitState,
@@ -115,7 +115,7 @@ async def test_transitions_to_half_open_after_timeout(monkeypatch: pytest.Monkey
     # Simulate time passing beyond recovery_timeout by patching monotonic
     original = time.monotonic()
     monkeypatch.setattr(
-        "tdbot.inference.circuit_breaker.time.monotonic",
+        "companion_bot_core.inference.circuit_breaker.time.monotonic",
         lambda: original + 2.0,
     )
 
@@ -132,7 +132,7 @@ async def test_half_open_failure_returns_to_open(monkeypatch: pytest.MonkeyPatch
 
     original = time.monotonic()
     monkeypatch.setattr(
-        "tdbot.inference.circuit_breaker.time.monotonic",
+        "companion_bot_core.inference.circuit_breaker.time.monotonic",
         lambda: original + 2.0,
     )
 
@@ -155,7 +155,7 @@ async def test_half_open_requires_success_threshold(monkeypatch: pytest.MonkeyPa
 
     original = time.monotonic()
     monkeypatch.setattr(
-        "tdbot.inference.circuit_breaker.time.monotonic",
+        "companion_bot_core.inference.circuit_breaker.time.monotonic",
         lambda: original + 2.0,
     )
 
@@ -197,7 +197,7 @@ async def test_half_open_cancellation_clears_probe_flag(monkeypatch: pytest.Monk
     original = time.monotonic()
     t = original + 2.0
     monkeypatch.setattr(
-        "tdbot.inference.circuit_breaker.time.monotonic",
+        "companion_bot_core.inference.circuit_breaker.time.monotonic",
         lambda: t,
     )
 
@@ -214,7 +214,7 @@ async def test_half_open_cancellation_clears_probe_flag(monkeypatch: pytest.Monk
     # Advance time past recovery_timeout again so the circuit allows a new probe.
     t = original + 4.0
     monkeypatch.setattr(
-        "tdbot.inference.circuit_breaker.time.monotonic",
+        "companion_bot_core.inference.circuit_breaker.time.monotonic",
         lambda: t,
     )
 
@@ -236,7 +236,7 @@ async def test_half_open_cancel_after_success(monkeypatch: pytest.MonkeyPatch) -
     original = time.monotonic()
     t = original + 2.0
     monkeypatch.setattr(
-        "tdbot.inference.circuit_breaker.time.monotonic",
+        "companion_bot_core.inference.circuit_breaker.time.monotonic",
         lambda: t,
     )
 
@@ -263,7 +263,7 @@ async def test_half_open_cancel_after_success(monkeypatch: pytest.MonkeyPatch) -
     cb._record_success = original_record_success  # type: ignore[assignment]
     t = original + 4.0
     monkeypatch.setattr(
-        "tdbot.inference.circuit_breaker.time.monotonic",
+        "companion_bot_core.inference.circuit_breaker.time.monotonic",
         lambda: t,
     )
 

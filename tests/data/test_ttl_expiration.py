@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from tdbot.privacy.ttl_sweeper import sweep_expired_messages
+from companion_bot_core.privacy.ttl_sweeper import sweep_expired_messages
 
 # ---------------------------------------------------------------------------
 # Helpers

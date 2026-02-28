@@ -1,16 +1,16 @@
-"""Unit tests for tdbot.behavior.detector.classify and policy helpers."""
+"""Unit tests for companion_bot_core.behavior.detector.classify and policy helpers."""
 
 from __future__ import annotations
 
 import pytest
 
-from tdbot.behavior.detector import classify
-from tdbot.behavior.policy import (
+from companion_bot_core.behavior.detector import classify
+from companion_bot_core.behavior.policy import (
     CONFIDENCE_THRESHOLD,
     get_action,
     get_risk_level,
 )
-from tdbot.behavior.schemas import DetectionResult
+from companion_bot_core.behavior.schemas import DetectionResult
 
 # ---------------------------------------------------------------------------
 # Helpers

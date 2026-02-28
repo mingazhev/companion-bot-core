@@ -25,19 +25,23 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import fakeredis.aioredis as fakeredis
 import pytest
 
-from tdbot.inference.schemas import OpenAIResponse
-from tdbot.orchestrator.dialogue_state import get_pending_change
-from tdbot.orchestrator.orchestrator import (
+from companion_bot_core.inference.schemas import OpenAIResponse
+from companion_bot_core.orchestrator.dialogue_state import get_pending_change
+from companion_bot_core.orchestrator.orchestrator import (
     _CHANGE_APPLIED_MSG,
     _CHANGE_CANCELLED_MSG,
     _REFUSE_MSG,
     process_message,
 )
-from tdbot.prompt.schemas import SnapshotRecord
-from tdbot.prompt.snapshot_store import InMemorySnapshotStore
-from tdbot.redis.queues import QUEUE_REFINEMENT_JOBS, QUEUE_RETRY_JOBS, get_queue_length
-from tdbot.refinement.schemas import RefinementResult, SnapshotDelta
-from tdbot.refinement.worker import (
+from companion_bot_core.prompt.schemas import SnapshotRecord
+from companion_bot_core.prompt.snapshot_store import InMemorySnapshotStore
+from companion_bot_core.redis.queues import (
+    QUEUE_REFINEMENT_JOBS,
+    QUEUE_RETRY_JOBS,
+    get_queue_length,
+)
+from companion_bot_core.refinement.schemas import RefinementResult, SnapshotDelta
+from companion_bot_core.refinement.worker import (
     check_and_clear_user_notice,
     process_one_job,
 )
@@ -274,9 +278,9 @@ async def test_refinement_job_creates_new_snapshot_version() -> None:
     )
 
     with patch(
-        "tdbot.refinement.worker.get_async_session", side_effect=_fake_session_ctx
+        "companion_bot_core.refinement.worker.get_async_session", side_effect=_fake_session_ctx
     ), patch(
-        "tdbot.refinement.worker.refine_prompt",
+        "companion_bot_core.refinement.worker.refine_prompt",
         return_value=refinement_result,
     ):
         await process_one_job(
@@ -330,9 +334,9 @@ async def test_refinement_does_not_block_concurrent_chat() -> None:
 
     async def run_refinement() -> None:
         with patch(
-            "tdbot.refinement.worker.get_async_session", side_effect=_fake_session_ctx
+            "companion_bot_core.refinement.worker.get_async_session", side_effect=_fake_session_ctx
         ), patch(
-            "tdbot.refinement.worker.refine_prompt",
+            "companion_bot_core.refinement.worker.refine_prompt",
             return_value=refinement_result,
         ):
             await process_one_job(
@@ -379,9 +383,9 @@ async def test_refinement_sets_user_notice_in_redis() -> None:
     assert not await check_and_clear_user_notice(redis, str(user_id))
 
     with patch(
-        "tdbot.refinement.worker.get_async_session", side_effect=_fake_session_ctx
+        "companion_bot_core.refinement.worker.get_async_session", side_effect=_fake_session_ctx
     ), patch(
-        "tdbot.refinement.worker.refine_prompt",
+        "companion_bot_core.refinement.worker.refine_prompt",
         return_value=refinement_result,
     ):
         await process_one_job(
@@ -417,9 +421,9 @@ async def test_refinement_failure_enqueues_retry_job() -> None:
     engine = MagicMock()
 
     with patch(
-        "tdbot.refinement.worker.get_async_session", side_effect=_fake_session_ctx
+        "companion_bot_core.refinement.worker.get_async_session", side_effect=_fake_session_ctx
     ), patch(
-        "tdbot.refinement.worker.refine_prompt",
+        "companion_bot_core.refinement.worker.refine_prompt",
         side_effect=RuntimeError("Model timeout"),
     ):
         await process_one_job(

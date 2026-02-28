@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-from tdbot.privacy.ttl_sweeper import sweep_expired_messages
+from companion_bot_core.privacy.ttl_sweeper import sweep_expired_messages
 
 
 class TestSweepExpiredMessages:

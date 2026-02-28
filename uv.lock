@@ -1414,7 +1414,7 @@ wheels = [
 ]
 
 [[package]]
-name = "tdbot"
+name = "companion_bot_core"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
