@@ -47,8 +47,8 @@ Notable optional variables (see `.env.example` for full list):
 
 | Variable | Default | Description |
 |---|---|---|
-| `CHAT_MODEL` | `gpt-4o-mini` | Model for chat responses |
-| `REFINEMENT_MODEL` | `gpt-4o` | Model for background prompt refinement |
+| `CHAT_MODEL` | `gpt-5-mini` | Model for chat responses |
+| `REFINEMENT_MODEL` | `gpt-5.2` | Model for background prompt refinement |
 | `FIELD_ENCRYPTION_KEY` | (required if `ENCRYPT_SENSITIVE_FIELDS=true`) | Fernet key for field encryption |
 | `USE_FAKE_ADAPTERS` | `false` | Enable local dev mode (no real API calls) |
 | `INTERNAL_SERVER_HOST` | `127.0.0.1` | Internal service bind address (never expose externally) |

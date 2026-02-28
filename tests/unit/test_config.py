@@ -26,10 +26,10 @@ class TestSettingsDefaults:
         assert get_settings() is test_settings
 
     def test_chat_model_default(self) -> None:
-        assert _make_settings().chat_model == "gpt-4o-mini"
+        assert _make_settings().chat_model == "gpt-5-mini"
 
     def test_refinement_model_default(self) -> None:
-        assert _make_settings().refinement_model == "gpt-4o"
+        assert _make_settings().refinement_model == "gpt-5.2"
 
     def test_conversation_ttl_default_is_7_days(self) -> None:
         assert _make_settings().conversation_ttl_seconds == 7 * 24 * 3600

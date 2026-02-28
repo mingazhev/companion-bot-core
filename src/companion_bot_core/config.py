@@ -55,9 +55,9 @@ class Settings(BaseSettings):
         default=SecretStr(""),
         description="OpenAI API key for chat and refinement calls",
     )
-    chat_model: str = Field(default="gpt-4o-mini", description="Model used for chat replies")
+    chat_model: str = Field(default="gpt-5-mini", description="Model used for chat replies")
     refinement_model: str = Field(
-        default="gpt-4o",
+        default="gpt-5.2",
         description="Model used for async prompt refinement",
     )
     openai_base_url: str = Field(

@@ -508,7 +508,7 @@ async def process_message(
     snapshot_store: SnapshotStore,
     redis: Redis,
     chat_client: ChatAPIClient,
-    model: str = "gpt-4o-mini",
+    model: str = "gpt-5-mini",
     conversation_ttl_seconds: int = 604800,
     refinement_activity_threshold: int = 10,
     refinement_cadence_seconds: int = 3600,

@@ -45,7 +45,7 @@ class ChatAPIClient:
 
     Args:
         api_key:         Provider API key (sent as ``Authorization: Bearer …``).
-        model:           Model identifier (e.g. ``"gpt-4o-mini"``).
+        model:           Model identifier (e.g. ``"gpt-5-mini"``).
         base_url:        API base URL (default ``https://api.openai.com/v1``).
         timeout:         Per-request timeout in seconds (default 30.0).
         circuit_breaker: Custom CircuitBreaker instance; a default one is
