@@ -64,6 +64,10 @@ router = Router(name="commands")
 # Telegram limits plain-text messages to 4096 characters.
 _TG_MSG_LIMIT = 4096
 
+# Minimum seconds between Telegram edit_text calls during streaming to avoid
+# hitting Telegram's rate limit (~20 edits/minute per chat).
+_STREAM_EDIT_INTERVAL = 1.0
+
 
 def _user_locale(db_user: User | None) -> str:
     return normalize_locale(db_user.locale if db_user is not None else None)
@@ -537,6 +541,35 @@ async def handle_message(
     reply = ""
 
     async with span("ingress.handle_message", user_id=user_id_str):
+        # Send a "…" placeholder immediately so the user sees a response
+        # while the model is still generating.  The placeholder is later
+        # edited in-place with the final reply.
+        placeholder_msg: Message | None = None
+        try:
+            placeholder_msg = await message.answer("…", parse_mode=None)
+        except Exception:  # noqa: BLE001
+            log.warning("placeholder_send_failed", internal_user_id=user_id_str)
+
+        # Build a throttled streaming callback that edits the placeholder.
+        accumulated_text: str = ""
+        last_edit_time: float = 0.0
+
+        async def on_partial_reply(delta: str) -> None:
+            nonlocal last_edit_time, accumulated_text
+            accumulated_text += delta
+            now = time.perf_counter()
+            if (
+                placeholder_msg is not None
+                and now - last_edit_time >= _STREAM_EDIT_INTERVAL
+            ):
+                try:
+                    await placeholder_msg.edit_text(
+                        accumulated_text[:_TG_MSG_LIMIT], parse_mode=None
+                    )
+                    last_edit_time = now
+                except Exception:  # noqa: BLE001, S110
+                    pass
+
         try:
             reply = await process_message(
                 user_id=db_user.id,
@@ -551,6 +584,7 @@ async def handle_message(
                 refinement_cadence_seconds=settings.refinement_cadence_seconds,
                 encryptor=encryptor,
                 locale=locale,
+                on_partial_reply=on_partial_reply if placeholder_msg is not None else None,
             )
         except Exception:
             log.exception(
@@ -570,13 +604,19 @@ async def handle_message(
                 log.warning("error_reply_send_failed", internal_user_id=user_id_str)
             raise
 
-        # Split if the reply exceeds Telegram's message-length limit.
-        # Wrap in try/except so a Telegram API failure (timeout, rate limit)
-        # does not propagate and roll back the DB transaction \u2014 Redis state
-        # (activity counter, refinement jobs) is already committed.
+        # Deliver the final reply.  If the placeholder was sent, edit it with
+        # the first chunk and send overflow chunks as new messages.  Otherwise
+        # fall back to the original answer() path.
         try:
-            for i in range(0, len(reply), _TG_MSG_LIMIT):
-                await message.answer(reply[i : i + _TG_MSG_LIMIT], parse_mode=None)
+            if placeholder_msg is not None:
+                await placeholder_msg.edit_text(
+                    reply[:_TG_MSG_LIMIT] if reply else "…", parse_mode=None
+                )
+                for i in range(_TG_MSG_LIMIT, len(reply), _TG_MSG_LIMIT):
+                    await message.answer(reply[i : i + _TG_MSG_LIMIT], parse_mode=None)
+            else:
+                for i in range(0, len(reply), _TG_MSG_LIMIT):
+                    await message.answer(reply[i : i + _TG_MSG_LIMIT], parse_mode=None)
         except Exception as exc:
             log.warning(
                 "reply_send_failed",

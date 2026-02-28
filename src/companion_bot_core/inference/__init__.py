@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from companion_bot_core.inference.adapter import generate_reply
+from companion_bot_core.inference.adapter import generate_reply, generate_reply_stream
 from companion_bot_core.inference.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
 from companion_bot_core.inference.client import ChatAPIClient
 from companion_bot_core.inference.schemas import (
@@ -23,4 +23,5 @@ __all__ = [
     "TokenUsage",
     "UserContext",
     "generate_reply",
+    "generate_reply_stream",
 ]

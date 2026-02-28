@@ -17,10 +17,13 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from companion_bot_core.inference.client import ChatAPIClient
 from companion_bot_core.inference.schemas import ChatMessage, OpenAIResponse
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 # Substring that appears only in the refinement model's system prompt.
 _REFINEMENT_MARKER: str = "prompt-refinement assistant"
@@ -117,6 +120,47 @@ class FakeChatAPIClient(ChatAPIClient):
             "Hello!",
         )
         return _make_openai_response(f"[Dev mode] Echo: {user_content}")
+
+    async def chat_completion_stream(
+        self,
+        messages: list[ChatMessage],
+        on_delta: Callable[[str], Awaitable[None]],
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+    ) -> OpenAIResponse:
+        """Simulate streaming by calling *on_delta* word-by-word.
+
+        Splits the reply text into space-separated tokens and calls *on_delta*
+        once per token (with a trailing space), then returns the assembled
+        ``OpenAIResponse``.
+
+        Args:
+            messages:    Full message list assembled by the caller.
+            on_delta:    Async callback invoked with each simulated text chunk.
+            max_tokens:  Ignored — included only for interface compatibility.
+            temperature: Ignored — included only for interface compatibility.
+
+        Returns:
+            A schema-valid :class:`~companion_bot_core.inference.schemas.OpenAIResponse`
+            with the complete reply text.
+        """
+        _ = max_tokens, temperature  # unused in fake implementation
+        if self._is_refinement_call(messages):
+            response = _make_openai_response(_FAKE_REFINEMENT_JSON)
+            await on_delta(_FAKE_REFINEMENT_JSON)
+            return response
+
+        user_content = next(
+            (m.content for m in reversed(messages) if m.role == "user"),
+            "Hello!",
+        )
+        full_reply = f"[Dev mode] Echo: {user_content}"
+        # Simulate streaming: emit each word as a separate delta.
+        words = full_reply.split(" ")
+        for i, word in enumerate(words):
+            chunk = word if i == len(words) - 1 else word + " "
+            await on_delta(chunk)
+        return _make_openai_response(full_reply)
 
     async def close(self) -> None:
         """No-op — no real HTTP client to close."""

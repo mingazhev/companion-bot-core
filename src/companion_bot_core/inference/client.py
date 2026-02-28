@@ -11,8 +11,10 @@ Features
 
 from __future__ import annotations
 
+import json
 import time
-from typing import Any, cast
+import uuid
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 from tenacity import (
@@ -25,6 +27,9 @@ from tenacity import (
 from companion_bot_core.inference.circuit_breaker import CircuitBreaker
 from companion_bot_core.inference.schemas import ChatMessage, OpenAIResponse
 from companion_bot_core.logging_config import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 log = get_logger(__name__)
 
@@ -152,6 +157,142 @@ class ChatAPIClient:
         response = OpenAIResponse.model_validate(raw)
         log.info(
             "model_api_call_completed",
+            model=self._model,
+            elapsed_ms=elapsed_ms,
+            prompt_tokens=response.usage.prompt_tokens,
+            completion_tokens=response.usage.completion_tokens,
+        )
+        return response
+
+    async def _raw_completion_stream(
+        self,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        temperature: float,
+        on_delta: Callable[[str], Awaitable[None]],
+    ) -> dict[str, Any]:
+        """SSE streaming request to the Chat Completions endpoint.
+
+        Iterates over server-sent events, calls *on_delta* with each text
+        chunk received, and returns a reconstructed response dict compatible
+        with ``OpenAIResponse`` once the stream is exhausted.
+
+        Unlike :meth:`_raw_completion`, this method is not decorated with
+        tenacity retry — partial streams cannot be safely retried once
+        *on_delta* has been called.
+        """
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": messages,
+            self._max_tokens_param: max_tokens,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if not self._is_gpt5_family:
+            payload["temperature"] = temperature
+
+        accumulated: list[str] = []
+        finish_reason: str = "stop"
+        response_id: str = ""
+        prompt_tokens: int = 0
+        completion_tokens: int = 0
+        total_tokens: int = 0
+
+        async with self._http.stream("POST", "/chat/completions", json=payload) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.strip():
+                    continue
+                if not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
+                if not response_id:
+                    response_id = chunk.get("id", "")
+                usage = chunk.get("usage")
+                if usage:
+                    prompt_tokens = usage.get("prompt_tokens", 0)
+                    completion_tokens = usage.get("completion_tokens", 0)
+                    total_tokens = usage.get("total_tokens", 0)
+                choices = chunk.get("choices", [])
+                if choices:
+                    delta = choices[0].get("delta", {})
+                    content = delta.get("content")
+                    if content:
+                        accumulated.append(content)
+                        await on_delta(content)
+                    fr = choices[0].get("finish_reason")
+                    if fr:
+                        finish_reason = fr
+
+        full_content = "".join(accumulated)
+        return {
+            "id": response_id or f"chatcmpl-stream-{uuid.uuid4().hex[:12]}",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": full_content,
+                        "refusal": None,
+                    },
+                    "finish_reason": finish_reason,
+                }
+            ],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            },
+        }
+
+    async def chat_completion_stream(
+        self,
+        messages: list[ChatMessage],
+        on_delta: Callable[[str], Awaitable[None]],
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+    ) -> OpenAIResponse:
+        """Call the Chat Completions API in streaming mode.
+
+        Calls *on_delta* for each text chunk as it arrives, then returns a
+        validated ``OpenAIResponse`` built from the fully accumulated text.
+
+        Args:
+            messages:    Full message list (system + history + new user turn).
+            on_delta:    Async callback invoked with each text chunk.
+            max_tokens:  Maximum completion tokens (default 1024).
+            temperature: Sampling temperature (default 0.7).
+
+        Returns:
+            Validated ``OpenAIResponse`` instance built from the complete reply.
+
+        Raises:
+            CircuitBreakerOpen: Provider error rate exceeded the threshold.
+            httpx.HTTPStatusError: Non-retryable HTTP error (400, 401, …).
+        """
+        payload = [{"role": m.role, "content": m.content} for m in messages]
+
+        call_start = time.perf_counter()
+        raw = cast(
+            "dict[str, Any]",
+            await self._circuit_breaker.call(
+                self._raw_completion_stream,
+                payload,
+                max_tokens,
+                temperature,
+                on_delta,
+            ),
+        )
+        elapsed_ms = round((time.perf_counter() - call_start) * 1000, 2)
+        response = OpenAIResponse.model_validate(raw)
+        log.info(
+            "model_api_stream_completed",
             model=self._model,
             elapsed_ms=elapsed_ms,
             prompt_tokens=response.usage.prompt_tokens,

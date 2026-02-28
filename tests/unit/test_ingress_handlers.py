@@ -583,7 +583,10 @@ async def test_handle_message_sends_reply() -> None:
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
     mock_process.assert_awaited_once()
-    msg.answer.assert_called_once_with("Hello back", parse_mode=None)
+    # Placeholder "…" is sent first; the final reply is delivered via edit_text.
+    msg.answer.assert_called_once_with("…", parse_mode=None)
+    placeholder_msg = msg.answer.return_value
+    placeholder_msg.edit_text.assert_called_once_with("Hello back", parse_mode=None)
 
 
 @pytest.mark.asyncio
@@ -605,8 +608,12 @@ async def test_handle_message_sends_profile_updated_notice_when_set() -> None:
     ):
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
+    # First answer call is the placeholder; second is the profile-updated notice.
     assert msg.answer.call_count == 2
-    assert msg.answer.call_args_list[0][0][0] == "Reply text"
+    assert msg.answer.call_args_list[0][0][0] == "…"
+    # Final reply delivered via edit_text on the placeholder message.
+    placeholder_msg = msg.answer.return_value
+    placeholder_msg.edit_text.assert_called_once_with("Reply text", parse_mode=None)
     notice = msg.answer.call_args_list[1][0][0].lower()
     assert "profile" in notice or "профил" in notice
 
@@ -645,4 +652,7 @@ async def test_handle_message_no_notice_when_not_set() -> None:
     ):
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
-    msg.answer.assert_called_once_with("Goodbye", parse_mode=None)
+    # Only the placeholder "…" is sent; reply goes via edit_text; no notice.
+    msg.answer.assert_called_once_with("…", parse_mode=None)
+    placeholder_msg = msg.answer.return_value
+    placeholder_msg.edit_text.assert_called_once_with("Goodbye", parse_mode=None)
