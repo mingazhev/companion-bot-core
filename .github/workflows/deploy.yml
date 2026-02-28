@@ -49,13 +49,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Upload VPS compose file
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: docker-compose.vps.yml
+          source: ./docker-compose.vps.yml
           target: ${{ env.APP_DIR }}
 
       - name: Rollout on VPS
