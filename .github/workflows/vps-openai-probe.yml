@@ -25,11 +25,18 @@ jobs:
             echo "base_url=$OPENAI_BASE_URL"
             echo "chat_model=$CHAT_MODEL"
 
+            TOKEN_FIELD=max_tokens
+            if [[ "$CHAT_MODEL" == gpt-5* ]]; then
+              TOKEN_FIELD=max_completion_tokens
+            fi
+
+            PAYLOAD=$(printf '{"model":"%s","messages":[{"role":"user","content":"ping"}],"%s":16}' "$CHAT_MODEL" "$TOKEN_FIELD")
+
             status=$(curl -sS -o /tmp/chat_probe.json -w "%{http_code}" \
               -X POST "$OPENAI_BASE_URL/chat/completions" \
               -H "Authorization: Bearer $OPENAI_API_KEY" \
               -H "Content-Type: application/json" \
-              -d "{\"model\":\"$CHAT_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":16}")
+              -d "$PAYLOAD")
 
             echo "chat_completions_status=$status"
             echo "chat_completions_body:"
