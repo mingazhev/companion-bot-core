@@ -294,6 +294,43 @@ async def test_chat_completion_stream_yields_stream_end_sentinel() -> None:
     assert sentinel.finish_reason == "stop"
     assert sentinel.prompt_tokens == 10
     assert sentinel.completion_tokens == 1
+    assert sentinel.refusal is False
+
+
+async def test_chat_completion_stream_tracks_refusal_delta() -> None:
+    """When a refusal delta arrives, _StreamEnd.refusal is True."""
+    refusal_choice = {
+        "index": 0,
+        "delta": {"refusal": "I cannot help with that."},
+        "finish_reason": None,
+    }
+    refusal_lines = [
+        json.dumps({"id": "chatcmpl-stream", "choices": [refusal_choice]}),
+        json.dumps({"id": "chatcmpl-stream", "choices": [
+            {"index": 0, "delta": {}, "finish_reason": "stop"},
+        ]}),
+        json.dumps({
+            "id": "chatcmpl-stream",
+            "choices": [],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+        }),
+        "[DONE]",
+    ]
+    sse_lines = [f"data: {line}" for line in refusal_lines]
+    mock_http = _make_streaming_http(sse_lines)
+    cb = CircuitBreaker(failure_threshold=10)
+    client = ChatAPIClient(
+        api_key="sk-test", model="gpt-4o-mini", circuit_breaker=cb,
+        http_client=mock_http,
+    )
+
+    sentinel = None
+    async for item in client.chat_completion_stream(_MESSAGES):
+        if isinstance(item, _StreamEnd):
+            sentinel = item
+
+    assert sentinel is not None
+    assert sentinel.refusal is True
 
 
 async def test_chat_completion_stream_sends_correct_payload() -> None:

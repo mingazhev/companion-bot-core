@@ -136,11 +136,18 @@ class _OpenAIStreamChunk(BaseModel):
 class _StreamEnd:
     """Sentinel object yielded last by :meth:`ChatAPIClient.chat_completion_stream`.
 
-    Carries aggregated token-usage statistics and the terminal finish reason.
+    Carries aggregated token-usage statistics, the terminal finish reason,
+    and whether the model issued a refusal.
     Callers detect it with ``isinstance(item, _StreamEnd)``.
     """
 
-    __slots__ = ("finish_reason", "prompt_tokens", "completion_tokens", "total_tokens")
+    __slots__ = (
+        "finish_reason",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "refusal",
+    )
 
     def __init__(
         self,
@@ -148,8 +155,10 @@ class _StreamEnd:
         prompt_tokens: int,
         completion_tokens: int,
         total_tokens: int,
+        refusal: bool = False,
     ) -> None:
         self.finish_reason = finish_reason
         self.prompt_tokens = prompt_tokens
         self.completion_tokens = completion_tokens
         self.total_tokens = total_tokens
+        self.refusal = refusal

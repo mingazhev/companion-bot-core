@@ -152,7 +152,7 @@ async def generate_reply_stream(
         ),
         safety_flags=SafetyFlags(
             content_filtered=finish_reason == "content_filter",
-            refusal=False,
+            refusal=end.refusal if end is not None else False,
             finish_reason=finish_reason,
         ),
     )

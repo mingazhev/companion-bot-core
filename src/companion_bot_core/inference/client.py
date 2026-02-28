@@ -178,9 +178,9 @@ class ChatAPIClient:
 
         Yields individual text tokens as they arrive via Server-Sent Events,
         then yields a single :class:`_StreamEnd` sentinel carrying final token
-        usage and the finish reason.  The sentinel is emitted only when the
-        provider supports ``stream_options.include_usage``; callers must
-        tolerate its absence.
+        usage, the finish reason, and whether the model issued a refusal.
+        The sentinel is emitted only when the provider supports
+        ``stream_options.include_usage``; callers must tolerate its absence.
 
         Unlike :meth:`chat_completion`, this path does not retry on failure.
         The circuit breaker still applies: if the circuit is open a
@@ -194,7 +194,7 @@ class ChatAPIClient:
 
         Yields:
             ``str`` — incremental text token from the model.
-            ``_StreamEnd`` — final sentinel with usage stats (last item).
+            ``_StreamEnd`` — final sentinel with usage stats and refusal flag (last item).
 
         Raises:
             CircuitBreakerOpen: Provider error rate exceeded the threshold.
@@ -214,6 +214,7 @@ class ChatAPIClient:
         await self._circuit_breaker._check_state()
         try:
             finish_reason = "stop"
+            refusal_seen = False
             async with self._http.stream("POST", "/chat/completions", json=payload) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
@@ -239,6 +240,8 @@ class ChatAPIClient:
                         choice = chunk.choices[0]
                         if choice.delta.content:
                             yield choice.delta.content
+                        if choice.delta.refusal:
+                            refusal_seen = True
                         if choice.finish_reason is not None:
                             finish_reason = choice.finish_reason
                     if chunk.usage is not None:
@@ -247,6 +250,7 @@ class ChatAPIClient:
                             prompt_tokens=chunk.usage.prompt_tokens,
                             completion_tokens=chunk.usage.completion_tokens,
                             total_tokens=chunk.usage.total_tokens,
+                            refusal=refusal_seen,
                         )
         except Exception:
             await self._circuit_breaker._record_failure()

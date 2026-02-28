@@ -74,6 +74,7 @@ def _make_stream_client(
     finish_reason: str = "stop",
     prompt_tokens: int = 10,
     completion_tokens: int = 5,
+    refusal: bool = False,
 ) -> ChatAPIClient:
     """Return a mock client whose chat_completion_stream yields the given chunks."""
     items: list[str | _StreamEnd] = list(chunks) + [
@@ -82,6 +83,7 @@ def _make_stream_client(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=prompt_tokens + completion_tokens,
+            refusal=refusal,
         )
     ]
     mock = AsyncMock(spec=ChatAPIClient)
@@ -309,13 +311,22 @@ async def test_generate_reply_stream_no_sentinel_zeros_usage() -> None:
     assert result.safety_flags.finish_reason == "stop"
 
 
-async def test_generate_reply_stream_refusal_flag_is_false() -> None:
-    """Streaming path always sets refusal=False (no refusal field in deltas)."""
-    client = _make_stream_client(["ok"])
+async def test_generate_reply_stream_refusal_flag_is_false_when_no_refusal() -> None:
+    """When the sentinel carries refusal=False, SafetyFlags.refusal is False."""
+    client = _make_stream_client(["ok"], refusal=False)
     result = await generate_reply_stream(
         client, _BASE_CONTEXT, "hey", on_chunk=_noop_chunk
     )
     assert result.safety_flags.refusal is False
+
+
+async def test_generate_reply_stream_refusal_flag_is_true_when_refusal_in_sentinel() -> None:
+    """When the sentinel carries refusal=True, SafetyFlags.refusal is True."""
+    client = _make_stream_client([""], refusal=True)
+    result = await generate_reply_stream(
+        client, _BASE_CONTEXT, "problematic", on_chunk=_noop_chunk
+    )
+    assert result.safety_flags.refusal is True
 
 
 async def test_generate_reply_stream_passes_max_tokens() -> None:

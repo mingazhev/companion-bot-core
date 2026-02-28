@@ -552,12 +552,15 @@ async def handle_message(
                 nonlocal sent_msg, _accumulated, _last_edit
                 _accumulated += chunk
                 now = time.monotonic()
+                # Clamp displayed text to Telegram's single-message limit.
+                # The final edit after streaming delivers the full paginated reply.
+                display_text = _accumulated[:_TG_MSG_LIMIT]
                 try:
                     if sent_msg is None:
-                        sent_msg = await message.answer(_accumulated, parse_mode=None)
+                        sent_msg = await message.answer(display_text, parse_mode=None)
                         _last_edit = now
                     elif now - _last_edit >= 1.0:
-                        await sent_msg.edit_text(_accumulated, parse_mode=None)
+                        await sent_msg.edit_text(display_text, parse_mode=None)
                         _last_edit = now
                 except Exception as _exc:  # noqa: BLE001
                     log.debug(
