@@ -131,6 +131,7 @@ async def test_chat_completion_uses_max_completion_tokens_for_gpt5_models() -> N
     assert body["model"] == "gpt-5-mini"
     assert body["max_completion_tokens"] == 256
     assert "max_tokens" not in body
+    assert "temperature" not in body
 
 
 # ---------------------------------------------------------------------------
