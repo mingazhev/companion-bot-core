@@ -129,7 +129,7 @@ class _OpenAIStreamChunk(BaseModel):
     """
 
     id: str
-    choices: list[_OpenAIStreamChoice] = []
+    choices: list[_OpenAIStreamChoice] = Field(default_factory=list)
     usage: _OpenAIUsage | None = None
 
 
