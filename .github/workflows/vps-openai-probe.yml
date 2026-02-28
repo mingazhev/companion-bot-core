@@ -1,0 +1,36 @@
+name: VPS OpenAI Probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe OpenAI chat endpoint from VPS
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          script: |
+            set -euo pipefail
+            cd /opt/companion-bot-core
+
+            OPENAI_API_KEY=$(grep '^OPENAI_API_KEY=' .env | cut -d= -f2-)
+            OPENAI_BASE_URL=$(grep '^OPENAI_BASE_URL=' .env | cut -d= -f2-)
+            CHAT_MODEL=$(grep '^CHAT_MODEL=' .env | cut -d= -f2-)
+
+            echo "base_url=$OPENAI_BASE_URL"
+            echo "chat_model=$CHAT_MODEL"
+
+            status=$(curl -sS -o /tmp/chat_probe.json -w "%{http_code}" \
+              -X POST "$OPENAI_BASE_URL/chat/completions" \
+              -H "Authorization: Bearer $OPENAI_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"model\":\"$CHAT_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":16}")
+
+            echo "chat_completions_status=$status"
+            echo "chat_completions_body:"
+            cat /tmp/chat_probe.json
