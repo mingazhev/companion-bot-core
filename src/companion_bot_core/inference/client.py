@@ -11,8 +11,9 @@ Features
 
 from __future__ import annotations
 
+import json
 import time
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 from tenacity import (
@@ -23,8 +24,16 @@ from tenacity import (
 )
 
 from companion_bot_core.inference.circuit_breaker import CircuitBreaker
-from companion_bot_core.inference.schemas import ChatMessage, OpenAIResponse
+from companion_bot_core.inference.schemas import (
+    ChatMessage,
+    OpenAIResponse,
+    _OpenAIStreamChunk,
+    _StreamEnd,
+)
 from companion_bot_core.logging_config import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 log = get_logger(__name__)
 
@@ -158,3 +167,94 @@ class ChatAPIClient:
             completion_tokens=response.usage.completion_tokens,
         )
         return response
+
+    async def chat_completion_stream(
+        self,
+        messages: list[ChatMessage],
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+    ) -> AsyncGenerator[str | _StreamEnd, None]:
+        """Stream the Chat Completions API response as text chunks.
+
+        Yields individual text tokens as they arrive via Server-Sent Events,
+        then yields a single :class:`_StreamEnd` sentinel carrying final token
+        usage and the finish reason.  The sentinel is emitted only when the
+        provider supports ``stream_options.include_usage``; callers must
+        tolerate its absence.
+
+        Unlike :meth:`chat_completion`, this path does not retry on failure.
+        The circuit breaker still applies: if the circuit is open a
+        ``CircuitBreakerOpen`` exception is raised before any yielding begins.
+
+        Args:
+            messages:    Full message list (system + history + new user turn).
+            max_tokens:  Maximum completion tokens (default 1024).
+            temperature: Sampling temperature (default 0.7; ignored for gpt-5
+                         family models).
+
+        Yields:
+            ``str`` — incremental text token from the model.
+            ``_StreamEnd`` — final sentinel with usage stats (last item).
+
+        Raises:
+            CircuitBreakerOpen: Provider error rate exceeded the threshold.
+            httpx.HTTPStatusError: Non-retryable HTTP error.
+        """
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            self._max_tokens_param: max_tokens,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if not self._is_gpt5_family:
+            payload["temperature"] = temperature
+
+        call_start = time.perf_counter()
+        await self._circuit_breaker._check_state()
+        try:
+            finish_reason = "stop"
+            async with self._http.stream("POST", "/chat/completions", json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:]
+                    if data.strip() == "[DONE]":
+                        break
+                    try:
+                        raw = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    try:
+                        chunk = _OpenAIStreamChunk.model_validate(raw)
+                    except Exception as exc:  # noqa: BLE001
+                        log.debug(
+                            "stream_chunk_validation_failed",
+                            model=self._model,
+                            error=str(exc),
+                        )
+                        continue
+                    if chunk.choices:
+                        choice = chunk.choices[0]
+                        if choice.delta.content:
+                            yield choice.delta.content
+                        if choice.finish_reason is not None:
+                            finish_reason = choice.finish_reason
+                    if chunk.usage is not None:
+                        yield _StreamEnd(
+                            finish_reason=finish_reason,
+                            prompt_tokens=chunk.usage.prompt_tokens,
+                            completion_tokens=chunk.usage.completion_tokens,
+                            total_tokens=chunk.usage.total_tokens,
+                        )
+        except Exception:
+            await self._circuit_breaker._record_failure()
+            raise
+        elapsed_ms = round((time.perf_counter() - call_start) * 1000, 2)
+        await self._circuit_breaker._record_success()
+        log.info(
+            "model_api_stream_completed",
+            model=self._model,
+            elapsed_ms=elapsed_ms,
+        )

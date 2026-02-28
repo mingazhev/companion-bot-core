@@ -537,46 +537,107 @@ async def handle_message(
     reply = ""
 
     async with span("ingress.handle_message", user_id=user_id_str):
-        try:
-            reply = await process_message(
-                user_id=db_user.id,
-                message_text=text,
-                session=db_session,
-                snapshot_store=snapshot_store,
-                redis=redis,
-                chat_client=chat_client,
-                model=settings.chat_model,
-                conversation_ttl_seconds=settings.conversation_ttl_seconds,
-                refinement_activity_threshold=settings.refinement_activity_threshold,
-                refinement_cadence_seconds=settings.refinement_cadence_seconds,
-                encryptor=encryptor,
-                locale=locale,
-            )
-        except Exception:
-            log.exception(
-                "process_message_failed",
-                internal_user_id=user_id_str,
-            )
-            # Send a user-facing error reply before re-raising so the
-            # middleware rolls back the DB transaction (prevents committing
-            # partially-flushed state such as assistant messages the user
-            # never saw).
-            try:
-                await message.answer(
-                    tr("handle.error", locale),
-                    parse_mode=None,
-                )
-            except Exception:  # noqa: BLE001
-                log.warning("error_reply_send_failed", internal_user_id=user_id_str)
-            raise
+        # When streaming is enabled, send a placeholder message as soon as the
+        # first token arrives and edit it at most once per second as more
+        # tokens accumulate.  Early-exit paths (guardrail, refuse, confirm)
+        # never call on_stream_chunk, so sent_msg stays None and the reply is
+        # delivered through the normal single-send path.
+        sent_msg: Message | None = None
 
-        # Split if the reply exceeds Telegram's message-length limit.
+        if settings.streaming_enabled:
+            _accumulated = ""
+            _last_edit = 0.0
+
+            async def _on_chunk(chunk: str) -> None:
+                nonlocal sent_msg, _accumulated, _last_edit
+                _accumulated += chunk
+                now = time.monotonic()
+                try:
+                    if sent_msg is None:
+                        sent_msg = await message.answer(_accumulated, parse_mode=None)
+                        _last_edit = now
+                    elif now - _last_edit >= 1.0:
+                        await sent_msg.edit_text(_accumulated, parse_mode=None)
+                        _last_edit = now
+                except Exception as _exc:  # noqa: BLE001
+                    log.debug(
+                        "stream_chunk_edit_failed",
+                        internal_user_id=user_id_str,
+                        error=str(_exc),
+                    )
+
+            try:
+                reply = await process_message(
+                    user_id=db_user.id,
+                    message_text=text,
+                    session=db_session,
+                    snapshot_store=snapshot_store,
+                    redis=redis,
+                    chat_client=chat_client,
+                    model=settings.chat_model,
+                    conversation_ttl_seconds=settings.conversation_ttl_seconds,
+                    refinement_activity_threshold=settings.refinement_activity_threshold,
+                    refinement_cadence_seconds=settings.refinement_cadence_seconds,
+                    encryptor=encryptor,
+                    locale=locale,
+                    on_stream_chunk=_on_chunk,
+                )
+            except Exception:
+                log.exception("process_message_failed", internal_user_id=user_id_str)
+                try:
+                    await message.answer(tr("handle.error", locale), parse_mode=None)
+                except Exception:  # noqa: BLE001
+                    log.warning("error_reply_send_failed", internal_user_id=user_id_str)
+                raise
+        else:
+            try:
+                reply = await process_message(
+                    user_id=db_user.id,
+                    message_text=text,
+                    session=db_session,
+                    snapshot_store=snapshot_store,
+                    redis=redis,
+                    chat_client=chat_client,
+                    model=settings.chat_model,
+                    conversation_ttl_seconds=settings.conversation_ttl_seconds,
+                    refinement_activity_threshold=settings.refinement_activity_threshold,
+                    refinement_cadence_seconds=settings.refinement_cadence_seconds,
+                    encryptor=encryptor,
+                    locale=locale,
+                )
+            except Exception:
+                log.exception(
+                    "process_message_failed",
+                    internal_user_id=user_id_str,
+                )
+                # Send a user-facing error reply before re-raising so the
+                # middleware rolls back the DB transaction (prevents committing
+                # partially-flushed state such as assistant messages the user
+                # never saw).
+                try:
+                    await message.answer(
+                        tr("handle.error", locale),
+                        parse_mode=None,
+                    )
+                except Exception:  # noqa: BLE001
+                    log.warning("error_reply_send_failed", internal_user_id=user_id_str)
+                raise
+
+        # Deliver / finalise the reply.
+        # If streaming produced a partial message (sent_msg is not None), update
+        # it with the complete reply text and send any overflow chunks.
+        # Otherwise (non-streaming or early-exit path) send from scratch.
         # Wrap in try/except so a Telegram API failure (timeout, rate limit)
-        # does not propagate and roll back the DB transaction \u2014 Redis state
+        # does not propagate and roll back the DB transaction — Redis state
         # (activity counter, refinement jobs) is already committed.
         try:
-            for i in range(0, len(reply), _TG_MSG_LIMIT):
-                await message.answer(reply[i : i + _TG_MSG_LIMIT], parse_mode=None)
+            if sent_msg is not None:
+                await sent_msg.edit_text(reply[:_TG_MSG_LIMIT], parse_mode=None)
+                for i in range(_TG_MSG_LIMIT, len(reply), _TG_MSG_LIMIT):
+                    await message.answer(reply[i : i + _TG_MSG_LIMIT], parse_mode=None)
+            else:
+                for i in range(0, len(reply), _TG_MSG_LIMIT):
+                    await message.answer(reply[i : i + _TG_MSG_LIMIT], parse_mode=None)
         except Exception as exc:
             log.warning(
                 "reply_send_failed",

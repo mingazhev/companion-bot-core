@@ -11,7 +11,7 @@ from companion_bot_core.dev.fake_client import (
     FakeChatAPIClient,
     _make_openai_response,
 )
-from companion_bot_core.inference.schemas import ChatMessage, OpenAIResponse
+from companion_bot_core.inference.schemas import ChatMessage, OpenAIResponse, _StreamEnd
 from companion_bot_core.refinement.schemas import RefinementResult
 
 # ---------------------------------------------------------------------------
@@ -243,3 +243,73 @@ async def test_max_tokens_and_temperature_accepted() -> None:
         temperature=0.0,
     )
     assert isinstance(response, OpenAIResponse)
+
+
+# ---------------------------------------------------------------------------
+# chat_completion_stream
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fake_stream_yields_text_chunks() -> None:
+    client = FakeChatAPIClient()
+    messages = [_user("Hello world")]
+    chunks = []
+    async for item in client.chat_completion_stream(messages):
+        if isinstance(item, str):
+            chunks.append(item)
+    # The text should be split into word-level tokens
+    assert len(chunks) > 0
+    full = "".join(chunks)
+    assert "Hello world" in full
+    assert full.startswith("[Dev mode]")
+
+
+@pytest.mark.asyncio
+async def test_fake_stream_yields_stream_end_sentinel() -> None:
+    client = FakeChatAPIClient()
+    messages = [_user("test")]
+    sentinel = None
+    async for item in client.chat_completion_stream(messages):
+        if isinstance(item, _StreamEnd):
+            sentinel = item
+    assert sentinel is not None
+    assert sentinel.finish_reason == "stop"
+    assert sentinel.prompt_tokens == 10
+    assert sentinel.total_tokens > 10
+
+
+@pytest.mark.asyncio
+async def test_fake_stream_reassembles_to_full_reply() -> None:
+    """Joining all text chunks should reproduce the full canned reply."""
+    client = FakeChatAPIClient()
+    messages = [_user("hi")]
+    parts: list[str] = []
+    async for item in client.chat_completion_stream(messages):
+        if isinstance(item, str):
+            parts.append(item)
+    result = "".join(parts)
+    # Non-streaming response for same message
+    sync_resp = await client.chat_completion(messages)
+    assert result == (sync_resp.choices[0].message.content or "")
+
+
+@pytest.mark.asyncio
+async def test_fake_stream_refinement_path() -> None:
+    """Streaming a refinement call returns the JSON delta word-by-word."""
+    client = FakeChatAPIClient()
+    messages = [
+        _system("You are a prompt-refinement assistant for an AI companion bot."),
+        _user("Refine."),
+    ]
+    parts: list[str] = []
+    sentinel = None
+    async for item in client.chat_completion_stream(messages):
+        if isinstance(item, str):
+            parts.append(item)
+        elif isinstance(item, _StreamEnd):
+            sentinel = item
+    full = "".join(parts)
+    data = json.loads(full)
+    assert "proposed_delta" in data
+    assert sentinel is not None
