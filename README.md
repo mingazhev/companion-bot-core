@@ -138,6 +138,20 @@ alembic upgrade head     # apply all migrations
 alembic history          # view migration history
 ```
 
+## Auto-deploy to Ubuntu VPS
+
+This repository includes a ready deployment pipeline:
+
+- Docker image build: [`Dockerfile`](/Users/mingazhev/Repos/SideProjects/TdBot/Dockerfile)
+- VPS stack: [`docker-compose.vps.yml`](/Users/mingazhev/Repos/SideProjects/TdBot/docker-compose.vps.yml)
+- CI workflow: [`.github/workflows/ci.yml`](/Users/mingazhev/Repos/SideProjects/TdBot/.github/workflows/ci.yml)
+- Deploy workflow: [`.github/workflows/deploy.yml`](/Users/mingazhev/Repos/SideProjects/TdBot/.github/workflows/deploy.yml)
+- Ubuntu bootstrap script: [`ops/vps/bootstrap-ubuntu.sh`](/Users/mingazhev/Repos/SideProjects/TdBot/ops/vps/bootstrap-ubuntu.sh)
+
+Full setup guide:
+
+- [`docs/deploy-vps-ubuntu.md`](/Users/mingazhev/Repos/SideProjects/TdBot/docs/deploy-vps-ubuntu.md)
+
 ## Known limitations
 
 - Webhook mode is not implemented (raises `NotImplementedError` on startup)
