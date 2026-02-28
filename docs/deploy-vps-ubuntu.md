@@ -39,6 +39,7 @@ In `Settings -> Secrets and variables -> Actions -> Secrets`:
 - `VPS_HOST` — VPS public IP/domain
 - `VPS_USER` — deploy user (must have docker access)
 - `VPS_SSH_KEY` — private SSH key for `VPS_USER`
+- `VPS_SSH_PASSPHRASE` — passphrase for `VPS_SSH_KEY` (required if the key is encrypted)
 - `GHCR_READ_TOKEN` — GitHub PAT with `read:packages`
 
 ## 4. Deployment flow
