@@ -17,10 +17,13 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from companion_bot_core.inference.client import ChatAPIClient
 from companion_bot_core.inference.schemas import ChatMessage, OpenAIResponse
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 # Substring that appears only in the refinement model's system prompt.
 _REFINEMENT_MARKER: str = "prompt-refinement assistant"
@@ -117,6 +120,35 @@ class FakeChatAPIClient(ChatAPIClient):
             "Hello!",
         )
         return _make_openai_response(f"[Dev mode] Echo: {user_content}")
+
+    async def chat_completion_stream(
+        self,
+        messages: list[ChatMessage],
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+        on_delta: Callable[[str], Awaitable[None]] | None = None,
+    ) -> OpenAIResponse:
+        """Return a canned streaming response without any network I/O.
+
+        Calls *on_delta* once with the full fake reply content so callers that
+        depend on incremental delivery still exercise the callback path.
+
+        Args:
+            messages:    Full message list assembled by the caller.
+            max_tokens:  Ignored — included only for interface compatibility.
+            temperature: Ignored — included only for interface compatibility.
+            on_delta:    Optional callback invoked with the reply content.
+
+        Returns:
+            A schema-valid :class:`~companion_bot_core.inference.schemas.OpenAIResponse`.
+        """
+        _ = max_tokens, temperature  # unused in fake implementation
+        response = await self.chat_completion(messages)
+        if on_delta is not None:
+            content = response.choices[0].message.content or ""
+            if content:
+                await on_delta(content)
+        return response
 
     async def close(self) -> None:
         """No-op — no real HTTP client to close."""

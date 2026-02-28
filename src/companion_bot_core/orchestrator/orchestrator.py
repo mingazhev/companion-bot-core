@@ -41,7 +41,7 @@ from companion_bot_core.behavior.extractor import (
 )
 from companion_bot_core.db.models import BehaviorChangeEvent, ConversationMessage
 from companion_bot_core.i18n import normalize_locale, tr
-from companion_bot_core.inference import generate_reply
+from companion_bot_core.inference import generate_reply, generate_reply_stream
 from companion_bot_core.inference.circuit_breaker import CircuitBreakerOpen
 from companion_bot_core.logging_config import get_logger
 from companion_bot_core.metrics import (
@@ -85,6 +85,7 @@ from companion_bot_core.refinement.scheduler import enqueue_if_cadence_due
 from companion_bot_core.tracing import span
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from uuid import UUID
 
     from redis.asyncio import Redis
@@ -515,6 +516,7 @@ async def process_message(
     max_tokens: int = 1024,
     encryptor: FieldEncryptor | None = None,
     locale: str | None = None,
+    on_partial_reply: Callable[[str], Awaitable[None]] | None = None,
 ) -> str:
     """Orchestrate a single user message through the full processing pipeline.
 
@@ -535,6 +537,11 @@ async def process_message(
                                        encryption of conversation content and
                                        profile fields.  ``None`` uses a
                                        disabled (pass-through) encryptor.
+        on_partial_reply:              Optional async callback invoked with
+                                       each text chunk during streaming
+                                       inference.  When provided, the model
+                                       call uses ``generate_reply_stream``
+                                       instead of ``generate_reply``.
 
     Returns:
         Reply text to send back to the user.
@@ -727,9 +734,14 @@ async def process_message(
 
             try:
                 async with span("model_adapter.generate_reply", user_id=user_id_str):
-                    inference_reply = await generate_reply(
-                        chat_client, user_context, message_text
-                    )
+                    if on_partial_reply is not None:
+                        inference_reply = await generate_reply_stream(
+                            chat_client, user_context, message_text, on_partial_reply
+                        )
+                    else:
+                        inference_reply = await generate_reply(
+                            chat_client, user_context, message_text
+                        )
             except CircuitBreakerOpen:
                 log.error("circuit_breaker_open_during_chat", user_id=user_id_str)
                 return tr("orchestrator.circuit_open", ui_locale)
