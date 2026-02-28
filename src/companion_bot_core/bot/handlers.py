@@ -33,6 +33,7 @@ from companion_bot_core.behavior.extractor import VALID_TONES
 from companion_bot_core.db.models import User, UserProfile
 from companion_bot_core.i18n import SUPPORTED_LOCALES, normalize_locale, tr
 from companion_bot_core.logging_config import get_logger
+from companion_bot_core.metrics import CHAT_LATENCY
 from companion_bot_core.orchestrator import process_message
 from companion_bot_core.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
 from companion_bot_core.prompt.helpers import (
@@ -78,7 +79,10 @@ def _user_locale(db_user: User | None) -> str:
 @router.message(Command("start"))
 async def cmd_start(message: Message, db_user: User) -> None:
     """Greet the user and show available commands."""
-    await message.answer(tr("start.text", _user_locale(db_user)), parse_mode=None)
+    locale = _user_locale(db_user)
+    await message.answer(tr("start.text", locale), parse_mode=None)
+    if not db_user.onboarding_completed:
+        await message.answer(tr("onboarding.question", locale), parse_mode=None)
     log.info("cmd_start", internal_user_id=str(db_user.id))
 
 
@@ -535,6 +539,31 @@ async def handle_message(
     text = message.text or ""
     ingress_start = time.perf_counter()
     reply = ""
+
+    # ------------------------------------------------------------------ #
+    # Onboarding: capture the user's first free-text message as their goal.
+    # ------------------------------------------------------------------ #
+    if not db_user.onboarding_completed:
+        async with span("ingress.onboarding", user_id=user_id_str):
+            profile = await get_or_create_profile(db_session, db_user.id)
+            goal = text[:500]
+            profile.style_constraints = goal
+            db_user.onboarding_completed = True
+            await db_session.flush()
+            await rebuild_and_save_snapshot(
+                snapshot_store,
+                db_user.id,
+                None,
+                None,
+                style_constraints=goal,
+                session=db_session,
+            )
+            CHAT_LATENCY.labels(model=settings.chat_model).observe(
+                time.perf_counter() - ingress_start
+            )
+            await message.answer(tr("onboarding.done", locale), parse_mode=None)
+        log.info("onboarding_completed", internal_user_id=user_id_str)
+        return
 
     async with span("ingress.handle_message", user_id=user_id_str):
         try:

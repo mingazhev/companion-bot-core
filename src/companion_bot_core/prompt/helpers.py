@@ -87,6 +87,7 @@ async def get_or_create_profile(
 def build_persona_segment(
     persona_name: str | None,
     tone: str | None,
+    style_constraints: str | None = None,
 ) -> str:
     """Build the persona section content from profile fields."""
     parts: list[str] = []
@@ -94,6 +95,8 @@ def build_persona_segment(
         parts.append(f"Name: {persona_name}")
     if tone:
         parts.append(f"Tone: {tone}")
+    if style_constraints:
+        parts.append(f"Goal: {style_constraints}")
     return "\n".join(parts)
 
 
@@ -103,21 +106,23 @@ async def rebuild_and_save_snapshot(
     persona_name: str | None,
     tone: str | None,
     *,
+    style_constraints: str | None = None,
     source: SnapshotSource = "user_command",
     session: Any = None,
 ) -> None:
     """Build a new prompt snapshot reflecting updated profile and set it active.
 
     Args:
-        snapshot_store: The snapshot store to save into.
-        user_id:        Internal UUID of the user.
-        persona_name:   Decrypted persona name (or ``None``).
-        tone:           Decrypted tone (or ``None``).
-        source:         Source label for the snapshot (``"user_command"`` or
-                        ``"behavior_change"``).
-        session:        Optional DB session.  When provided, the snapshot row
-                        is added to this session so it commits atomically with
-                        the caller's transaction.
+        snapshot_store:    The snapshot store to save into.
+        user_id:           Internal UUID of the user.
+        persona_name:      Decrypted persona name (or ``None``).
+        tone:              Decrypted tone (or ``None``).
+        style_constraints: Optional free-text goal / style constraints.
+        source:            Source label for the snapshot (``"user_command"`` or
+                           ``"behavior_change"``).
+        session:           Optional DB session.  When provided, the snapshot row
+                           is added to this session so it commits atomically with
+                           the caller's transaction.
     """
     current = await snapshot_store.get_active(user_id)
 
@@ -136,7 +141,7 @@ async def rebuild_and_save_snapshot(
 
     components = PromptComponents(
         base_system_template=base_template,
-        persona_segment=build_persona_segment(persona_name, tone),
+        persona_segment=build_persona_segment(persona_name, tone, style_constraints),
         skill_packs=skill_packs,
         long_term_profile=long_term_profile,
     )
