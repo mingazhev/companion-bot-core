@@ -646,3 +646,110 @@ async def test_handle_message_no_notice_when_not_set() -> None:
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
     msg.answer.assert_called_once_with("Goodbye", parse_mode=None)
+
+
+# --------------------------------------------------------------------------- #
+# handle_message — streaming path
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_handle_message_streaming_disabled_uses_normal_path() -> None:
+    """When streaming_enabled=False, message is sent via answer(), not edit_text()."""
+    msg = _make_message()
+    msg.text = "Hello"
+    user = _make_user()
+    db_session = AsyncMock()
+    redis = AsyncMock()
+    snapshot_store = AsyncMock()
+    chat_client = AsyncMock()
+    settings = MagicMock()
+    settings.chat_model = "gpt-4o-mini"
+    settings.conversation_ttl_seconds = 604800
+    settings.refinement_activity_threshold = 10
+    settings.streaming_enabled = False
+
+    with (
+        patch(
+            "companion_bot_core.bot.handlers.process_message",
+            return_value="Hi there",
+        ) as mock_process,
+        patch("companion_bot_core.bot.handlers.check_and_clear_user_notice", return_value=False),
+    ):
+        await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
+
+    mock_process.assert_awaited_once()
+    msg.answer.assert_called_once_with("Hi there", parse_mode=None)
+
+
+@pytest.mark.asyncio
+async def test_handle_message_streaming_early_exit_uses_normal_send() -> None:
+    """When streaming is enabled but process_message returns without calling on_chunk
+    (early-exit path), the reply is sent via answer(), not edit_text()."""
+    msg = _make_message()
+    msg.text = "Hey"
+    user = _make_user()
+    db_session = AsyncMock()
+    redis = AsyncMock()
+    snapshot_store = AsyncMock()
+    chat_client = AsyncMock()
+    settings = MagicMock()
+    settings.chat_model = "gpt-4o-mini"
+    settings.conversation_ttl_seconds = 604800
+    settings.refinement_activity_threshold = 10
+    settings.streaming_enabled = True
+
+    with (
+        patch(
+            "companion_bot_core.bot.handlers.process_message",
+            return_value="Blocked",
+        ) as mock_process,
+        patch("companion_bot_core.bot.handlers.check_and_clear_user_notice", return_value=False),
+    ):
+        await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
+
+    mock_process.assert_awaited_once()
+    # on_chunk was never called by mock, so sent_msg is None → answer() is used
+    msg.answer.assert_called_once_with("Blocked", parse_mode=None)
+
+
+@pytest.mark.asyncio
+async def test_handle_message_streaming_chunks_edit_and_final_edit() -> None:
+    """When streaming is enabled and on_chunk is called, final reply is sent via edit_text()."""
+    msg = _make_message()
+    msg.text = "Tell me something"
+    user = _make_user()
+    db_session = AsyncMock()
+    redis = AsyncMock()
+    snapshot_store = AsyncMock()
+    chat_client = AsyncMock()
+    settings = MagicMock()
+    settings.chat_model = "gpt-4o-mini"
+    settings.conversation_ttl_seconds = 604800
+    settings.refinement_activity_threshold = 10
+    settings.streaming_enabled = True
+
+    # The mock will call on_stream_chunk with "Hello " and " world"
+    async def fake_process_message(*args, on_stream_chunk=None, **kwargs):
+        if on_stream_chunk is not None:
+            await on_stream_chunk("Hello ")
+            await on_stream_chunk("world")
+        return "Hello world"
+
+    # msg.answer returns a mock "sent message" with edit_text
+    sent_message_mock = AsyncMock()
+    sent_message_mock.edit_text = AsyncMock()
+    msg.answer = AsyncMock(return_value=sent_message_mock)
+
+    with (
+        patch("companion_bot_core.bot.handlers.process_message", side_effect=fake_process_message),
+        patch("companion_bot_core.bot.handlers.check_and_clear_user_notice", return_value=False),
+    ):
+        await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
+
+    # answer() called once with the first chunk (sent_msg was None initially)
+    msg.answer.assert_called_once()
+    first_call_text = msg.answer.call_args[0][0]
+    assert "Hello" in first_call_text
+    # Final edit called with complete text
+    sent_message_mock.edit_text.assert_called_with("Hello world", parse_mode=None)
