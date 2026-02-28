@@ -32,12 +32,13 @@ from companion_bot_core.prompt.snapshot_store import InMemorySnapshotStore
 # --------------------------------------------------------------------------- #
 
 
-def _make_user(telegram_user_id: int = 42) -> User:
+def _make_user(telegram_user_id: int = 42, *, onboarding_completed: bool = True) -> User:
     user = User(telegram_user_id=telegram_user_id)
     user.id = uuid.uuid4()
     user.status = "active"
     user.locale = None
     user.timezone = None
+    user.onboarding_completed = onboarding_completed
     return user
 
 
@@ -84,12 +85,25 @@ def _make_profile_session(
 @pytest.mark.asyncio
 async def test_start_replies() -> None:
     msg = _make_message()
-    user = _make_user()
+    user = _make_user(onboarding_completed=True)
     await cmd_start(msg, user)
     msg.answer.assert_called_once()
     text: str = msg.answer.call_args[0][0]
     assert "/profile" in text
     assert "/set_tone" in text
+
+
+@pytest.mark.asyncio
+async def test_start_new_user_sends_onboarding_question() -> None:
+    msg = _make_message()
+    user = _make_user(onboarding_completed=False)
+    await cmd_start(msg, user)
+    assert msg.answer.call_count == 2
+    welcome_text: str = msg.answer.call_args_list[0][0][0]
+    assert "/profile" in welcome_text
+    onboarding_text: str = msg.answer.call_args_list[1][0][0]
+    # Should ask the user about themselves / what they need
+    assert any(word in onboarding_text.lower() for word in ("расскажи", "tell", "help", "помо"))
 
 
 # --------------------------------------------------------------------------- #
@@ -646,3 +660,92 @@ async def test_handle_message_no_notice_when_not_set() -> None:
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
     msg.answer.assert_called_once_with("Goodbye", parse_mode=None)
+
+
+# --------------------------------------------------------------------------- #
+# Onboarding flow
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_handle_message_onboarding_saves_goal_and_confirms() -> None:
+    """First message from a new user should be saved as style_constraints and snapshot rebuilt."""
+    msg = _make_message()
+    msg.text = "I want help with coding and productivity"
+    user = _make_user(onboarding_completed=False)
+
+    profile = UserProfile(user_id=user.id)
+    db_session = _make_profile_session(existing_profile=profile)
+    snapshot_store = InMemorySnapshotStore()
+
+    redis = AsyncMock()
+    chat_client = AsyncMock()
+    settings = MagicMock()
+    settings.chat_model = "gpt-4o-mini"
+    settings.conversation_ttl_seconds = 604800
+    settings.refinement_activity_threshold = 10
+
+    await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
+
+    # Goal saved in profile
+    assert profile.style_constraints == "I want help with coding and productivity"
+    # Onboarding marked complete
+    assert user.onboarding_completed is True
+    # Snapshot rebuilt with the goal
+    active = await snapshot_store.get_active(user.id)
+    assert active is not None
+    assert "I want help with coding and productivity" in active.system_prompt
+    # Confirmation sent, no inference call
+    msg.answer.assert_called_once()
+    text: str = msg.answer.call_args[0][0]
+    assert any(word in text.lower() for word in ("got it", "отлично", "запомнил", "keep"))
+
+
+@pytest.mark.asyncio
+async def test_handle_message_onboarding_truncates_long_input() -> None:
+    """Onboarding goal is capped at 500 characters."""
+    msg = _make_message()
+    msg.text = "x" * 600
+    user = _make_user(onboarding_completed=False)
+
+    profile = UserProfile(user_id=user.id)
+    db_session = _make_profile_session(existing_profile=profile)
+    snapshot_store = InMemorySnapshotStore()
+
+    redis = AsyncMock()
+    chat_client = AsyncMock()
+    settings = MagicMock()
+    settings.chat_model = "gpt-4o-mini"
+
+    await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
+
+    assert profile.style_constraints is not None
+    assert len(profile.style_constraints) == 500
+
+
+@pytest.mark.asyncio
+async def test_handle_message_onboarding_skipped_when_completed() -> None:
+    """Users with onboarding_completed=True go straight to the orchestrator."""
+    msg = _make_message()
+    msg.text = "Hello"
+    user = _make_user(onboarding_completed=True)
+    db_session = AsyncMock()
+    redis = AsyncMock()
+    snapshot_store = AsyncMock()
+    chat_client = AsyncMock()
+    settings = MagicMock()
+    settings.chat_model = "gpt-4o-mini"
+    settings.conversation_ttl_seconds = 604800
+    settings.refinement_activity_threshold = 10
+
+    with (
+        patch(
+            "companion_bot_core.bot.handlers.process_message",
+            return_value="Hello back",
+        ) as mock_process,
+        patch("companion_bot_core.bot.handlers.check_and_clear_user_notice", return_value=False),
+    ):
+        await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
+
+    mock_process.assert_awaited_once()
+    assert user.onboarding_completed is True

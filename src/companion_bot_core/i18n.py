@@ -294,6 +294,26 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         "ru": "Отвечай на русском языке, если пользователь явно не попросит другой язык.",
         "en": "Reply in English unless the user explicitly asks for another language.",
     },
+    "onboarding.question": {
+        "ru": (
+            "Расскажи немного о себе: чем занимаешься, что тебя интересует "
+            "и как я могу тебе помочь? Я запомню это, чтобы лучше подстраиваться под тебя."
+        ),
+        "en": (
+            "Tell me a bit about yourself: what do you do, what are your interests, "
+            "and how can I help you? I'll remember this to tailor my responses to you."
+        ),
+    },
+    "onboarding.done": {
+        "ru": (
+            "Отлично, запомнил! Буду учитывать это в наших разговорах.\n\n"
+            "Можешь написать мне что угодно — я здесь, чтобы помочь."
+        ),
+        "en": (
+            "Got it, thanks! I'll keep that in mind for our conversations.\n\n"
+            "Feel free to send me anything — I'm here to help."
+        ),
+    },
 }
 
 

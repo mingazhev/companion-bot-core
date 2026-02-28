@@ -58,6 +58,13 @@ class User(Base):
     )
     locale: Mapped[str | None] = mapped_column(String(16), nullable=True)
     timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    onboarding_completed: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment="True once the user has answered the initial onboarding question",
+    )
 
     # --- relationships ---
     profile: Mapped[UserProfile | None] = relationship(
