@@ -584,6 +584,27 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
     "interest.creative": {"ru": "Творчество", "en": "Creative"},
     "interest.learning": {"ru": "Учёба", "en": "Learning"},
     "interest.fitness": {"ru": "Спорт и здоровье", "en": "Fitness & Health"},
+    # --- Seed persona labels ---
+    "persona_label.friendly": {"ru": "Дружелюбный", "en": "Friendly"},
+    "persona_label.professional": {"ru": "Профессионал", "en": "Professional"},
+    "persona_label.concise": {"ru": "Лаконичный", "en": "Concise"},
+    # --- Interest fact labels for long-term profile ---
+    "interest_fact.tech": {
+        "ru": "Интересуется: технологии",
+        "en": "Interested in: technology",
+    },
+    "interest_fact.creative": {
+        "ru": "Интересуется: творчество",
+        "en": "Interested in: creative arts",
+    },
+    "interest_fact.learning": {
+        "ru": "Интересуется: учёба",
+        "en": "Interested in: learning",
+    },
+    "interest_fact.fitness": {
+        "ru": "Интересуется: спорт и здоровье",
+        "en": "Interested in: fitness & health",
+    },
     # --- Tone labels for onboarding ---
     "tone_label.friendly": {"ru": "Дружелюбный", "en": "Friendly"},
     "tone_label.professional": {"ru": "Деловой", "en": "Professional"},

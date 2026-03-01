@@ -1206,6 +1206,18 @@ async def cmd_settings(message: Message, db_user: User) -> None:
     log.info("cmd_settings", internal_user_id=str(db_user.id))
 
 
+@router.callback_query(F.data == "settings:back")
+async def cb_settings_back(callback: CallbackQuery, db_user: User) -> None:
+    """Return to the main /settings menu."""
+    locale = _user_locale(db_user)
+    if callback.message is not None:
+        await callback.message.edit_text(  # type: ignore[union-attr]
+            tr("settings.choose", locale),
+            reply_markup=_settings_keyboard(locale),
+        )
+    await callback.answer()
+
+
 # --------------------------------------------------------------------------- #
 # Tone picker (inline keyboard)
 # --------------------------------------------------------------------------- #
@@ -1219,6 +1231,8 @@ def _tone_keyboard(locale: str) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=tr(f"tone_label.{tone}", locale), callback_data=f"tone:{tone}")]
         for tone in _TONE_LIST
     ]
+    back = InlineKeyboardButton(text=tr("btn.back", locale), callback_data="settings:back")
+    buttons.append([back])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -1287,6 +1301,7 @@ async def cb_settings_language(callback: CallbackQuery, db_user: User) -> None:
             InlineKeyboardButton(text="Русский", callback_data="lang:ru"),
             InlineKeyboardButton(text="English", callback_data="lang:en"),
         ],
+        [InlineKeyboardButton(text=tr("btn.back", locale), callback_data="settings:back")],
     ])
     if callback.message is not None:
         await callback.message.edit_text(  # type: ignore[union-attr]
@@ -1407,11 +1422,18 @@ def _personas_keyboard(locale: str) -> InlineKeyboardMarkup:
         buttons.append([
             InlineKeyboardButton(text=persona[name_key], callback_data=f"persona_view:{key}"),
         ])
-    # Add seed personas
+    # Add seed personas (skip those already shown as deep personas)
     for key in SEED_PERSONAS:
+        if key in DEEP_PERSONAS:
+            continue
         buttons.append([
-            InlineKeyboardButton(text=key.capitalize(), callback_data=f"persona_set:{key}"),
+            InlineKeyboardButton(
+                text=tr(f"persona_label.{key}", locale),
+                callback_data=f"persona_set:{key}",
+            ),
         ])
+    back = InlineKeyboardButton(text=tr("btn.back", locale), callback_data="settings:back")
+    buttons.append([back])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -1657,6 +1679,8 @@ def _skills_keyboard(
             row = []
     if row:
         buttons.append(row)
+    back = InlineKeyboardButton(text=tr("btn.back", locale), callback_data="settings:back")
+    buttons.append([back])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -1984,7 +2008,7 @@ async def cb_onboard_tone(
             )
             if interest:
                 await add_fact_to_profile(
-                    snapshot_store, db_user.id, f"Interested in: {interest}",
+                    snapshot_store, db_user.id, tr(f"interest_fact.{interest}", locale),
                     session=db_session,
                 )
 
