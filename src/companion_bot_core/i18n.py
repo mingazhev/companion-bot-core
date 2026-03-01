@@ -88,17 +88,17 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         "en": "Persona name must not contain control characters.",
     },
     "set_persona.updated": {
-        "ru": "Имя персоны изменено на '{name}'.",
-        "en": "Persona name set to '{name}'.",
+        "ru": "Имя персоны изменено на '{name}'.\nИзменения применятся со следующего сообщения.",
+        "en": "Persona name set to '{name}'.\nChanges will take effect from your next message.",
     },
     # memory_compact.* keys removed — replaced by refresh_memory.*
     "reset_persona.updated": {
         "ru": (
-            "Персона сброшена к значениям по умолчанию.\n"
+            "Персона и тон общения сброшены к настройкам по умолчанию.\n"
             "Используй /set_persona и /set_tone для новой настройки."
         ),
         "en": (
-            "Your persona has been reset to defaults.\n"
+            "Persona and tone have been reset to defaults.\n"
             "Use /set_persona and /set_tone to customise again."
         ),
     },
@@ -113,7 +113,7 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
     "rollback.updated": {
         "ru": "Профиль откатан к версии {version}.\nИзменения применятся со следующего сообщения.",
         "en": (
-            "Prompt rolled back to version {version}.\n"
+            "Profile rolled back to version {version}.\n"
             "Changes will be applied starting from your next message."
         ),
     },
@@ -519,8 +519,8 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         "en": "Choose a persona:",
     },
     "personas.selected": {
-        "ru": "Персона «{name}» установлена!",
-        "en": "Persona \"{name}\" set!",
+        "ru": "Персона «{name}» установлена!\nИзменения применятся со следующего сообщения.",
+        "en": "Persona \"{name}\" set!\nChanges will take effect from your next message.",
     },
     "personas.preview": {
         "ru": "{name}\n\n{description}",
