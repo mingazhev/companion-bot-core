@@ -246,6 +246,9 @@ async def cmd_start(
     encryptor: FieldEncryptor | None = None,
 ) -> None:
     """Welcome message: value-prop for new users, personalised greeting for returning."""
+    if _is_group_chat(message):
+        await message.reply(tr("start.group_hint", _user_locale(db_user)), parse_mode=None)
+        return
     locale = _user_locale(db_user)
     enc = encryptor or NOOP_ENCRYPTOR
 

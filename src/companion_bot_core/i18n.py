@@ -648,6 +648,10 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         "ru": "Эта команда работает только в личных сообщениях.",
         "en": "This command is only available in private chats.",
     },
+    "start.group_hint": {
+        "ru": "Привет! Напиши мне в личные сообщения, чтобы настроить бота.",
+        "en": "Hi! Send me a private message to set up the bot.",
+    },
     # --- Continuity ---
     "prompt.continuity_instruction": {
         "ru": (
