@@ -932,6 +932,28 @@ async def handle_message(
     _is_group = _is_group_chat(message)
     _reply_fn = message.reply if _is_group else message.answer
 
+    # --- Group chat filter: only respond to @mentions and replies to the bot ---
+    if _is_group:
+        is_reply_to_bot = (
+            message.reply_to_message is not None
+            and message.reply_to_message.from_user is not None
+            and message.reply_to_message.from_user.is_bot
+            and message.bot is not None
+            and message.reply_to_message.from_user.id == message.bot.id
+        )
+        is_mention = False
+        if message.entities and message.bot is not None:
+            bot_username = (await message.bot.me()).username
+            if bot_username:
+                for entity in message.entities:
+                    if entity.type == "mention":
+                        mention_text = text[entity.offset:entity.offset + entity.length]
+                        if mention_text.lower() == f"@{bot_username.lower()}":
+                            is_mention = True
+                            break
+        if not is_reply_to_bot and not is_mention:
+            return
+
     # --- Onboarding guard: intercept text during onboarding ---
     _ob_key = f"{_ONBOARDING_PREFIX}:{db_user.id}"
     _ob_raw = await redis.get(_ob_key)
