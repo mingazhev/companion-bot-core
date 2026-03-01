@@ -17,10 +17,13 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 from companion_bot_core.inference.client import ChatAPIClient
-from companion_bot_core.inference.schemas import ChatMessage, OpenAIResponse
+from companion_bot_core.inference.schemas import ChatMessage, OpenAIResponse, _StreamEnd
 
 # Substring that appears only in the refinement model's system prompt.
 _REFINEMENT_MARKER: str = "prompt-refinement assistant"
@@ -117,6 +120,30 @@ class FakeChatAPIClient(ChatAPIClient):
             "Hello!",
         )
         return _make_openai_response(f"[Dev mode] Echo: {user_content}")
+
+    async def chat_completion_stream(
+        self,
+        messages: list[ChatMessage],
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+    ) -> AsyncGenerator[str | _StreamEnd, None]:
+        """Yield canned reply word-by-word, then a ``_StreamEnd`` sentinel."""
+        _ = max_tokens, temperature
+        user_content = next(
+            (m.content for m in reversed(messages) if m.role == "user"),
+            "Hello!",
+        )
+        reply = f"[Dev mode] Echo: {user_content}"
+        words = reply.split(" ")
+        for i, word in enumerate(words):
+            yield word if i == 0 else f" {word}"
+        yield _StreamEnd(
+            finish_reason="stop",
+            prompt_tokens=10,
+            completion_tokens=10,
+            total_tokens=20,
+            refusal=False,
+        )
 
     async def close(self) -> None:
         """No-op — no real HTTP client to close."""

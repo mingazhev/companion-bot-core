@@ -100,3 +100,46 @@ class OpenAIResponse(BaseModel):
     id: str
     choices: Annotated[list[_OpenAIChoice], Field(min_length=1)]
     usage: _OpenAIUsage
+
+
+# ---------------------------------------------------------------------------
+# Internal: OpenAI Chat Completions streaming (SSE) response shape
+# ---------------------------------------------------------------------------
+
+
+class _OpenAIDelta(BaseModel):
+    content: str | None = None
+    refusal: str | None = None
+
+
+class _OpenAIStreamChoice(BaseModel):
+    index: int = 0
+    delta: _OpenAIDelta
+    finish_reason: str | None = None
+
+
+class _OpenAIStreamChunk(BaseModel):
+    id: str
+    choices: list[_OpenAIStreamChoice]
+    usage: _OpenAIUsage | None = None
+
+
+class _StreamEnd:
+    """Sentinel yielded after the last content chunk in a streaming response."""
+
+    __slots__ = ("finish_reason", "prompt_tokens", "completion_tokens", "total_tokens", "refusal")
+
+    def __init__(
+        self,
+        finish_reason: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        total_tokens: int,
+        *,
+        refusal: bool,
+    ) -> None:
+        self.finish_reason = finish_reason
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+        self.total_tokens = total_tokens
+        self.refusal = refusal

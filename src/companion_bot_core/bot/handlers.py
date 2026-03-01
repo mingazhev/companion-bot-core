@@ -753,6 +753,34 @@ async def handle_message(
     ingress_start = time.perf_counter()
     reply = ""
 
+    # Streaming state — populated by _on_chunk closure during inference.
+    _placeholder: Message | None = None
+    _stream_buf: list[str] = []
+    _last_edit: float = 0.0
+    _edit_interval: float = 1.0  # minimum seconds between edits
+
+    async def _on_chunk(chunk: str) -> None:
+        nonlocal _placeholder, _last_edit
+        _stream_buf.append(chunk)
+        now = time.perf_counter()
+
+        if _placeholder is None:
+            # First chunk — send the placeholder message.
+            display = "".join(_stream_buf)[:_TG_MSG_LIMIT]
+            try:
+                _placeholder = await message.answer(display, parse_mode=None)
+                _last_edit = now
+            except Exception:  # noqa: BLE001
+                log.warning("stream_placeholder_send_failed", internal_user_id=user_id_str)
+        elif now - _last_edit >= _edit_interval:
+            # Throttled edit of the existing placeholder.
+            display = "".join(_stream_buf)[:_TG_MSG_LIMIT]
+            try:
+                await _placeholder.edit_text(display, parse_mode=None)
+                _last_edit = now
+            except Exception:  # noqa: BLE001
+                log.debug("stream_edit_failed", internal_user_id=user_id_str)
+
     async with span("ingress.handle_message", user_id=user_id_str):
         try:
             reply = await process_message(
@@ -768,6 +796,7 @@ async def handle_message(
                 refinement_cadence_seconds=settings.refinement_cadence_seconds,
                 encryptor=encryptor,
                 locale=locale,
+                on_stream_chunk=_on_chunk,
             )
         except Exception:
             log.exception(
@@ -809,21 +838,35 @@ async def handle_message(
                 ),
             ]])
 
-        # Split if the reply exceeds Telegram's message-length limit.
-        # Wrap in try/except so a Telegram API failure (timeout, rate limit)
-        # does not propagate and roll back the DB transaction \u2014 Redis state
-        # (activity counter, refinement jobs) is already committed.
+        # Deliver the final reply text.  If a placeholder was sent during
+        # streaming, edit it with the final text; otherwise use message.answer().
         try:
             chunks = [
                 reply[i : i + _TG_MSG_LIMIT]
                 for i in range(0, len(reply), _TG_MSG_LIMIT)
             ]
-            for idx, chunk in enumerate(chunks):
-                # Attach confirm buttons to the last chunk only
-                kb = confirm_kb if idx == len(chunks) - 1 else None
-                await message.answer(
-                    chunk, parse_mode=None, reply_markup=kb,
-                )
+            if _placeholder is not None:
+                # Edit the streaming placeholder with the final first chunk.
+                first_kb = confirm_kb if len(chunks) == 1 else None
+                try:
+                    await _placeholder.edit_text(
+                        chunks[0], parse_mode=None, reply_markup=first_kb,
+                    )
+                except Exception:  # noqa: BLE001
+                    log.debug("stream_final_edit_failed", internal_user_id=user_id_str)
+                # Send overflow chunks as new messages.
+                for idx, chunk in enumerate(chunks[1:], start=1):
+                    kb = confirm_kb if idx == len(chunks) - 1 else None
+                    await message.answer(
+                        chunk, parse_mode=None, reply_markup=kb,
+                    )
+            else:
+                # No streaming placeholder \u2014 early-exit paths.
+                for idx, chunk in enumerate(chunks):
+                    kb = confirm_kb if idx == len(chunks) - 1 else None
+                    await message.answer(
+                        chunk, parse_mode=None, reply_markup=kb,
+                    )
         except Exception as exc:
             log.warning(
                 "reply_send_failed",

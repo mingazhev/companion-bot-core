@@ -11,8 +11,12 @@ Features
 
 from __future__ import annotations
 
+import json
 import time
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 import httpx
 from tenacity import (
@@ -23,7 +27,12 @@ from tenacity import (
 )
 
 from companion_bot_core.inference.circuit_breaker import CircuitBreaker
-from companion_bot_core.inference.schemas import ChatMessage, OpenAIResponse
+from companion_bot_core.inference.schemas import (
+    ChatMessage,
+    OpenAIResponse,
+    _OpenAIStreamChunk,
+    _StreamEnd,
+)
 from companion_bot_core.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -158,3 +167,86 @@ class ChatAPIClient:
             completion_tokens=response.usage.completion_tokens,
         )
         return response
+
+    async def chat_completion_stream(
+        self,
+        messages: list[ChatMessage],
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+    ) -> AsyncGenerator[str | _StreamEnd, None]:
+        """Stream tokens from the Chat Completions API via SSE.
+
+        Yields ``str`` chunks for content deltas and a final ``_StreamEnd``
+        sentinel carrying usage and safety metadata.
+
+        No tenacity retry — once chunks have been yielded to the caller it is
+        unsafe to restart the request transparently.
+
+        Raises:
+            CircuitBreakerOpen: Provider error rate exceeded the threshold.
+            httpx.HTTPStatusError: Non-retryable HTTP error (400, 401, …).
+        """
+        await self._circuit_breaker._check_state()
+
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            self._max_tokens_param: max_tokens,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if not self._is_gpt5_family:
+            payload["temperature"] = temperature
+
+        finish_reason = "stop"
+        refusal = False
+        prompt_tokens = 0
+        completion_tokens = 0
+        total_tokens = 0
+
+        call_start = time.perf_counter()
+        try:
+            async with self._http.stream(
+                "POST", "/chat/completions", json=payload,
+            ) as response:
+                response.raise_for_status()
+                async for raw_line in response.aiter_lines():
+                    line = raw_line.strip()
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data = line[len("data: "):]
+                    if data == "[DONE]":
+                        break
+                    chunk = _OpenAIStreamChunk.model_validate(json.loads(data))
+                    if chunk.usage is not None:
+                        prompt_tokens = chunk.usage.prompt_tokens
+                        completion_tokens = chunk.usage.completion_tokens
+                        total_tokens = chunk.usage.total_tokens
+                    for choice in chunk.choices:
+                        if choice.finish_reason is not None:
+                            finish_reason = choice.finish_reason
+                        if choice.delta.refusal is not None:
+                            refusal = True
+                        if choice.delta.content:
+                            yield choice.delta.content
+        except BaseException:
+            await self._circuit_breaker._record_failure()
+            raise
+        else:
+            await self._circuit_breaker._record_success()
+
+        elapsed_ms = round((time.perf_counter() - call_start) * 1000, 2)
+        log.info(
+            "model_api_stream_completed",
+            model=self._model,
+            elapsed_ms=elapsed_ms,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )
+        yield _StreamEnd(
+            finish_reason=finish_reason,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            refusal=refusal,
+        )

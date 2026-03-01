@@ -15,9 +15,12 @@ from companion_bot_core.inference.schemas import (
     SafetyFlags,
     TokenUsage,
     UserContext,
+    _StreamEnd,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from companion_bot_core.inference.client import ChatAPIClient
 
 
@@ -74,5 +77,71 @@ async def generate_reply(
             content_filtered=finish_reason == "content_filter",
             refusal=choice.message.refusal is not None,
             finish_reason=finish_reason,
+        ),
+    )
+
+
+async def generate_reply_stream(
+    client: ChatAPIClient,
+    user_context: UserContext,
+    message: str,
+    on_chunk: Callable[[str], Awaitable[None]],
+) -> InferenceReply:
+    """Generate a companion reply with streaming, forwarding tokens via *on_chunk*.
+
+    Same message assembly as :func:`generate_reply`.  Each content delta is
+    forwarded to *on_chunk* as it arrives.  Returns the same
+    :class:`InferenceReply` once the stream is fully consumed.
+
+    Args:
+        client:       Configured ``ChatAPIClient`` instance.
+        user_context: Per-user context including compiled system prompt and
+                      recent conversation window.
+        message:      The new incoming user message.
+        on_chunk:     Async callback invoked with each content delta string.
+
+    Returns:
+        ``InferenceReply`` containing the full reply text, token usage, and
+        safety metadata.
+    """
+    messages: list[ChatMessage] = [
+        ChatMessage(role="system", content=user_context.system_prompt),
+        *user_context.conversation_history,
+        ChatMessage(role="user", content=message),
+    ]
+
+    collected: list[str] = []
+    stream_end: _StreamEnd | None = None
+
+    async for item in client.chat_completion_stream(
+        messages, max_tokens=user_context.max_tokens,
+    ):
+        if isinstance(item, _StreamEnd):
+            stream_end = item
+        else:
+            collected.append(item)
+            await on_chunk(item)
+
+    if stream_end is None:
+        # Should not happen — defensive fallback.
+        stream_end = _StreamEnd(
+            finish_reason="stop",
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_tokens=0,
+            refusal=False,
+        )
+
+    return InferenceReply(
+        reply="".join(collected),
+        usage=TokenUsage(
+            prompt_tokens=stream_end.prompt_tokens,
+            completion_tokens=stream_end.completion_tokens,
+            total_tokens=stream_end.total_tokens,
+        ),
+        safety_flags=SafetyFlags(
+            content_filtered=stream_end.finish_reason == "content_filter",
+            refusal=stream_end.refusal,
+            finish_reason=stream_end.finish_reason,
         ),
     )
