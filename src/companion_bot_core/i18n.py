@@ -363,6 +363,7 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "/refresh_memory — обновить то, что я помню о тебе\n"
             "/reset_persona — вернуть персону по умолчанию\n"
             "/rollback — откатить профиль к предыдущей версии\n"
+            "/reset — стереть данные и начать сначала\n"
             "/delete_my_data — удалить все твои данные навсегда"
         ),
         "en": (
@@ -383,8 +384,30 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "/refresh_memory — refresh what I remember about you\n"
             "/reset_persona — restore default persona\n"
             "/rollback — revert to the previous profile version\n"
+            "/reset — erase data and start fresh\n"
             "/delete_my_data — permanently delete all your data"
         ),
+    },
+    # --- /reset ---
+    "reset.confirm": {
+        "ru": (
+            "Это сотрёт все данные и начнёт всё сначала. Продолжить?"
+        ),
+        "en": (
+            "This will erase all your data and start fresh. Continue?"
+        ),
+    },
+    "reset.done": {
+        "ru": "Данные удалены. Давай начнём сначала!",
+        "en": "Data erased. Let's start fresh!",
+    },
+    "reset.cancelled": {
+        "ru": "Сброс отменён. Твои данные в безопасности.",
+        "en": "Reset cancelled. Your data is safe.",
+    },
+    "reset.expired": {
+        "ru": "Время подтверждения истекло. Используй /reset снова.",
+        "en": "Confirmation expired. Use /reset again.",
     },
     # --- Reworked /start ---
     "start.welcome_new": {

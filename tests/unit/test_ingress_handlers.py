@@ -15,11 +15,14 @@ from companion_bot_core.behavior.extractor import VALID_TONES
 from companion_bot_core.bot.handlers import (
     cb_delete_data_no,
     cb_delete_data_yes,
+    cb_reset_no,
+    cb_reset_yes,
     cmd_delete_my_data,
     cmd_memory_compact_now,
     cmd_privacy,
     cmd_profile,
     cmd_refresh_memory,
+    cmd_reset,
     cmd_reset_persona,
     cmd_set_language,
     cmd_set_persona,
@@ -757,3 +760,96 @@ async def test_handle_message_no_notice_when_not_set() -> None:
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
     msg.answer.assert_called_once_with("Goodbye", parse_mode=None, reply_markup=None)
+
+
+# --------------------------------------------------------------------------- #
+# /reset
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_reset_shows_confirmation() -> None:
+    """The /reset command should show a confirmation prompt."""
+    msg = _make_message()
+    user = _make_user()
+    redis = AsyncMock()
+    redis.set = AsyncMock()
+    await cmd_reset(msg, user, redis)
+    redis.set.assert_awaited_once()
+    guard_key = redis.set.call_args[0][0]
+    assert "reset_confirm" in guard_key
+    msg.answer.assert_called_once()
+    call_kwargs = msg.answer.call_args
+    assert call_kwargs.kwargs.get("reply_markup") is not None
+
+
+@pytest.mark.asyncio
+async def test_reset_yes_deletes_child_data_and_starts_onboarding() -> None:
+    """Pressing 'Yes' deletes child tables, clears Redis, restarts onboarding."""
+    user = _make_user(telegram_user_id=42)
+    db_session = AsyncMock()
+    db_session.execute = AsyncMock()
+    db_session.flush = AsyncMock()
+    redis = AsyncMock()
+    redis.getdel = AsyncMock(return_value="1")
+    redis.delete = AsyncMock()
+    redis.set = AsyncMock()
+    snapshot_store = AsyncMock()
+    callback = AsyncMock()
+    callback.message = AsyncMock()
+    callback.message.edit_text = AsyncMock()
+    callback.message.answer = AsyncMock()
+
+    await cb_reset_yes(callback, user, db_session, redis, snapshot_store)
+
+    # 6 child-table DELETEs
+    assert db_session.execute.await_count == 6
+    db_session.flush.assert_awaited_once()
+    # Snapshot store Redis pointers cleaned.
+    snapshot_store.delete_for_user.assert_awaited_once_with(user.id)
+    # Redis bulk delete called.
+    redis.delete.assert_awaited_once()
+    # Onboarding state set in Redis.
+    redis.set.assert_awaited_once()
+    onboard_key = redis.set.call_args[0][0]
+    assert "onboarding" in onboard_key
+    # Confirmation message edited.
+    callback.message.edit_text.assert_awaited_once()
+    text: str = callback.message.edit_text.call_args[0][0]
+    lower = text.lower()
+    assert "удален" in lower or "erase" in lower or "fresh" in lower
+    # Onboarding step 1 message sent.
+    callback.message.answer.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_reset_yes_expired_guard() -> None:
+    """Pressing 'Yes' after TTL expiry should show an expiry message."""
+    user = _make_user()
+    db_session = AsyncMock()
+    redis = AsyncMock()
+    redis.getdel = AsyncMock(return_value=None)
+    snapshot_store = AsyncMock()
+    callback = AsyncMock()
+    await cb_reset_yes(callback, user, db_session, redis, snapshot_store)
+    callback.answer.assert_awaited_once()
+    alert_text: str = callback.answer.call_args[0][0]
+    assert "истекло" in alert_text.lower() or "expired" in alert_text.lower()
+    snapshot_store.delete_for_user.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reset_no_cancels() -> None:
+    """Pressing 'No' should cancel the reset and clear the guard."""
+    user = _make_user()
+    redis = AsyncMock()
+    redis.delete = AsyncMock()
+    callback = AsyncMock()
+    callback.message = AsyncMock()
+    callback.message.edit_text = AsyncMock()
+    await cb_reset_no(callback, user, redis)
+    redis.delete.assert_awaited_once()
+    callback.message.edit_text.assert_awaited_once()
+    text: str = callback.message.edit_text.call_args[0][0]
+    lower = text.lower()
+    assert "отмен" in lower or "cancel" in lower

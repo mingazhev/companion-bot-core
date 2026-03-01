@@ -16,6 +16,7 @@ Commands implemented here
 - /rollback           \u2014 revert active prompt snapshot to the previous version
 - /privacy            \u2014 display privacy policy summary
 - /delete_my_data     \u2014 initiate hard-delete flow
+- /reset              \u2014 wipe child data and restart onboarding
 """
 
 from __future__ import annotations
@@ -33,10 +34,18 @@ from aiogram import F, Router
 from aiogram.enums import ChatAction, ChatType
 from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from companion_bot_core.behavior.extractor import VALID_TONES
-from companion_bot_core.db.models import User, UserProfile
+from companion_bot_core.db.models import (
+    BehaviorChangeEvent,
+    ConversationMessage,
+    Job,
+    MemoryCompaction,
+    PromptSnapshot,
+    User,
+    UserProfile,
+)
 from companion_bot_core.i18n import SUPPORTED_LOCALES, normalize_locale, tr
 from companion_bot_core.logging_config import get_logger
 from companion_bot_core.orchestrator import process_message
@@ -875,6 +884,144 @@ async def cb_delete_data_no(
     except Exception:  # noqa: BLE001
         log.warning("delete_my_data_cancel_edit_failed", internal_user_id=user_id_str)
     log.info("delete_my_data_cancelled", internal_user_id=user_id_str)
+
+
+# --------------------------------------------------------------------------- #
+# /reset — wipe child data and restart onboarding
+# --------------------------------------------------------------------------- #
+
+
+_RESET_CONFIRM_PREFIX = "reset_confirm"
+_RESET_CONFIRM_TTL = 120
+
+
+@router.message(Command("reset"))
+async def cmd_reset(
+    message: Message,
+    db_user: User,
+    redis: Redis,
+) -> None:
+    """Show a confirmation prompt before wiping child data and restarting onboarding."""
+    if await _guard_private_only(message, db_user):
+        return
+    locale = _user_locale(db_user)
+    user_id_str = str(db_user.id)
+
+    guard_key = f"{_RESET_CONFIRM_PREFIX}:{user_id_str}"
+    await redis.set(guard_key, "1", ex=_RESET_CONFIRM_TTL)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text=tr("btn.yes", locale), callback_data="reset:yes",
+        ),
+        InlineKeyboardButton(
+            text=tr("btn.no", locale), callback_data="reset:no",
+        ),
+    ]])
+    await message.answer(
+        tr("reset.confirm", locale),
+        reply_markup=keyboard,
+        parse_mode=None,
+    )
+    log.info("reset_prompt_shown", internal_user_id=user_id_str)
+
+
+@router.callback_query(F.data == "reset:yes")
+async def cb_reset_yes(
+    callback: CallbackQuery,
+    db_user: User,
+    db_session: AsyncSession,
+    redis: Redis,
+    snapshot_store: SnapshotStore,
+) -> None:
+    """Handle reset confirmation 'Yes': wipe child data and restart onboarding."""
+    locale = _user_locale(db_user)
+    user_id_str = str(db_user.id)
+    guard_key = f"{_RESET_CONFIRM_PREFIX}:{user_id_str}"
+
+    guard = await redis.getdel(guard_key)
+    if guard is None:
+        await callback.answer(tr("reset.expired", locale), show_alert=True)
+        return
+
+    # Delete child tables in FK-safe order (leaves User row intact).
+    for model in (
+        MemoryCompaction,
+        Job,
+        BehaviorChangeEvent,
+        ConversationMessage,
+        PromptSnapshot,
+        UserProfile,
+    ):
+        await db_session.execute(
+            delete(model).where(model.user_id == db_user.id),  # type: ignore[attr-defined]
+        )
+    await db_session.flush()
+
+    # Clear Redis keys scoped to this user.
+    from companion_bot_core.privacy.delete_user import (
+        _REDIS_KEY_PREFIXES,
+        _REDIS_TELEGRAM_KEY_PREFIXES,
+    )
+
+    redis_keys = [f"{p}:{user_id_str}" for p in _REDIS_KEY_PREFIXES]
+    redis_keys += [
+        f"{p}:{db_user.telegram_user_id}" for p in _REDIS_TELEGRAM_KEY_PREFIXES
+    ]
+    redis_keys.append(f"{_ONBOARDING_PREFIX}:{user_id_str}")
+    await redis.delete(*redis_keys)
+
+    # Also clear snapshot store Redis pointers.
+    await snapshot_store.delete_for_user(db_user.id)
+
+    # Edit the confirmation message to "done".
+    await callback.answer()
+    try:
+        if callback.message:
+            await callback.message.edit_text(
+                tr("reset.done", locale), reply_markup=None,
+            )
+    except Exception:  # noqa: BLE001
+        log.warning("reset_edit_failed", internal_user_id=user_id_str)
+
+    # Start onboarding.
+    state_key = f"{_ONBOARDING_PREFIX}:{db_user.id}"
+    await redis.set(
+        state_key, json.dumps({"step": "name"}), ex=_ONBOARDING_TTL,
+    )
+    try:
+        if callback.message:
+            await callback.message.answer(
+                tr("onboarding.step1_name", locale), parse_mode=None,
+            )
+    except Exception:  # noqa: BLE001
+        log.warning("reset_onboarding_send_failed", internal_user_id=user_id_str)
+
+    log.info("reset_completed", internal_user_id=user_id_str)
+
+
+@router.callback_query(F.data == "reset:no")
+async def cb_reset_no(
+    callback: CallbackQuery,
+    db_user: User,
+    redis: Redis,
+) -> None:
+    """Handle reset confirmation 'No'."""
+    locale = _user_locale(db_user)
+    user_id_str = str(db_user.id)
+
+    guard_key = f"{_RESET_CONFIRM_PREFIX}:{user_id_str}"
+    await redis.delete(guard_key)
+
+    await callback.answer()
+    try:
+        if callback.message:
+            await callback.message.edit_text(
+                tr("reset.cancelled", locale), reply_markup=None,
+            )
+    except Exception:  # noqa: BLE001
+        log.warning("reset_cancel_edit_failed", internal_user_id=user_id_str)
+    log.info("reset_cancelled", internal_user_id=user_id_str)
 
 
 # --------------------------------------------------------------------------- #
