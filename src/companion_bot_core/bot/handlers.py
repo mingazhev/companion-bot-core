@@ -20,6 +20,7 @@ Commands implemented here
 
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import secrets
@@ -876,35 +877,61 @@ async def handle_message(
     _placeholder: Message | None = None
     _stream_buf: list[str] = []
     _last_edit: float = 0.0
-    _edit_interval: float = 0.5  # minimum seconds between edits
-    _first_chunk_min_len: int = 12  # buffer before sending placeholder
+    _edit_interval: float = 0.3  # minimum seconds between edits
+    _first_chunk_min_len: int = 4  # buffer before sending placeholder
+    _pending_edit: asyncio.Task[None] | None = None
+
+    async def _flush_edit() -> None:
+        """Send or edit the streaming placeholder (runs as a background task)."""
+        nonlocal _placeholder, _last_edit
+        display = "".join(_stream_buf)[:_TG_MSG_LIMIT]
+        if _placeholder is None:
+            try:
+                _placeholder = await message.answer(
+                    display, parse_mode=None,
+                )
+                _last_edit = time.perf_counter()
+            except Exception:  # noqa: BLE001
+                log.warning(
+                    "stream_placeholder_send_failed",
+                    internal_user_id=user_id_str,
+                )
+        else:
+            try:
+                await _placeholder.edit_text(display, parse_mode=None)
+                _last_edit = time.perf_counter()
+            except Exception:  # noqa: BLE001
+                log.debug(
+                    "stream_edit_failed",
+                    internal_user_id=user_id_str,
+                )
 
     async def _on_chunk(chunk: str) -> None:
-        nonlocal _placeholder, _last_edit
+        nonlocal _pending_edit
         _stream_buf.append(chunk)
         now = time.perf_counter()
 
-        if _placeholder is None:
-            # Buffer a few tokens before showing the placeholder to avoid
-            # a nearly-empty initial message.
-            display = "".join(_stream_buf)
-            if len(display) < _first_chunk_min_len:
-                return
-            try:
-                _placeholder = await message.answer(
-                    display[:_TG_MSG_LIMIT], parse_mode=None,
-                )
-                _last_edit = now
-            except Exception:  # noqa: BLE001
-                log.warning("stream_placeholder_send_failed", internal_user_id=user_id_str)
-        elif now - _last_edit >= _edit_interval:
-            # Throttled edit of the existing placeholder.
-            display = "".join(_stream_buf)[:_TG_MSG_LIMIT]
-            try:
-                await _placeholder.edit_text(display, parse_mode=None)
-                _last_edit = now
-            except Exception:  # noqa: BLE001
-                log.debug("stream_edit_failed", internal_user_id=user_id_str)
+        # Decide whether we should flush an edit to Telegram.
+        should_flush = (
+            (
+                _placeholder is None
+                and len("".join(_stream_buf)) >= _first_chunk_min_len
+            )
+            or (
+                _placeholder is not None
+                and now - _last_edit >= _edit_interval
+            )
+        )
+
+        if not should_flush:
+            return
+
+        # Only fire a new edit task if the previous one has finished,
+        # so the SSE read loop is never blocked by Telegram RTT.
+        if _pending_edit is not None and not _pending_edit.done():
+            return
+
+        _pending_edit = asyncio.create_task(_flush_edit())
 
     async with span("ingress.handle_message", user_id=user_id_str):
         try:
@@ -966,6 +993,16 @@ async def handle_message(
 
         # Deliver the final reply text.  If a placeholder was sent during
         # streaming, edit it with the final text; otherwise use message.answer().
+        # First, wait for any in-flight streaming edit to finish.
+        if _pending_edit is not None and not _pending_edit.done():
+            try:
+                await _pending_edit
+            except Exception:  # noqa: BLE001
+                log.debug(
+                    "stream_pending_edit_await_failed",
+                    internal_user_id=user_id_str,
+                )
+
         try:
             chunks = [
                 reply[i : i + _TG_MSG_LIMIT]
@@ -973,13 +1010,19 @@ async def handle_message(
             ]
             if _placeholder is not None:
                 # Edit the streaming placeholder with the final first chunk.
+                # Skip if the placeholder already shows the same text.
                 first_kb = confirm_kb if len(chunks) == 1 else None
-                try:
-                    await _placeholder.edit_text(
-                        chunks[0], parse_mode=None, reply_markup=first_kb,
-                    )
-                except Exception:  # noqa: BLE001
-                    log.debug("stream_final_edit_failed", internal_user_id=user_id_str)
+                current_display = "".join(_stream_buf)[:_TG_MSG_LIMIT]
+                if chunks[0] != current_display or first_kb is not None:
+                    try:
+                        await _placeholder.edit_text(
+                            chunks[0], parse_mode=None, reply_markup=first_kb,
+                        )
+                    except Exception:  # noqa: BLE001
+                        log.debug(
+                            "stream_final_edit_failed",
+                            internal_user_id=user_id_str,
+                        )
                 # Send overflow chunks as new messages.
                 for idx, chunk in enumerate(chunks[1:], start=1):
                     kb = confirm_kb if idx == len(chunks) - 1 else None
