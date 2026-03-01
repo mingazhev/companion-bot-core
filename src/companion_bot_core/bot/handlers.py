@@ -29,7 +29,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from aiogram import F, Router
-from aiogram.enums import ChatAction
+from aiogram.enums import ChatAction, ChatType
 from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
@@ -95,6 +95,22 @@ _TG_MSG_LIMIT = 4096
 
 def _user_locale(db_user: User | None) -> str:
     return normalize_locale(db_user.locale if db_user is not None else None)
+
+
+def _is_group_chat(message: Message) -> bool:
+    """Return True if the message originates from a group or supergroup."""
+    return message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+
+
+async def _guard_private_only(message: Message, db_user: User) -> bool:
+    """Reply with an error and return True if called from a group chat."""
+    if _is_group_chat(message):
+        locale = _user_locale(db_user)
+        await message.reply(
+            tr("group.personal_command", locale), parse_mode=None,
+        )
+        return True
+    return False
 
 
 # Characters banned in user-supplied names (same set as cmd_set_persona).
@@ -242,6 +258,8 @@ async def cmd_profile(
     encryptor: FieldEncryptor | None = None,
 ) -> None:
     """Display the user's current profile information."""
+    if await _guard_private_only(message, db_user):
+        return
     locale = _user_locale(db_user)
     enc = encryptor or NOOP_ENCRYPTOR
     result = await db_session.execute(
@@ -291,6 +309,8 @@ async def cmd_memory(
     snapshot_store: SnapshotStore,
 ) -> None:
     """Show what the bot remembers about the user."""
+    if await _guard_private_only(message, db_user):
+        return
     locale = _user_locale(db_user)
     snapshot = await snapshot_store.get_active(db_user.id)
     sections = extract_memory_sections(snapshot)
@@ -337,6 +357,8 @@ async def cmd_remember(
     snapshot_store: SnapshotStore,
 ) -> None:
     """Append a fact to the user's long-term profile."""
+    if await _guard_private_only(message, db_user):
+        return
     locale = _user_locale(db_user)
     fact = (command.args or "").strip()
     if not fact:
@@ -382,6 +404,8 @@ async def cmd_forget(
     snapshot_store: SnapshotStore,
 ) -> None:
     """Remove a matching fact from the user's long-term profile."""
+    if await _guard_private_only(message, db_user):
+        return
     locale = _user_locale(db_user)
     query = (command.args or "").strip()
     if not query:
@@ -461,6 +485,8 @@ async def cmd_set_tone(
     redis: Redis | None = None,
 ) -> None:
     """Set the response tone. Usage: /set_tone <tone>"""
+    if await _guard_private_only(message, db_user):
+        return
     locale = _user_locale(db_user)
     enc = encryptor or NOOP_ENCRYPTOR
     tone = (command.args or "").strip().lower()
@@ -555,6 +581,8 @@ async def cmd_set_persona(
     redis: Redis | None = None,
 ) -> None:
     """Set the persona name. Usage: /set_persona <name>"""
+    if await _guard_private_only(message, db_user):
+        return
     locale = _user_locale(db_user)
     enc = encryptor or NOOP_ENCRYPTOR
     name = (command.args or "").strip()
@@ -644,6 +672,8 @@ async def cmd_set_persona(
 @router.message(Command("refresh_memory"))
 async def cmd_refresh_memory(message: Message, db_user: User, redis: Redis) -> None:
     """Review conversations and refresh what the bot remembers about the user."""
+    if await _guard_private_only(message, db_user):
+        return
     locale = _user_locale(db_user)
     user_id_str = str(db_user.id)
 
@@ -693,6 +723,8 @@ async def cmd_reset_persona(
     redis: Redis | None = None,
 ) -> None:
     """Reset the user's persona and tone to defaults."""
+    if await _guard_private_only(message, db_user):
+        return
     locale = _user_locale(db_user)
     # Serialize concurrent profile updates for the same user.
     lock_key = f"profile:write:{db_user.id}"
@@ -747,6 +779,8 @@ async def cmd_rollback(
     snapshot_store: SnapshotStore,
 ) -> None:
     """Revert the active prompt snapshot to the previous version."""
+    if await _guard_private_only(message, db_user):
+        return
     locale = _user_locale(db_user)
     try:
         rolled_back = await rollback_to_previous(
@@ -793,6 +827,8 @@ async def cmd_delete_my_data(
     null user_id (audit minimality requirement).  Redis keys scoped to
     the user are also removed.  In-memory snapshot data is also purged.
     """
+    if await _guard_private_only(message, db_user):
+        return
     locale = _user_locale(db_user)
     user_id_str = str(db_user.id)
     await hard_delete_user(db_user.id, db_session, redis, telegram_user_id=db_user.telegram_user_id)
@@ -824,6 +860,8 @@ async def handle_message(
     locale = _user_locale(db_user)
     user_id_str = str(db_user.id)
     text = message.text or ""
+    _is_group = _is_group_chat(message)
+    _reply_fn = message.reply if _is_group else message.answer
 
     # --- Onboarding guard: intercept text during onboarding ---
     _ob_key = f"{_ONBOARDING_PREFIX}:{db_user.id}"
@@ -887,7 +925,7 @@ async def handle_message(
         display = "".join(_stream_buf)[:_TG_MSG_LIMIT]
         if _placeholder is None:
             try:
-                _placeholder = await message.answer(
+                _placeholder = await _reply_fn(
                     display, parse_mode=None,
                 )
                 _last_edit = time.perf_counter()
@@ -961,7 +999,7 @@ async def handle_message(
             # partially-flushed state such as assistant messages the user
             # never saw).
             try:
-                await message.answer(
+                await _reply_fn(
                     tr("handle.error", locale),
                     parse_mode=None,
                 )
@@ -1026,14 +1064,14 @@ async def handle_message(
                 # Send overflow chunks as new messages.
                 for idx, chunk in enumerate(chunks[1:], start=1):
                     kb = confirm_kb if idx == len(chunks) - 1 else None
-                    await message.answer(
+                    await _reply_fn(
                         chunk, parse_mode=None, reply_markup=kb,
                     )
             else:
                 # No streaming placeholder \u2014 early-exit paths.
                 for idx, chunk in enumerate(chunks):
                     kb = confirm_kb if idx == len(chunks) - 1 else None
-                    await message.answer(
+                    await _reply_fn(
                         chunk, parse_mode=None, reply_markup=kb,
                     )
         except Exception as exc:
@@ -1053,7 +1091,7 @@ async def handle_message(
                     notice_text = _format_refinement_diff(notice_diff, locale)
                 else:
                     notice_text = tr("notice.profile_updated_v2", locale)
-                await message.answer(notice_text, parse_mode=None)
+                await _reply_fn(notice_text, parse_mode=None)
         except Exception:
             log.warning("notice_send_failed", internal_user_id=user_id_str)
 
@@ -1090,6 +1128,8 @@ def _settings_keyboard(locale: str) -> InlineKeyboardMarkup:
 @router.message(Command("settings"))
 async def cmd_settings(message: Message, db_user: User) -> None:
     """Show the settings menu with inline buttons."""
+    if await _guard_private_only(message, db_user):
+        return
     locale = _user_locale(db_user)
     await message.answer(
         tr("settings.choose", locale),
@@ -1306,6 +1346,8 @@ def _personas_keyboard(locale: str) -> InlineKeyboardMarkup:
 @router.message(Command("personas"))
 async def cmd_personas(message: Message, db_user: User) -> None:
     """Browse available personas."""
+    if await _guard_private_only(message, db_user):
+        return
     locale = _user_locale(db_user)
     await message.answer(
         tr("personas.title", locale),
@@ -1544,6 +1586,8 @@ async def cmd_skills(
     snapshot_store: SnapshotStore,
 ) -> None:
     """Show the skill catalog with toggle buttons."""
+    if await _guard_private_only(message, db_user):
+        return
     locale = _user_locale(db_user)
     snapshot = await snapshot_store.get_active(db_user.id)
     active_skills = snapshot.skill_prompts_json if snapshot else {}

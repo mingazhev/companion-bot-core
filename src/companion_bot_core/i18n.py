@@ -584,6 +584,11 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         "ru": "Я понимаю только текстовые сообщения. Попробуй написать мне текстом!",
         "en": "I only understand text messages. Try sending me some text!",
     },
+    # --- Group chats ---
+    "group.personal_command": {
+        "ru": "Эта команда работает только в личных сообщениях.",
+        "en": "This command is only available in private chats.",
+    },
     # --- Continuity ---
     "prompt.continuity_instruction": {
         "ru": (
