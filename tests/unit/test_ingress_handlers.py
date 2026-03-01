@@ -712,10 +712,13 @@ async def test_handle_message_sends_profile_updated_notice_when_set() -> None:
     ):
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
-    assert msg.answer.call_count == 2
-    assert msg.answer.call_args_list[0][0][0] == "Reply text"
-    notice = msg.answer.call_args_list[1][0][0].lower()
-    assert "profile" in notice or "профил" in notice or "/memory" in notice
+    # Notice is now appended inline to the reply (single message).
+    msg.answer.assert_called_once()
+    sent_text: str = msg.answer.call_args[0][0]
+    assert sent_text.startswith("Reply text")
+    assert "---" in sent_text
+    lower = sent_text.lower()
+    assert "profile" in lower or "профил" in lower or "/memory" in lower
 
 
 @pytest.mark.asyncio

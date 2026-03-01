@@ -1108,6 +1108,19 @@ async def handle_message(
                 log.warning("error_reply_send_failed", internal_user_id=user_id_str)
             raise
 
+        # Append refinement notice inline if the worker updated the prompt
+        # since the user's last message — avoids a separate "double bubble".
+        try:
+            notice_diff = await check_and_clear_user_notice(redis, user_id_str)
+            if notice_diff is not None:
+                if notice_diff:
+                    notice_text = _format_refinement_diff(notice_diff, locale)
+                else:
+                    notice_text = tr("notice.profile_updated_v2", locale)
+                reply = f"{reply}\n\n---\n{notice_text}"
+        except Exception:  # noqa: BLE001
+            log.warning("notice_check_failed", internal_user_id=user_id_str)
+
         # Check if a pending confirmation was just created — if so, attach
         # inline Yes/No buttons so the user doesn't have to type "yes"/"no".
         from companion_bot_core.orchestrator.dialogue_state import (
@@ -1182,19 +1195,6 @@ async def handle_message(
                 reply_length=len(reply),
                 error=str(exc),
             )
-
-        # Surface "profile updated" notice if the refinement worker finished
-        # updating this user's prompt snapshot since their last message.
-        try:
-            notice_diff = await check_and_clear_user_notice(redis, user_id_str)
-            if notice_diff is not None:
-                if notice_diff:
-                    notice_text = _format_refinement_diff(notice_diff, locale)
-                else:
-                    notice_text = tr("notice.profile_updated_v2", locale)
-                await _reply_fn(notice_text, parse_mode=None)
-        except Exception:
-            log.warning("notice_send_failed", internal_user_id=user_id_str)
 
     elapsed_ms = round((time.perf_counter() - ingress_start) * 1000, 2)
     log.info(
