@@ -17,7 +17,7 @@ from typing import Final
 
 # Valid tones accepted by the system (matches handlers._VALID_TONES).
 VALID_TONES: Final[frozenset[str]] = frozenset(
-    {"friendly", "professional", "playful", "neutral", "casual"}
+    {"friendly", "professional", "playful", "neutral", "casual", "concise"}
 )
 
 # Mapping from common adjective synonyms to the canonical tone name.
@@ -68,6 +68,15 @@ _TONE_ALIASES: Final[dict[str, str]] = {
     "нейтральный": "neutral",
     "нейтральнее": "neutral",
     "сбалансированный": "neutral",
+    "concise": "concise",
+    "brief": "concise",
+    "short": "concise",
+    "terse": "concise",
+    "succinct": "concise",
+    "лаконичный": "concise",
+    "лаконичнее": "concise",
+    "кратко": "concise",
+    "краткий": "concise",
     "casual": "casual",
     "relaxed": "casual",
     "informal": "casual",
