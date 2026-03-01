@@ -74,7 +74,7 @@ companion-bot-core                       # run the bot
 - `refinement:last_scheduled:{user_uuid}` — timestamp of last cadence-triggered refinement
 - `abuse:violations:{user_uuid}` — sorted set of violation timestamps
 - `abuse:block:{user_uuid}` — block flag with TTL
-- `prompt_cache:{user_uuid}` — cached prompt snapshot (5-minute TTL); not yet wired into context loader
+- `prompt_cache:{user_uuid}` — cached prompt snapshot (5-minute TTL); wired into `context_loader.load_user_context()`, invalidated by `PostgresSnapshotStore.set_active()`
 - `refinement:pending:{user_uuid}` — SET-NX guard preventing duplicate refinement enqueues (10-minute TTL)
 - `prompt:active:{user_uuid}` — active snapshot pointer (PostgresSnapshotStore)
 - `prompt:version:{user_uuid}` — monotonic snapshot version counter (PostgresSnapshotStore)
@@ -83,7 +83,6 @@ companion-bot-core                       # run the bot
 ## Known incomplete features (explicitly deferred)
 
 - Webhook mode — raises `NotImplementedError`; only polling is functional
-- Prompt cache (`prompt_cache:{user_uuid}`) is defined in `redis/prompt_cache.py` but not yet wired into the context loader pipeline
 
 ## Security notes
 

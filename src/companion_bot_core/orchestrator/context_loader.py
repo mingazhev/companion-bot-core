@@ -23,6 +23,7 @@ from companion_bot_core.prompt.schemas import (
     PromptComponents,
     SnapshotRecord,
 )
+from companion_bot_core.redis.prompt_cache import cache_prompt, get_cached_prompt
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -251,24 +252,44 @@ async def load_user_context(
     Returns:
         A populated :class:`~companion_bot_core.inference.schemas.UserContext`.
     """
-    snapshot = await snapshot_store.get_active(user_id)
+    user_id_str = str(user_id)
 
-    if snapshot is not None:
-        system_prompt = snapshot.system_prompt
+    # Try prompt cache before hitting the snapshot store / DB.
+    cached: dict[str, str] | None = None
+    if redis is not None:
+        try:
+            cached = await get_cached_prompt(redis, user_id_str)
+        except Exception:  # noqa: BLE001
+            log.warning("prompt_cache_read_failed", user_id=user_id_str)
+
+    if cached is not None:
+        system_prompt = cached["system_prompt"]
     else:
-        components = PromptComponents(base_system_template=DEFAULT_SYSTEM_TEMPLATE)
-        system_prompt = build_system_prompt(components)
-        # Persist an initial snapshot so the refinement worker has a base to
-        # build on.  Without this, the worker always skips new users.
-        version = await snapshot_store.next_version(user_id)
-        initial = SnapshotRecord(
-            user_id=user_id,
-            version=version,
-            system_prompt=system_prompt,
-            source="initial",
-        )
-        await snapshot_store.save(initial, session=session)
-        await snapshot_store.set_active(user_id, initial.id, session=session)
+        snapshot = await snapshot_store.get_active(user_id)
+
+        if snapshot is not None:
+            system_prompt = snapshot.system_prompt
+        else:
+            components = PromptComponents(base_system_template=DEFAULT_SYSTEM_TEMPLATE)
+            system_prompt = build_system_prompt(components)
+            # Persist an initial snapshot so the refinement worker has a base to
+            # build on.  Without this, the worker always skips new users.
+            version = await snapshot_store.next_version(user_id)
+            initial = SnapshotRecord(
+                user_id=user_id,
+                version=version,
+                system_prompt=system_prompt,
+                source="initial",
+            )
+            await snapshot_store.save(initial, session=session)
+            await snapshot_store.set_active(user_id, initial.id, session=session)
+
+        # Populate cache on miss.
+        if redis is not None:
+            try:
+                await cache_prompt(redis, user_id_str, {"system_prompt": system_prompt})
+            except Exception:  # noqa: BLE001
+                log.warning("prompt_cache_write_failed", user_id=user_id_str)
 
     if locale is not None:
         system_prompt = (
@@ -279,7 +300,6 @@ async def load_user_context(
     history = await load_recent_messages(session, user_id, limit=20, encryptor=encryptor)
 
     # Inject continuity hints and proactive suggestions when Redis is available
-    user_id_str = str(user_id)
     activity_gap = 0
     if redis is not None:
         try:

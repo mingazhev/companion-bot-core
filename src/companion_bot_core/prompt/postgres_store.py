@@ -23,6 +23,7 @@ from companion_bot_core.db.engine import get_async_session
 from companion_bot_core.db.models import PromptSnapshot
 from companion_bot_core.logging_config import get_logger
 from companion_bot_core.prompt.schemas import SnapshotRecord
+from companion_bot_core.redis.prompt_cache import invalidate_prompt_cache
 
 log = get_logger(__name__)
 
@@ -183,6 +184,14 @@ class PostgresSnapshotStore:
             pending.append((f"prompt:active:{user_id}", str(snapshot_id)))
         else:
             await self._redis.set(f"prompt:active:{user_id}", str(snapshot_id))
+
+        # Eagerly invalidate prompt cache so the next request loads the fresh
+        # snapshot.  Safe regardless of session outcome: on rollback the cache
+        # miss simply reloads the previous (still-current) snapshot.
+        try:
+            await invalidate_prompt_cache(self._redis, str(user_id))
+        except Exception:  # noqa: BLE001
+            log.warning("prompt_cache_invalidation_failed", user_id=str(user_id))
 
     # -- listing / versioning ----------------------------------------------- #
 
