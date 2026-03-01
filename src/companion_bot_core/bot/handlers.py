@@ -1801,7 +1801,7 @@ async def cb_confirm_yes(
     pending = await _get_pending(redis, user_id_str)
 
     if pending is None:
-        await callback.answer()
+        await callback.answer(tr("confirm.expired", locale), show_alert=True)
         return
 
     try:
@@ -1859,14 +1859,16 @@ async def cb_confirm_no(
     locale = _user_locale(db_user)
     user_id_str = str(db_user.id)
     pending = await _get_pending(redis, user_id_str)
-    if pending is not None:
-        await _record_event(
-            db_session,
-            db_user.id,
-            pending.detection_result,
-            applied=False,
-            confirmed=False,
-        )
+    if pending is None:
+        await callback.answer(tr("confirm.expired", locale), show_alert=True)
+        return
+    await _record_event(
+        db_session,
+        db_user.id,
+        pending.detection_result,
+        applied=False,
+        confirmed=False,
+    )
     await _clear_pending(redis, user_id_str)
 
     if callback.message is not None:

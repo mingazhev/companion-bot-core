@@ -505,6 +505,10 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         "ru": "Применить это изменение? Подтверди, пожалуйста.",
         "en": "Apply this change? Please confirm.",
     },
+    "confirm.expired": {
+        "ru": "Время подтверждения истекло. Напиши запрос заново.",
+        "en": "Confirmation has expired. Please send your request again.",
+    },
     # --- Personas ---
     "personas.title": {
         "ru": "Выбери персону:",
