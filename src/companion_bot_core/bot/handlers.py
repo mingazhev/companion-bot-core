@@ -787,7 +787,9 @@ async def cmd_rollback(
             snapshot_store, db_user.id, session=db_session,
         )
     except RollbackError as exc:
-        await message.answer(str(exc), parse_mode=None)
+        err_msg = str(exc)
+        key = "rollback.no_snapshot" if "No active snapshot" in err_msg else "rollback.no_previous"
+        await message.answer(tr(key, locale), parse_mode=None)
         return
     await message.answer(
         tr("rollback.updated", locale, version=rolled_back.version),

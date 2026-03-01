@@ -104,6 +104,14 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "Use /set_persona and /set_tone to customise again."
         ),
     },
+    "rollback.no_snapshot": {
+        "ru": "Нечего откатывать — у тебя пока нет сохранённого профиля.",
+        "en": "Nothing to roll back — you don't have a saved profile yet.",
+    },
+    "rollback.no_previous": {
+        "ru": "Откатываться некуда — это единственная версия профиля.",
+        "en": "Nothing to roll back to — this is the only profile version.",
+    },
     "rollback.updated": {
         "ru": "Профиль откатан к версии {version}.\nИзменения применятся со следующего сообщения.",
         "en": (
