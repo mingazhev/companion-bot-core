@@ -1212,9 +1212,9 @@ async def cmd_settings(message: Message, db_user: User) -> None:
 _TONE_LIST = sorted(VALID_TONES)
 
 
-def _tone_keyboard() -> InlineKeyboardMarkup:
+def _tone_keyboard(locale: str) -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text=tone.capitalize(), callback_data=f"tone:{tone}")]
+        [InlineKeyboardButton(text=tr(f"tone_label.{tone}", locale), callback_data=f"tone:{tone}")]
         for tone in _TONE_LIST
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -1226,7 +1226,7 @@ async def cb_settings_tone(callback: CallbackQuery, db_user: User) -> None:
     if callback.message is not None:
         await callback.message.edit_text(  # type: ignore[union-attr]
             tr("tone.pick", locale),
-            reply_markup=_tone_keyboard(),
+            reply_markup=_tone_keyboard(locale),
         )
     await callback.answer()
 

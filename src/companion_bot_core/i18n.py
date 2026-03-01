@@ -578,6 +578,8 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
     "tone_label.professional": {"ru": "Деловой", "en": "Professional"},
     "tone_label.playful": {"ru": "Игривый", "en": "Playful"},
     "tone_label.concise": {"ru": "Лаконичный", "en": "Concise"},
+    "tone_label.neutral": {"ru": "Нейтральный", "en": "Neutral"},
+    "tone_label.casual": {"ru": "Неформальный", "en": "Casual"},
     # --- Guardrail command blocks ---
     "guardrail.command_blocked": {
         "ru": "Значение содержит недопустимый контент. Попробуй другой вариант.",
