@@ -936,39 +936,47 @@ async def handle_message(
     _ob_key = f"{_ONBOARDING_PREFIX}:{db_user.id}"
     _ob_raw = await redis.get(_ob_key)
     if _ob_raw is not None:
-        _ob_state = json.loads(_ob_raw)
-        _ob_step = _ob_state.get("step", "")
+        # If the user sends a /command during onboarding, cancel onboarding
+        # and let the message fall through to normal processing.
+        if text.startswith("/"):
+            await redis.delete(_ob_key)
+            log.info("onboarding_escaped_by_command", user_id=user_id_str)
+        else:
+            _ob_state = json.loads(_ob_raw)
+            _ob_step = _ob_state.get("step", "")
 
-        if _ob_step == "name":
-            # Process name input
-            name = _sanitize_onboarding_name(text)
-            if name is None:
-                await message.answer(
-                    tr("onboarding.name_invalid", locale), parse_mode=None,
-                )
-                return
-            # Guardrail check on onboarding name
-            for _gcheck in (check_prompt_injection, check_unsafe_role_change):
-                if not _gcheck(name).allowed:
+            if _ob_step == "name":
+                # Process name input
+                name = _sanitize_onboarding_name(text)
+                if name is None:
                     await message.answer(
-                        tr("guardrail.command_blocked", locale), parse_mode=None,
+                        tr("onboarding.name_invalid", locale), parse_mode=None,
                     )
                     return
-            _ob_state["name"] = name
-            _ob_state["step"] = "interests"
-            await redis.set(_ob_key, json.dumps(_ob_state), ex=_ONBOARDING_TTL)
+                # Guardrail check on onboarding name
+                for _gcheck in (check_prompt_injection, check_unsafe_role_change):
+                    if not _gcheck(name).allowed:
+                        await message.answer(
+                            tr("guardrail.command_blocked", locale), parse_mode=None,
+                        )
+                        return
+                _ob_state["name"] = name
+                _ob_state["step"] = "interests"
+                await redis.set(
+                    _ob_key, json.dumps(_ob_state), ex=_ONBOARDING_TTL,
+                )
+                await message.answer(
+                    tr("onboarding.step2_interests", locale, name=html.escape(name)),
+                    parse_mode=None,
+                    reply_markup=_interest_keyboard(locale),
+                )
+                return
+
+            # User is on a button-selection step — ask them to use buttons
             await message.answer(
-                tr("onboarding.step2_interests", locale, name=html.escape(name)),
-                parse_mode=None,
-                reply_markup=_interest_keyboard(locale),
+                tr("onboarding.please_use_buttons", locale), parse_mode=None,
             )
             return
-
-        # User is on a button-selection step — ask them to use buttons
-        await message.answer(
-            tr("onboarding.please_use_buttons", locale), parse_mode=None,
-        )
-        return
 
     ingress_start = time.perf_counter()
     reply = ""
@@ -1868,7 +1876,7 @@ async def cb_confirm_no(
 
 
 _ONBOARDING_PREFIX = "onboarding"
-_ONBOARDING_TTL = 600  # 10 minutes
+_ONBOARDING_TTL = 180  # 3 minutes
 
 
 @router.callback_query(F.data.startswith("onboard_interest:"))
@@ -1912,6 +1920,12 @@ async def cb_onboard_interest(
                 callback_data="onboard_tone:concise",
             ),
         ],
+        [
+            InlineKeyboardButton(
+                text=tr("onboarding.skip", locale),
+                callback_data="onboard_tone:skip",
+            ),
+        ],
     ])
     if callback.message is not None:
         await callback.message.edit_text(  # type: ignore[union-attr]
@@ -1946,12 +1960,14 @@ async def cb_onboard_tone(
     profile = await get_or_create_profile(db_session, db_user.id)
     if name:
         profile.persona_name = enc.encrypt(name)
-    profile.tone = enc.encrypt(tone)
+    if tone != "skip":
+        profile.tone = enc.encrypt(tone)
     await db_session.flush()
 
     # Build initial snapshot with interest as long-term profile fact
+    effective_tone = tone if tone != "skip" else None
     await rebuild_and_save_snapshot(
-        snapshot_store, db_user.id, name or None, tone,
+        snapshot_store, db_user.id, name or None, effective_tone,
         session=db_session,
     )
     if interest:
