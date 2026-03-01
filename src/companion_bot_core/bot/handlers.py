@@ -21,6 +21,7 @@ Commands implemented here
 from __future__ import annotations
 
 import html
+import json
 import secrets
 import time
 from typing import TYPE_CHECKING
@@ -92,6 +93,57 @@ def _user_locale(db_user: User | None) -> str:
     return normalize_locale(db_user.locale if db_user is not None else None)
 
 
+# Characters banned in user-supplied names (same set as cmd_set_persona).
+_BANNED_NAME_CHARS: frozenset[str] = frozenset(
+    "\x7f\u200b\u200c\u200d\u200e\u200f"
+    "\u2028\u2029\u202a\u202b\u202c\u202d\u202e\ufeff"
+)
+
+
+def _sanitize_onboarding_name(text: str) -> str | None:
+    """Validate and sanitize a name entered during onboarding.
+
+    Returns the cleaned name or ``None`` if invalid.
+    """
+    name = text.strip()
+    if not name or len(name) > 64:  # noqa: PLR2004
+        return None
+    if any(c < " " or c in _BANNED_NAME_CHARS for c in name):
+        return None
+    return name
+
+
+def _interest_keyboard(locale: str) -> InlineKeyboardMarkup:
+    """Build the interest-selection inline keyboard for onboarding step 2."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=tr("interest.tech", locale),
+                callback_data="onboard_interest:tech",
+            ),
+            InlineKeyboardButton(
+                text=tr("interest.creative", locale),
+                callback_data="onboard_interest:creative",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=tr("interest.learning", locale),
+                callback_data="onboard_interest:learning",
+            ),
+            InlineKeyboardButton(
+                text=tr("interest.fitness", locale),
+                callback_data="onboard_interest:fitness",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=tr("onboarding.skip", locale),
+                callback_data="onboard_interest:skip",
+            ),
+        ],
+    ])
+
 
 # --------------------------------------------------------------------------- #
 # /start
@@ -104,6 +156,7 @@ async def cmd_start(
     db_user: User,
     db_session: AsyncSession,
     snapshot_store: SnapshotStore,
+    redis: Redis,
     encryptor: FieldEncryptor | None = None,
 ) -> None:
     """Welcome message: value-prop for new users, personalised greeting for returning."""
@@ -127,43 +180,16 @@ async def cmd_start(
             text = tr("start.welcome_back_no_name", locale)
         await message.answer(text, parse_mode=None)
     else:
-        # New user — warm value-prop + onboarding (interest selection)
+        # New user — warm value-prop + onboarding step 1 (name input)
         await message.answer(
             tr("start.welcome_new", locale), parse_mode=None,
         )
-        # Trigger onboarding: show interest selection buttons
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=tr("interest.tech", locale),
-                    callback_data="onboard_interest:tech",
-                ),
-                InlineKeyboardButton(
-                    text=tr("interest.creative", locale),
-                    callback_data="onboard_interest:creative",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text=tr("interest.learning", locale),
-                    callback_data="onboard_interest:learning",
-                ),
-                InlineKeyboardButton(
-                    text=tr("interest.fitness", locale),
-                    callback_data="onboard_interest:fitness",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text=tr("onboarding.skip", locale),
-                    callback_data="onboard_interest:skip",
-                ),
-            ],
-        ])
+        state_key = f"{_ONBOARDING_PREFIX}:{db_user.id}"
+        await redis.set(
+            state_key, json.dumps({"step": "name"}), ex=_ONBOARDING_TTL,
+        )
         await message.answer(
-            tr("onboarding.step2_interests_no_name", locale),
-            parse_mode=None,
-            reply_markup=kb,
+            tr("onboarding.step1_name", locale), parse_mode=None,
         )
 
     log.info("cmd_start", internal_user_id=str(db_user.id))
@@ -750,6 +776,38 @@ async def handle_message(
     locale = _user_locale(db_user)
     user_id_str = str(db_user.id)
     text = message.text or ""
+
+    # --- Onboarding guard: intercept text during onboarding ---
+    _ob_key = f"{_ONBOARDING_PREFIX}:{db_user.id}"
+    _ob_raw = await redis.get(_ob_key)
+    if _ob_raw is not None:
+        _ob_state = json.loads(_ob_raw)
+        _ob_step = _ob_state.get("step", "")
+
+        if _ob_step == "name":
+            # Process name input
+            name = _sanitize_onboarding_name(text)
+            if name is None:
+                await message.answer(
+                    tr("onboarding.name_invalid", locale), parse_mode=None,
+                )
+                return
+            _ob_state["name"] = name
+            _ob_state["step"] = "interests"
+            await redis.set(_ob_key, json.dumps(_ob_state), ex=_ONBOARDING_TTL)
+            await message.answer(
+                tr("onboarding.step2_interests", locale, name=html.escape(name)),
+                parse_mode=None,
+                reply_markup=_interest_keyboard(locale),
+            )
+            return
+
+        # User is on a button-selection step — ask them to use buttons
+        await message.answer(
+            tr("onboarding.please_use_buttons", locale), parse_mode=None,
+        )
+        return
+
     ingress_start = time.perf_counter()
     reply = ""
 
@@ -1591,18 +1649,17 @@ async def cb_onboard_interest(
     redis: Redis,
 ) -> None:
     """Handle interest selection in onboarding step 2."""
-    import json as _json
-
     locale = _user_locale(db_user)
     interest = (callback.data or "").split(":", 1)[1]
     state_key = f"{_ONBOARDING_PREFIX}:{db_user.id}"
 
     # Store selected interest (skip means no interest)
     raw = await redis.get(state_key)
-    state = _json.loads(raw) if raw else {}
+    state = json.loads(raw) if raw else {}
     if interest != "skip":
         state["interest"] = interest
-    await redis.set(state_key, _json.dumps(state), ex=_ONBOARDING_TTL)
+    state["step"] = "tone"
+    await redis.set(state_key, json.dumps(state), ex=_ONBOARDING_TTL)
 
     # Show tone selection (step 3)
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -1650,9 +1707,8 @@ async def cb_onboard_tone(
     enc = encryptor or NOOP_ENCRYPTOR
     state_key = f"{_ONBOARDING_PREFIX}:{db_user.id}"
 
-    import json as _json
     raw = await redis.get(state_key)
-    state = _json.loads(raw) if raw else {}
+    state = json.loads(raw) if raw else {}
     interest = state.get("interest", "")
     name = state.get("name", "")
 

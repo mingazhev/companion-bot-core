@@ -352,13 +352,16 @@ async def test_cmd_start_new_user() -> None:
     user = _make_user()
     db_session = _make_empty_profile_session()
     store = InMemorySnapshotStore()
+    redis = AsyncMock()
 
-    await cmd_start(msg, user, db_session, store)
-    # cmd_start sends 2 messages for new users (welcome + onboarding interests)
+    await cmd_start(msg, user, db_session, store, redis)
+    # cmd_start sends 2 messages for new users (welcome + name prompt)
     assert msg.answer.call_count >= 1
     text: str = msg.answer.call_args_list[0][0][0]
     # New user gets value-prop message
     assert "компаньон" in text.lower() or "companion" in text.lower()
+    # Redis should store onboarding state
+    redis.set.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -368,8 +371,9 @@ async def test_cmd_start_returning_user_with_name() -> None:
     profile = UserProfile(user_id=user.id, persona_name="Alice", tone="friendly")
     db_session = _make_profile_session(existing_profile=profile)
     store = InMemorySnapshotStore()
+    redis = AsyncMock()
 
-    await cmd_start(msg, user, db_session, store)
+    await cmd_start(msg, user, db_session, store, redis)
     text: str = msg.answer.call_args[0][0]
     assert "Alice" in text
 

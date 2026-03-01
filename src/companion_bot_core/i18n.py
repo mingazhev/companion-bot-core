@@ -520,6 +520,14 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         "ru": "Пропустить",
         "en": "Skip",
     },
+    "onboarding.name_invalid": {
+        "ru": "Имя должно быть от 1 до 64 символов без спецсимволов. Попробуй ещё раз!",
+        "en": "Name should be 1\u201364 characters without special characters. Try again!",
+    },
+    "onboarding.please_use_buttons": {
+        "ru": "Пожалуйста, выбери вариант из кнопок выше для завершения настройки.",
+        "en": "Please choose an option from the buttons above to finish setup.",
+    },
     # --- Interest labels for onboarding ---
     "interest.tech": {"ru": "Технологии", "en": "Technology"},
     "interest.creative": {"ru": "Творчество", "en": "Creative"},

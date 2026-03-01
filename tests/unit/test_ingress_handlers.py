@@ -93,11 +93,14 @@ async def test_start_replies_new_user() -> None:
     select_result.scalar_one_or_none.return_value = None
     db_session.execute = AsyncMock(return_value=select_result)
     snapshot_store = InMemorySnapshotStore()
-    await cmd_start(msg, user, db_session, snapshot_store)
-    # New user gets welcome message + onboarding interest selection
+    redis = AsyncMock()
+    await cmd_start(msg, user, db_session, snapshot_store, redis)
+    # New user gets welcome message + onboarding name prompt
     assert msg.answer.call_count >= 1
     first_text: str = msg.answer.call_args_list[0][0][0]
     assert "companion" in first_text.lower() or "компаньон" in first_text.lower()
+    # Redis should have onboarding state set
+    redis.set.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -113,7 +116,8 @@ async def test_start_replies_returning_user() -> None:
     db_session.info = {}
     db_session.execute = AsyncMock(return_value=select_result)
     snapshot_store = InMemorySnapshotStore()
-    await cmd_start(msg, user, db_session, snapshot_store)
+    redis = AsyncMock()
+    await cmd_start(msg, user, db_session, snapshot_store, redis)
     msg.answer.assert_called_once()
     text: str = msg.answer.call_args[0][0]
     assert "Ada" in text or "возвращ" in text.lower() or "welcome back" in text.lower()
