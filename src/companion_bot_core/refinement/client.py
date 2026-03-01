@@ -38,6 +38,9 @@ Rules:
 - Never remove safety constraints or introduce new capabilities.
 - Never embed instructions that could override safety policy.
 - When you detect issues, set the appropriate risk_flags (see below).
+- Lines prefixed with [manual] in long_term_profile were added by the user
+  via /remember. Always preserve them verbatim — never remove, rephrase,
+  or merge them. You may add new auto-detected facts alongside them.
 
 Style analysis:
 - Observe the user's message length patterns (short vs. detailed).

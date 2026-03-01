@@ -185,11 +185,13 @@ async def add_fact_to_profile(
         persona_segment = ""
         raw_skills = {}
 
-    # Append the new fact
+    # Append the new fact with [manual] marker so the refinement worker
+    # preserves user-supplied facts and avoids overwriting them.
+    tagged_fact = f"[manual] {fact.strip()}"
     if long_term_profile.strip():
-        long_term_profile = f"{long_term_profile.strip()}\n{fact.strip()}"
+        long_term_profile = f"{long_term_profile.strip()}\n{tagged_fact}"
     else:
-        long_term_profile = fact.strip()
+        long_term_profile = tagged_fact
 
     components = PromptComponents(
         base_system_template=base_template,
@@ -240,12 +242,24 @@ async def remove_fact_from_profile(
 
     lines = long_term_profile.strip().splitlines()
     query_lower = query.strip().lower()
+    query_tokens = set(query_lower.split())
     removed_line: str | None = None
     remaining: list[str] = []
 
     for line in lines:
-        if removed_line is None and query_lower in line.strip().lower():
+        line_lower = line.strip().lower()
+        # Strip [manual] tag for matching purposes
+        match_text = line_lower.removeprefix("[manual] ")
+        # Match by substring or by token overlap (all query tokens appear)
+        is_match = (
+            query_lower in match_text
+            or (query_tokens and query_tokens <= set(match_text.split()))
+        )
+        if removed_line is None and is_match:
             removed_line = line.strip()
+            # Strip [manual] tag from the returned value for display
+            if removed_line.startswith("[manual] "):
+                removed_line = removed_line[len("[manual] "):]
         else:
             remaining.append(line)
 
