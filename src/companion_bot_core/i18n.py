@@ -587,12 +587,16 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
     # --- Continuity ---
     "prompt.continuity_instruction": {
         "ru": (
-            "Пользователь возвращается после перерыва. "
-            "Можешь ненавязчиво упомянуть недавние темы: {topics}"
+            "Пользователь возвращается после перерыва в {gap}. "
+            "Поприветствуй его возвращение и естественно упомяни "
+            "недавние темы: {topics}. "
+            "Не перечисляй их списком — вплети в разговор."
         ),
         "en": (
-            "The user is returning after a break. "
-            "You may naturally reference these recent topics: {topics}"
+            "The user is returning after being away for {gap}. "
+            "Welcome them back and naturally reference "
+            "these recent topics: {topics}. "
+            "Don't list them — weave them into the conversation."
         ),
     },
     # --- Suggestions ---

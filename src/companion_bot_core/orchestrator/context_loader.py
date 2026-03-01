@@ -102,8 +102,8 @@ async def load_recent_messages(
 def _extract_recent_topics(messages: list[ChatMessage], max_topics: int = 3) -> list[str]:
     """Extract recent conversation topics from message history.
 
-    Looks at user messages and extracts short topic summaries by taking
-    the first sentence (up to 60 chars) of each unique user message.
+    Looks at user messages and extracts the first meaningful sentence
+    (up to 80 chars) from each unique message.
     """
     topics: list[str] = []
     seen: set[str] = set()
@@ -111,17 +111,37 @@ def _extract_recent_topics(messages: list[ChatMessage], max_topics: int = 3) -> 
         if msg.role != "user":
             continue
         text = msg.content.strip()
-        if not text or len(text) < 5:  # noqa: PLR2004
+        if not text or len(text) < 10:  # noqa: PLR2004
             continue
-        # Take first sentence or first 60 chars
-        topic = text.split(".")[0].split("?")[0].split("!")[0][:60].strip()
+        # Find the first sentence longer than 10 chars.
+        sentences = text.replace("?", ".").replace("!", ".").split(".")
+        topic = ""
+        for sentence in sentences:
+            s = sentence.strip()
+            if len(s) > 10:  # noqa: PLR2004
+                topic = s[:80].strip()
+                break
+        if not topic:
+            topic = text[:80].strip()
         topic_lower = topic.lower()
-        if topic_lower not in seen and len(topic) > 3:  # noqa: PLR2004
+        if topic_lower not in seen and len(topic) > 5:  # noqa: PLR2004
             topics.append(topic)
             seen.add(topic_lower)
         if len(topics) >= max_topics:
             break
     return topics
+
+
+def _format_gap(seconds: int, locale: str) -> str:
+    """Format a time gap in seconds into a human-readable string."""
+    if seconds < 3600:  # noqa: PLR2004
+        minutes = max(1, seconds // 60)
+        return f"{minutes} мин." if locale == "ru" else f"{minutes} min"
+    hours = seconds // 3600
+    if hours < 24:  # noqa: PLR2004
+        return f"{hours} ч." if locale == "ru" else f"{hours}h"
+    days = hours // 24
+    return f"{days} дн." if locale == "ru" else f"{days}d"
 
 
 async def build_continuity_hint(
@@ -166,7 +186,11 @@ async def build_continuity_hint(
 
     resolved = normalize_locale(locale)
     topics_str = "; ".join(topics)
-    return tr("prompt.continuity_instruction", resolved, topics=topics_str), gap
+    gap_str = _format_gap(gap, resolved)
+    return tr(
+        "prompt.continuity_instruction", resolved,
+        topics=topics_str, gap=gap_str,
+    ), gap
 
 
 async def build_suggestion_hint(
