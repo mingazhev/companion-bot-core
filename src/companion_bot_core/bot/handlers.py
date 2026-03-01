@@ -25,6 +25,7 @@ import html
 import json
 import secrets
 import time
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -52,6 +53,8 @@ from companion_bot_core.prompt.helpers import (
 from companion_bot_core.tracing import span
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
     from aiogram.types import Message
     from redis.asyncio import Redis
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -181,6 +184,51 @@ def _format_refinement_diff(diff: dict[str, Any], locale: str) -> str:
     if "skills_removed" in diff:
         parts.append(tr("notice.skills_removed", locale, items=", ".join(diff["skills_removed"])))
     return "\n\n".join(parts)
+
+
+class _ProfileLockBusyError(Exception):
+    """Raised when the Redis profile write lock cannot be acquired."""
+
+
+@asynccontextmanager
+async def _profile_write_lock(
+    redis: Redis | None,
+    db_session: AsyncSession,
+    user_id: Any,
+) -> AsyncGenerator[None, None]:
+    """Acquire a Redis write lock for profile updates.
+
+    On the success path the lock release is deferred until after the DB
+    transaction commits (via ``defer_lock_release``).  On error the lock is
+    released immediately so the user can retry without waiting for the TTL.
+
+    Raises ``_ProfileLockBusyError`` when the lock is already held.
+    """
+    lock_key = f"profile:write:{user_id}"
+    lock_token = secrets.token_hex(16)
+    lock_held = False
+    if redis is not None:
+        lock_held = bool(await redis.set(lock_key, lock_token, nx=True, ex=120))
+        if not lock_held:
+            raise _ProfileLockBusyError
+
+    deferred = False
+    try:
+        yield
+        if lock_held:
+            defer_lock_release(db_session, lock_key, lock_token)
+            deferred = True
+    finally:
+        if lock_held and not deferred:
+            if redis is None:  # pragma: no cover – invariant
+                log.error("profile_lock_release_impossible")
+            else:
+                try:
+                    await redis.eval(  # type: ignore[no-untyped-call]
+                        PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token,
+                    )
+                except Exception:  # noqa: BLE001
+                    log.warning("profile_lock_release_failed")
 
 
 # --------------------------------------------------------------------------- #
@@ -505,64 +553,27 @@ async def cmd_set_tone(
         )
         return
 
-    # Serialize concurrent profile updates for the same user to prevent a
-    # read-modify-write race where two simultaneous commands each read the
-    # same base snapshot and the last commit silently drops the other change.
-    lock_key = f"profile:write:{db_user.id}"
-    lock_token = secrets.token_hex(16)
-    lock_held = False
-    if redis is not None:
-        lock_held = bool(await redis.set(lock_key, lock_token, nx=True, ex=120))
-        if not lock_held:
-            await message.answer(tr("profile.lock_in_progress", locale), parse_mode=None)
-            return
-
-    # When the success path completes, the lock release is deferred until after
-    # the DB transaction commits and deferred Redis pointer writes are flushed
-    # (handled by IngressMiddleware).  On the error path (exception before
-    # deferral), the lock is released immediately in the finally block so the
-    # user can retry without waiting for the TTL to expire.
-    deferred = False
     try:
-        # Acquire a PostgreSQL advisory transaction lock to guarantee
-        # serialization for the full duration of the DB transaction.  This
-        # complements the Redis TTL lock above: the Redis lock provides a fast
-        # rejection for obvious concurrency; the advisory lock eliminates the
-        # residual race where the TTL could expire before the transaction
-        # commits.  The advisory lock auto-releases when the transaction ends.
-        await acquire_profile_advisory_lock(db_session, db_user.id)
-        profile = await get_or_create_profile(db_session, db_user.id)
-        # Decrypt existing persona_name for prompt building before encrypting new tone.
-        raw_persona = (
-            enc.decrypt_safe(profile.persona_name, default="")
-            if profile.persona_name else None
-        )
-        profile.tone = enc.encrypt(tone)
-        await db_session.flush()
-        await rebuild_and_save_snapshot(
-            snapshot_store, db_user.id, raw_persona, tone,
-            session=db_session,
-        )
-        await message.answer(
-            tr("set_tone.updated", locale, tone=tone),
-            parse_mode=None,
-        )
-        log.info("set_tone", internal_user_id=str(db_user.id), tone=tone)
-        # Defer release until after commit + Redis pointer flush (success path).
-        if lock_held:
-            # redis cannot be None here: lock_held is only True after a
-            # successful redis.set() inside `if redis is not None`.
-            defer_lock_release(db_session, lock_key, lock_token)
-            deferred = True
-    finally:
-        if lock_held and not deferred:
-            if redis is None:  # invariant: should never happen
-                log.error("profile_lock_release_impossible", internal_user_id=str(db_user.id))
-            else:
-                try:
-                    await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[no-untyped-call]
-                except Exception:  # noqa: BLE001
-                    log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
+        async with _profile_write_lock(redis, db_session, db_user.id):
+            await acquire_profile_advisory_lock(db_session, db_user.id)
+            profile = await get_or_create_profile(db_session, db_user.id)
+            raw_persona = (
+                enc.decrypt_safe(profile.persona_name, default="")
+                if profile.persona_name else None
+            )
+            profile.tone = enc.encrypt(tone)
+            await db_session.flush()
+            await rebuild_and_save_snapshot(
+                snapshot_store, db_user.id, raw_persona, tone,
+                session=db_session,
+            )
+            await message.answer(
+                tr("set_tone.updated", locale, tone=tone),
+                parse_mode=None,
+            )
+            log.info("set_tone", internal_user_id=str(db_user.id), tone=tone)
+    except _ProfileLockBusyError:
+        await message.answer(tr("profile.lock_in_progress", locale), parse_mode=None)
 
 
 # --------------------------------------------------------------------------- #
@@ -617,51 +628,27 @@ async def cmd_set_persona(
             )
             return
 
-    # Serialize concurrent profile updates for the same user.
-    lock_key = f"profile:write:{db_user.id}"
-    lock_token = secrets.token_hex(16)
-    lock_held = False
-    if redis is not None:
-        lock_held = bool(await redis.set(lock_key, lock_token, nx=True, ex=120))
-        if not lock_held:
-            await message.answer(tr("profile.lock_in_progress", locale), parse_mode=None)
-            return
-
-    deferred = False
     try:
-        await acquire_profile_advisory_lock(db_session, db_user.id)
-        profile = await get_or_create_profile(db_session, db_user.id)
-        # Decrypt existing tone for prompt building before encrypting new persona name.
-        raw_tone = (
-            enc.decrypt_safe(profile.tone, default="")
-            if profile.tone else None
-        )
-        profile.persona_name = enc.encrypt(name)
-        await db_session.flush()
-        await rebuild_and_save_snapshot(
-            snapshot_store, db_user.id, name, raw_tone,
-            session=db_session,
-        )
-        await message.answer(
-            tr("set_persona.updated", locale, name=html.escape(name)),
-            parse_mode=None,
-        )
-        log.info("set_persona", internal_user_id=str(db_user.id), persona_name=name)
-        # Defer release until after commit + Redis pointer flush (success path).
-        if lock_held:
-            # redis cannot be None here: lock_held is only True after a
-            # successful redis.set() inside `if redis is not None`.
-            defer_lock_release(db_session, lock_key, lock_token)
-            deferred = True
-    finally:
-        if lock_held and not deferred:
-            if redis is None:  # invariant: should never happen
-                log.error("profile_lock_release_impossible", internal_user_id=str(db_user.id))
-            else:
-                try:
-                    await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[no-untyped-call]
-                except Exception:  # noqa: BLE001
-                    log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
+        async with _profile_write_lock(redis, db_session, db_user.id):
+            await acquire_profile_advisory_lock(db_session, db_user.id)
+            profile = await get_or_create_profile(db_session, db_user.id)
+            raw_tone = (
+                enc.decrypt_safe(profile.tone, default="")
+                if profile.tone else None
+            )
+            profile.persona_name = enc.encrypt(name)
+            await db_session.flush()
+            await rebuild_and_save_snapshot(
+                snapshot_store, db_user.id, name, raw_tone,
+                session=db_session,
+            )
+            await message.answer(
+                tr("set_persona.updated", locale, name=html.escape(name)),
+                parse_mode=None,
+            )
+            log.info("set_persona", internal_user_id=str(db_user.id), persona_name=name)
+    except _ProfileLockBusyError:
+        await message.answer(tr("profile.lock_in_progress", locale), parse_mode=None)
 
 
 # --------------------------------------------------------------------------- #
@@ -726,44 +713,21 @@ async def cmd_reset_persona(
     if await _guard_private_only(message, db_user):
         return
     locale = _user_locale(db_user)
-    # Serialize concurrent profile updates for the same user.
-    lock_key = f"profile:write:{db_user.id}"
-    lock_token = secrets.token_hex(16)
-    lock_held = False
-    if redis is not None:
-        lock_held = bool(await redis.set(lock_key, lock_token, nx=True, ex=120))
-        if not lock_held:
-            await message.answer(tr("profile.lock_in_progress", locale), parse_mode=None)
-            return
-
-    deferred = False
     try:
-        await acquire_profile_advisory_lock(db_session, db_user.id)
-        profile = await get_or_create_profile(db_session, db_user.id)
-        profile.persona_name = None
-        profile.tone = None
-        await db_session.flush()
-        await rebuild_and_save_snapshot(
-            snapshot_store, db_user.id, None, None,
-            session=db_session,
-        )
-        await message.answer(tr("reset_persona.updated", locale), parse_mode=None)
-        log.info("reset_persona", internal_user_id=str(db_user.id))
-        # Defer release until after commit + Redis pointer flush (success path).
-        if lock_held:
-            # redis cannot be None here: lock_held is only True after a
-            # successful redis.set() inside `if redis is not None`.
-            defer_lock_release(db_session, lock_key, lock_token)
-            deferred = True
-    finally:
-        if lock_held and not deferred:
-            if redis is None:  # invariant: should never happen
-                log.error("profile_lock_release_impossible", internal_user_id=str(db_user.id))
-            else:
-                try:
-                    await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[no-untyped-call]
-                except Exception:  # noqa: BLE001
-                    log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
+        async with _profile_write_lock(redis, db_session, db_user.id):
+            await acquire_profile_advisory_lock(db_session, db_user.id)
+            profile = await get_or_create_profile(db_session, db_user.id)
+            profile.persona_name = None
+            profile.tone = None
+            await db_session.flush()
+            await rebuild_and_save_snapshot(
+                snapshot_store, db_user.id, None, None,
+                session=db_session,
+            )
+            await message.answer(tr("reset_persona.updated", locale), parse_mode=None)
+            log.info("reset_persona", internal_user_id=str(db_user.id))
+    except _ProfileLockBusyError:
+        await message.answer(tr("profile.lock_in_progress", locale), parse_mode=None)
 
 
 # --------------------------------------------------------------------------- #
@@ -1274,6 +1238,7 @@ async def cb_tone_pick(
     db_session: AsyncSession,
     snapshot_store: SnapshotStore,
     encryptor: FieldEncryptor | None = None,
+    redis: Redis | None = None,
 ) -> None:
     tone = (callback.data or "").split(":", 1)[1]
     locale = _user_locale(db_user)
@@ -1283,24 +1248,28 @@ async def cb_tone_pick(
         await callback.answer()
         return
 
-    await acquire_profile_advisory_lock(db_session, db_user.id)
-    profile = await get_or_create_profile(db_session, db_user.id)
-    raw_persona = (
-        enc.decrypt_safe(profile.persona_name, default="")
-        if profile.persona_name else None
-    )
-    profile.tone = enc.encrypt(tone)
-    await db_session.flush()
-    await rebuild_and_save_snapshot(
-        snapshot_store, db_user.id, raw_persona, tone,
-        session=db_session,
-    )
-    if callback.message is not None:
-        await callback.message.edit_text(  # type: ignore[union-attr]
-            tr("tone.set", locale, tone=tone),
-        )
-    await callback.answer()
-    log.info("cb_tone_pick", internal_user_id=str(db_user.id), tone=tone)
+    try:
+        async with _profile_write_lock(redis, db_session, db_user.id):
+            await acquire_profile_advisory_lock(db_session, db_user.id)
+            profile = await get_or_create_profile(db_session, db_user.id)
+            raw_persona = (
+                enc.decrypt_safe(profile.persona_name, default="")
+                if profile.persona_name else None
+            )
+            profile.tone = enc.encrypt(tone)
+            await db_session.flush()
+            await rebuild_and_save_snapshot(
+                snapshot_store, db_user.id, raw_persona, tone,
+                session=db_session,
+            )
+            if callback.message is not None:
+                await callback.message.edit_text(  # type: ignore[union-attr]
+                    tr("tone.set", locale, tone=tone),
+                )
+            await callback.answer()
+            log.info("cb_tone_pick", internal_user_id=str(db_user.id), tone=tone)
+    except _ProfileLockBusyError:
+        await callback.answer(tr("profile.lock_in_progress", locale))
 
 
 # --------------------------------------------------------------------------- #
@@ -1504,6 +1473,7 @@ async def cb_persona_deep_select(
     db_session: AsyncSession,
     snapshot_store: SnapshotStore,
     encryptor: FieldEncryptor | None = None,
+    redis: Redis | None = None,
 ) -> None:
     locale = _user_locale(db_user)
     key = (callback.data or "").split(":", 1)[1]
@@ -1516,56 +1486,59 @@ async def cb_persona_deep_select(
     name_key = "name_ru" if locale == "ru" else "name_en"
     persona_name = persona[name_key]
 
-    await acquire_profile_advisory_lock(db_session, db_user.id)
-    profile = await get_or_create_profile(db_session, db_user.id)
-    raw_tone = (
-        enc.decrypt_safe(profile.tone, default="") if profile.tone else None
-    )
-    profile.persona_name = enc.encrypt(persona_name)
-    await db_session.flush()
+    try:
+        async with _profile_write_lock(redis, db_session, db_user.id):
+            await acquire_profile_advisory_lock(db_session, db_user.id)
+            profile = await get_or_create_profile(db_session, db_user.id)
+            raw_tone = (
+                enc.decrypt_safe(profile.tone, default="") if profile.tone else None
+            )
+            profile.persona_name = enc.encrypt(persona_name)
+            await db_session.flush()
 
-    # Build snapshot with rich persona text instead of just name
-    current = await snapshot_store.get_active(db_user.id)
-    if current is not None:
-        base_template = _extract_base_template(current.system_prompt)
-        skill_packs_dict: dict[str, str] = {
-            k: str(v) for k, v in current.skill_prompts_json.items()
-        }
-        ltp = _extract_section(current.system_prompt, "Long-term Profile")
-        raw_skills: dict[str, object] = dict(current.skill_prompts_json)
-    else:
-        base_template = _DEFAULT_SYSTEM_TEMPLATE
-        skill_packs_dict = {}
-        ltp = ""
-        raw_skills = {}
+            current = await snapshot_store.get_active(db_user.id)
+            if current is not None:
+                base_template = _extract_base_template(current.system_prompt)
+                skill_packs_dict: dict[str, str] = {
+                    k: str(v) for k, v in current.skill_prompts_json.items()
+                }
+                ltp = _extract_section(current.system_prompt, "Long-term Profile")
+                raw_skills: dict[str, object] = dict(current.skill_prompts_json)
+            else:
+                base_template = _DEFAULT_SYSTEM_TEMPLATE
+                skill_packs_dict = {}
+                ltp = ""
+                raw_skills = {}
 
-    persona_segment = f"Name: {persona_name}\n{persona['persona_text']}"
-    if raw_tone:
-        persona_segment += f"\nTone: {raw_tone}"
-    components = _PromptComponents(
-        base_system_template=base_template,
-        persona_segment=persona_segment,
-        skill_packs=skill_packs_dict,
-        long_term_profile=ltp,
-    )
-    system_prompt = _build_system_prompt(components)
-    version = await snapshot_store.next_version(db_user.id)
-    record = _SnapshotRecord(
-        user_id=db_user.id,
-        version=version,
-        system_prompt=system_prompt,
-        skill_prompts_json=raw_skills,
-        source="user_command",
-    )
-    await snapshot_store.save(record, session=db_session)
-    await snapshot_store.set_active(db_user.id, record.id, session=db_session)
+            persona_segment = f"Name: {persona_name}\n{persona['persona_text']}"
+            if raw_tone:
+                persona_segment += f"\nTone: {raw_tone}"
+            components = _PromptComponents(
+                base_system_template=base_template,
+                persona_segment=persona_segment,
+                skill_packs=skill_packs_dict,
+                long_term_profile=ltp,
+            )
+            system_prompt = _build_system_prompt(components)
+            version = await snapshot_store.next_version(db_user.id)
+            record = _SnapshotRecord(
+                user_id=db_user.id,
+                version=version,
+                system_prompt=system_prompt,
+                skill_prompts_json=raw_skills,
+                source="user_command",
+            )
+            await snapshot_store.save(record, session=db_session)
+            await snapshot_store.set_active(db_user.id, record.id, session=db_session)
 
-    if callback.message is not None:
-        await callback.message.edit_text(  # type: ignore[union-attr]
-            tr("personas.selected", locale, name=persona_name),
-        )
-    await callback.answer()
-    log.info("cb_persona_deep", internal_user_id=str(db_user.id), persona=key)
+            if callback.message is not None:
+                await callback.message.edit_text(  # type: ignore[union-attr]
+                    tr("personas.selected", locale, name=persona_name),
+                )
+            await callback.answer()
+            log.info("cb_persona_deep", internal_user_id=str(db_user.id), persona=key)
+    except _ProfileLockBusyError:
+        await callback.answer(tr("profile.lock_in_progress", locale))
 
 
 @router.callback_query(F.data.startswith("persona_set:"))
@@ -1575,6 +1548,7 @@ async def cb_persona_set(
     db_session: AsyncSession,
     snapshot_store: SnapshotStore,
     encryptor: FieldEncryptor | None = None,
+    redis: Redis | None = None,
 ) -> None:
     locale = _user_locale(db_user)
     key = (callback.data or "").split(":", 1)[1]
@@ -1583,23 +1557,27 @@ async def cb_persona_set(
         return
 
     enc = encryptor or NOOP_ENCRYPTOR
-    await acquire_profile_advisory_lock(db_session, db_user.id)
-    profile = await get_or_create_profile(db_session, db_user.id)
-    raw_tone = (
-        enc.decrypt_safe(profile.tone, default="") if profile.tone else None
-    )
-    profile.persona_name = enc.encrypt(key)
-    await db_session.flush()
-    await rebuild_and_save_snapshot(
-        snapshot_store, db_user.id, key, raw_tone,
-        session=db_session,
-    )
-    if callback.message is not None:
-        await callback.message.edit_text(  # type: ignore[union-attr]
-            tr("personas.selected", locale, name=key.capitalize()),
-        )
-    await callback.answer()
-    log.info("cb_persona_set", internal_user_id=str(db_user.id), persona=key)
+    try:
+        async with _profile_write_lock(redis, db_session, db_user.id):
+            await acquire_profile_advisory_lock(db_session, db_user.id)
+            profile = await get_or_create_profile(db_session, db_user.id)
+            raw_tone = (
+                enc.decrypt_safe(profile.tone, default="") if profile.tone else None
+            )
+            profile.persona_name = enc.encrypt(key)
+            await db_session.flush()
+            await rebuild_and_save_snapshot(
+                snapshot_store, db_user.id, key, raw_tone,
+                session=db_session,
+            )
+            if callback.message is not None:
+                await callback.message.edit_text(  # type: ignore[union-attr]
+                    tr("personas.selected", locale, name=key.capitalize()),
+                )
+            await callback.answer()
+            log.info("cb_persona_set", internal_user_id=str(db_user.id), persona=key)
+    except _ProfileLockBusyError:
+        await callback.answer(tr("profile.lock_in_progress", locale))
 
 
 # --------------------------------------------------------------------------- #
@@ -1724,6 +1702,7 @@ async def cb_skill_toggle(
     db_user: User,
     db_session: AsyncSession,
     snapshot_store: SnapshotStore,
+    redis: Redis | None = None,
 ) -> None:
     locale = _user_locale(db_user)
     key = (callback.data or "").split(":", 1)[1]
@@ -1734,59 +1713,60 @@ async def cb_skill_toggle(
 
     name_key = "name_ru" if locale == "ru" else "name_en"
 
-    await acquire_profile_advisory_lock(db_session, db_user.id)
-    snapshot = await snapshot_store.get_active(db_user.id)
-    active_skills = dict(snapshot.skill_prompts_json) if snapshot else {}
+    try:
+        async with _profile_write_lock(redis, db_session, db_user.id):
+            await acquire_profile_advisory_lock(db_session, db_user.id)
+            snapshot = await snapshot_store.get_active(db_user.id)
+            active_skills = dict(snapshot.skill_prompts_json) if snapshot else {}
 
-    # Extract current snapshot components
-    if snapshot is not None:
-        base = _extract_base_template(snapshot.system_prompt)
-        sp: dict[str, str] = {k: str(v) for k, v in snapshot.skill_prompts_json.items()}
-        ltp = _extract_section(snapshot.system_prompt, "Long-term Profile")
-        ps = _extract_section(snapshot.system_prompt, "Persona")
-    else:
-        base = _DEFAULT_SYSTEM_TEMPLATE
-        sp = {}
-        ltp = ""
-        ps = ""
+            if snapshot is not None:
+                base = _extract_base_template(snapshot.system_prompt)
+                sp: dict[str, str] = {k: str(v) for k, v in snapshot.skill_prompts_json.items()}
+                ltp = _extract_section(snapshot.system_prompt, "Long-term Profile")
+                ps = _extract_section(snapshot.system_prompt, "Persona")
+            else:
+                base = _DEFAULT_SYSTEM_TEMPLATE
+                sp = {}
+                ltp = ""
+                ps = ""
 
-    if key in active_skills:
-        # Remove skill
-        sp.pop(key, None)
-        msg = tr("skills.toggled_off", locale, name=skill[name_key])
-    else:
-        # Add skill
-        sp[key] = skill["prompt"]
-        msg = tr("skills.toggled_on", locale, name=skill[name_key])
+            if key in active_skills:
+                sp.pop(key, None)
+                msg = tr("skills.toggled_off", locale, name=skill[name_key])
+            else:
+                sp[key] = skill["prompt"]
+                msg = tr("skills.toggled_on", locale, name=skill[name_key])
 
-    comp = _PromptComponents(
-        base_system_template=base,
-        persona_segment=ps,
-        skill_packs=sp,
-        long_term_profile=ltp,
-    )
-    sys_p = _build_system_prompt(comp)
-    ver = await snapshot_store.next_version(db_user.id)
-    rec = _SnapshotRecord(
-        user_id=db_user.id,
-        version=ver,
-        system_prompt=sys_p,
-        skill_prompts_json=dict(sp),
-        source="user_command",
-    )
-    await snapshot_store.save(rec, session=db_session)
-    await snapshot_store.set_active(db_user.id, rec.id, session=db_session)
+            comp = _PromptComponents(
+                base_system_template=base,
+                persona_segment=ps,
+                skill_packs=sp,
+                long_term_profile=ltp,
+            )
+            sys_p = _build_system_prompt(comp)
+            ver = await snapshot_store.next_version(db_user.id)
+            rec = _SnapshotRecord(
+                user_id=db_user.id,
+                version=ver,
+                system_prompt=sys_p,
+                skill_prompts_json=dict(sp),
+                source="user_command",
+            )
+            await snapshot_store.save(rec, session=db_session)
+            await snapshot_store.set_active(db_user.id, rec.id, session=db_session)
 
-    # Refresh the keyboard with updated state
-    snapshot = await snapshot_store.get_active(db_user.id)
-    new_active = snapshot.skill_prompts_json if snapshot else {}
-    if callback.message is not None:
-        await callback.message.edit_text(  # type: ignore[union-attr]
-            msg,
-            reply_markup=_skills_keyboard(locale, new_active),
-        )
-    await callback.answer()
-    log.info("cb_skill_toggle", internal_user_id=str(db_user.id), skill=key)
+            # Refresh the keyboard with updated state
+            snapshot = await snapshot_store.get_active(db_user.id)
+            new_active = snapshot.skill_prompts_json if snapshot else {}
+            if callback.message is not None:
+                await callback.message.edit_text(  # type: ignore[union-attr]
+                    msg,
+                    reply_markup=_skills_keyboard(locale, new_active),
+                )
+            await callback.answer()
+            log.info("cb_skill_toggle", internal_user_id=str(db_user.id), skill=key)
+    except _ProfileLockBusyError:
+        await callback.answer(tr("profile.lock_in_progress", locale))
 
 
 # --------------------------------------------------------------------------- #
@@ -1825,34 +1805,38 @@ async def cb_confirm_yes(
         await callback.answer()
         return
 
-    applied = await _apply_change(
-        intent=pending.detection_result.intent,
-        message_text=pending.original_message,
-        user_id=db_user.id,
-        session=db_session,
-        snapshot_store=snapshot_store,
-        encryptor=encryptor,
-    )
-    await _record_event(
-        db_session,
-        db_user.id,
-        pending.detection_result,
-        applied=applied,
-        confirmed=True,
-    )
-    await _clear_pending(redis, user_id_str)
+    try:
+        async with _profile_write_lock(redis, db_session, db_user.id):
+            applied = await _apply_change(
+                intent=pending.detection_result.intent,
+                message_text=pending.original_message,
+                user_id=db_user.id,
+                session=db_session,
+                snapshot_store=snapshot_store,
+                encryptor=encryptor,
+            )
+            await _record_event(
+                db_session,
+                db_user.id,
+                pending.detection_result,
+                applied=applied,
+                confirmed=True,
+            )
+            await _clear_pending(redis, user_id_str)
 
-    if callback.message is not None:
-        text = (
-            tr("orchestrator.change_applied", locale)
-            if applied
-            else tr("orchestrator.change_apply_failed", locale)
-        )
-        await callback.message.edit_text(  # type: ignore[union-attr]
-            text,
-        )
-    await callback.answer()
-    log.info("cb_confirm_yes", internal_user_id=user_id_str, applied=applied)
+            if callback.message is not None:
+                text = (
+                    tr("orchestrator.change_applied", locale)
+                    if applied
+                    else tr("orchestrator.change_apply_failed", locale)
+                )
+                await callback.message.edit_text(  # type: ignore[union-attr]
+                    text,
+                )
+            await callback.answer()
+            log.info("cb_confirm_yes", internal_user_id=user_id_str, applied=applied)
+    except _ProfileLockBusyError:
+        await callback.answer(tr("profile.lock_in_progress", locale))
 
 
 @router.callback_query(F.data == "confirm:no")
@@ -1979,36 +1963,37 @@ async def cb_onboard_tone(
     interest = state.get("interest", "")
     name = state.get("name", "")
 
-    # Set up profile
-    await acquire_profile_advisory_lock(db_session, db_user.id)
-    profile = await get_or_create_profile(db_session, db_user.id)
-    if name:
-        profile.persona_name = enc.encrypt(name)
-    if tone != "skip":
-        profile.tone = enc.encrypt(tone)
-    await db_session.flush()
+    try:
+        async with _profile_write_lock(redis, db_session, db_user.id):
+            await acquire_profile_advisory_lock(db_session, db_user.id)
+            profile = await get_or_create_profile(db_session, db_user.id)
+            if name:
+                profile.persona_name = enc.encrypt(name)
+            if tone != "skip":
+                profile.tone = enc.encrypt(tone)
+            await db_session.flush()
 
-    # Build initial snapshot with interest as long-term profile fact
-    effective_tone = tone if tone != "skip" else None
-    await rebuild_and_save_snapshot(
-        snapshot_store, db_user.id, name or None, effective_tone,
-        session=db_session,
-    )
-    if interest:
-        await add_fact_to_profile(
-            snapshot_store, db_user.id, f"Interested in: {interest}",
-            session=db_session,
-        )
+            effective_tone = tone if tone != "skip" else None
+            await rebuild_and_save_snapshot(
+                snapshot_store, db_user.id, name or None, effective_tone,
+                session=db_session,
+            )
+            if interest:
+                await add_fact_to_profile(
+                    snapshot_store, db_user.id, f"Interested in: {interest}",
+                    session=db_session,
+                )
 
-    # Clean up Redis state
-    await redis.delete(state_key)
+            await redis.delete(state_key)
 
-    if callback.message is not None:
-        await callback.message.edit_text(  # type: ignore[union-attr]
-            tr("onboarding.done", locale),
-        )
-    await callback.answer()
-    log.info("onboarding_completed", internal_user_id=str(db_user.id))
+            if callback.message is not None:
+                await callback.message.edit_text(  # type: ignore[union-attr]
+                    tr("onboarding.done", locale),
+                )
+            await callback.answer()
+            log.info("onboarding_completed", internal_user_id=str(db_user.id))
+    except _ProfileLockBusyError:
+        await callback.answer(tr("profile.lock_in_progress", locale))
 
 
 # --------------------------------------------------------------------------- #
