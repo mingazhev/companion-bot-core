@@ -26,7 +26,6 @@ def normalize_locale(locale: str | None) -> Locale:
 
 
 _MESSAGES: dict[str, dict[Locale, str]] = {
-    # start.text removed — replaced by start.welcome_new / start.welcome_back
     "profile.not_set": {"ru": "(не задано)", "en": "(not set)"},
     "profile.decrypt_failed": {"ru": "(не удалось расшифровать)", "en": "(unable to decrypt)"},
     "profile.summary": {
@@ -91,7 +90,6 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         "ru": "Имя персоны изменено на '{name}'.\nИзменения применятся со следующего сообщения.",
         "en": "Persona name set to '{name}'.\nChanges will take effect from your next message.",
     },
-    # memory_compact.* keys removed — replaced by refresh_memory.*
     "reset_persona.updated": {
         "ru": (
             "Персона и тон общения сброшены к настройкам по умолчанию.\n"
@@ -161,7 +159,6 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         "ru": "Не удалось обработать сообщение. Попробуй ещё раз чуть позже.",
         "en": "Something went wrong while processing your message. Please try again in a moment.",
     },
-    # notice.profile_updated removed — replaced by notice.profile_updated_v2
     "orchestrator.circuit_open": {
         "ru": "Сейчас есть проблемы с доступом к AI-сервису. Попробуй ещё раз чуть позже.",
         "en": "I'm having trouble reaching the AI service right now. Please try again in a moment.",
@@ -309,10 +306,6 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "Just chat with me and I'll gradually get to know you.\n\n"
             "Or use /remember to tell me something about yourself."
         ),
-    },
-    "memory.no_profile": {
-        "ru": "О тебе пока ничего не записано.",
-        "en": "Nothing recorded about you yet.",
     },
     "remember.missing": {
         "ru": (

@@ -128,24 +128,8 @@ _REFUSE_MSG = (
     "I can't make that change — it conflicts with safety guidelines. "
     "If you'd like to adjust your experience, try /set_tone or /set_persona."
 )
-_SAFETY_FALLBACK_MSG = (
-    "I wasn't able to generate a suitable response for that message. "
-    "Could you try rephrasing?"
-)
 _CHANGE_APPLIED_MSG = "Done! I've recorded your preference and will adapt accordingly."
 _CHANGE_CANCELLED_MSG = "No problem, keeping things as they are."
-
-_INTENT_LABELS: dict[str, str] = {
-    "persona_change": "your persona",
-    "tone_change": "your tone",
-    "skill_add_prompt": "your skills",
-    "skill_remove": "your skills",
-}
-
-_CONFIRM_TEMPLATE = (
-    "You'd like to change {label}. This is a moderate setting change. "
-    "Reply 'yes' to confirm or 'no' to cancel."
-)
 
 
 # ---------------------------------------------------------------------------
