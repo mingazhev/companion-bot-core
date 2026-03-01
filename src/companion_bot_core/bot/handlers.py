@@ -336,7 +336,6 @@ async def cmd_profile(
             telegram_id=db_user.telegram_user_id,
             status=db_user.status,
             user_locale=normalize_locale(db_user.locale),
-            timezone=db_user.timezone or tr("profile.not_set", locale),
             persona=persona_display,
             tone=tone_display,
         ),

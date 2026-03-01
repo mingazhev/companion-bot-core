@@ -33,8 +33,7 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         "ru": (
             "Telegram ID: {telegram_id}\n"
             "Статус: {status}\n"
-            "Язык: {user_locale}\n"
-            "Часовой пояс: {timezone}\n\n"
+            "Язык: {user_locale}\n\n"
             "Персона: {persona}\n"
             "Тон: {tone}\n\n"
             "Используй /set_tone и /set_persona для настройки."
@@ -42,8 +41,7 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         "en": (
             "Telegram ID: {telegram_id}\n"
             "Status: {status}\n"
-            "Locale: {user_locale}\n"
-            "Timezone: {timezone}\n\n"
+            "Locale: {user_locale}\n\n"
             "Persona: {persona}\n"
             "Tone: {tone}\n\n"
             "Use /set_tone and /set_persona to customise."
