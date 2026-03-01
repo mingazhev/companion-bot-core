@@ -17,6 +17,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -175,12 +176,19 @@ class ConversationMessage(Base):
     """
 
     __tablename__ = "conversation_messages"
+    __table_args__ = (
+        Index(
+            "ix_conversation_messages_user_id_created_at",
+            "user_id",
+            "created_at",
+            postgresql_using="btree",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
     role: Mapped[str] = mapped_column(
         String(16),
