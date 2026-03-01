@@ -354,6 +354,10 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
     "help.text": {
         "ru": (
             "Доступные команды:\n\n"
+            "/help — эта справка\n"
+            "/privacy — сводка по приватности\n"
+            "/set_language <ru|en> — сменить язык общения\n\n"
+            "Только в личных сообщениях:\n"
             "/memory — что я о тебе помню\n"
             "/remember <факт> — рассказать мне что-то о себе\n"
             "/forget <факт> — попросить забыть что-то\n"
@@ -361,17 +365,19 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "/personas — выбрать персону\n"
             "/skills — каталог навыков\n"
             "/profile — твои текущие настройки\n"
-            "/set_language <ru|en> — сменить язык общения\n"
             "/set_tone <тон> — настроить тон (friendly, professional, playful…)\n"
             "/set_persona <имя> — задать имя персоны\n"
             "/refresh_memory — обновить то, что я помню о тебе\n"
             "/reset_persona — вернуть персону по умолчанию\n"
             "/rollback — откатить профиль к предыдущей версии\n"
-            "/privacy — сводка по приватности\n"
             "/delete_my_data — удалить все твои данные навсегда"
         ),
         "en": (
             "Available commands:\n\n"
+            "/help — this help\n"
+            "/privacy — privacy policy summary\n"
+            "/set_language <ru|en> — change chat language\n\n"
+            "Private chats only:\n"
             "/memory — what I remember about you\n"
             "/remember <fact> — tell me something about yourself\n"
             "/forget <fact> — ask me to forget something\n"
@@ -379,13 +385,11 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "/personas — choose a persona\n"
             "/skills — skill catalog\n"
             "/profile — your current settings\n"
-            "/set_language <ru|en> — change chat language\n"
             "/set_tone <tone> — adjust my tone (friendly, professional, playful…)\n"
             "/set_persona <name> — give me a persona name\n"
             "/refresh_memory — refresh what I remember about you\n"
             "/reset_persona — restore default persona\n"
-            "/rollback — revert to the previous prompt version\n"
-            "/privacy — privacy policy summary\n"
+            "/rollback — revert to the previous profile version\n"
             "/delete_my_data — permanently delete all your data"
         ),
     },
