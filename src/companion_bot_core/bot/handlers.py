@@ -27,6 +27,7 @@ import time
 from typing import TYPE_CHECKING
 
 from aiogram import F, Router
+from aiogram.enums import ChatAction
 from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
@@ -811,11 +812,19 @@ async def handle_message(
     ingress_start = time.perf_counter()
     reply = ""
 
+    # Show typing indicator immediately so the user sees feedback while
+    # the orchestrator loads context and waits for the first model token.
+    try:
+        await message.answer_chat_action(ChatAction.TYPING)
+    except Exception:  # noqa: BLE001
+        log.debug("typing_action_failed", internal_user_id=user_id_str)
+
     # Streaming state — populated by _on_chunk closure during inference.
     _placeholder: Message | None = None
     _stream_buf: list[str] = []
     _last_edit: float = 0.0
-    _edit_interval: float = 1.0  # minimum seconds between edits
+    _edit_interval: float = 0.5  # minimum seconds between edits
+    _first_chunk_min_len: int = 12  # buffer before sending placeholder
 
     async def _on_chunk(chunk: str) -> None:
         nonlocal _placeholder, _last_edit
@@ -823,10 +832,15 @@ async def handle_message(
         now = time.perf_counter()
 
         if _placeholder is None:
-            # First chunk — send the placeholder message.
-            display = "".join(_stream_buf)[:_TG_MSG_LIMIT]
+            # Buffer a few tokens before showing the placeholder to avoid
+            # a nearly-empty initial message.
+            display = "".join(_stream_buf)
+            if len(display) < _first_chunk_min_len:
+                return
             try:
-                _placeholder = await message.answer(display, parse_mode=None)
+                _placeholder = await message.answer(
+                    display[:_TG_MSG_LIMIT], parse_mode=None,
+                )
                 _last_edit = now
             except Exception:  # noqa: BLE001
                 log.warning("stream_placeholder_send_failed", internal_user_id=user_id_str)
