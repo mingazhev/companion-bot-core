@@ -17,11 +17,14 @@ from companion_bot_core.inference.schemas import (
     UserContext,
     _StreamEnd,
 )
+from companion_bot_core.logging_config import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from companion_bot_core.inference.client import ChatAPIClient
+
+log = get_logger(__name__)
 
 
 async def generate_reply(
@@ -113,17 +116,28 @@ async def generate_reply_stream(
     collected: list[str] = []
     stream_end: _StreamEnd | None = None
 
-    async for item in client.chat_completion_stream(
-        messages, max_tokens=user_context.max_tokens,
-    ):
-        if isinstance(item, _StreamEnd):
-            stream_end = item
+    try:
+        async for item in client.chat_completion_stream(
+            messages, max_tokens=user_context.max_tokens,
+        ):
+            if isinstance(item, _StreamEnd):
+                stream_end = item
+            else:
+                collected.append(item)
+                await on_chunk(item)
+    except Exception:
+        # Stream interrupted (timeout, network error, etc.). Return
+        # whatever was collected so the user sees a partial reply
+        # rather than an error message replacing the streamed text.
+        if collected:
+            log.warning(
+                "stream_interrupted_returning_partial",
+                collected_chars=sum(len(c) for c in collected),
+            )
         else:
-            collected.append(item)
-            await on_chunk(item)
+            raise
 
     if stream_end is None:
-        # Should not happen — defensive fallback.
         stream_end = _StreamEnd(
             finish_reason="stop",
             prompt_tokens=0,

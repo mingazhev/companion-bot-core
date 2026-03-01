@@ -83,7 +83,7 @@ class ChatAPIClient:
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
-            timeout=timeout,
+            timeout=httpx.Timeout(timeout, read=120.0),
         )
 
     async def close(self) -> None:
