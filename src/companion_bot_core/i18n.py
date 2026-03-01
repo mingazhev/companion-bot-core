@@ -530,6 +530,27 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
     "tone_label.professional": {"ru": "Деловой", "en": "Professional"},
     "tone_label.playful": {"ru": "Игривый", "en": "Playful"},
     "tone_label.concise": {"ru": "Лаконичный", "en": "Concise"},
+    # --- Unsupported content types ---
+    "unsupported.photo": {
+        "ru": "Я пока работаю только с текстом. Отправь мне текстовое сообщение!",
+        "en": "I currently work with text only. Please send me a text message!",
+    },
+    "unsupported.voice": {
+        "ru": "Я пока не умею обрабатывать голосовые сообщения. Напиши мне текстом!",
+        "en": "I can't process voice messages yet. Please type your message instead!",
+    },
+    "unsupported.sticker": {
+        "ru": "Стикеры — это весело, но я понимаю только текст. Напиши мне что-нибудь!",
+        "en": "Stickers are fun, but I only understand text. Send me a message!",
+    },
+    "unsupported.document": {
+        "ru": "Я пока не умею открывать файлы. Отправь мне текстовое сообщение!",
+        "en": "I can't open files yet. Please send me a text message!",
+    },
+    "unsupported.other": {
+        "ru": "Я понимаю только текстовые сообщения. Попробуй написать мне текстом!",
+        "en": "I only understand text messages. Try sending me some text!",
+    },
     # --- Continuity ---
     "prompt.continuity_instruction": {
         "ru": (
