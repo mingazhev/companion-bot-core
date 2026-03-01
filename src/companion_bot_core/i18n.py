@@ -127,17 +127,29 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "Use /delete_my_data to permanently remove all your personal data."
         ),
     },
-    "delete_my_data.done": {
+    "delete_my_data.confirm_prompt": {
         "ru": (
-            "Твои персональные данные удалены навсегда.\n\n"
-            "История диалога, настройки профиля и данные персоны удалены. "
-            "Это действие нельзя отменить."
+            "Ты уверен? Это действие удалит все твои данные навсегда: "
+            "историю диалогов, профиль, персону и навыки.\n\n"
+            "Отменить это будет невозможно."
         ),
         "en": (
-            "Your personal data has been permanently deleted.\n\n"
-            "Conversation history, profile settings, and persona data have been removed. "
-            "This action cannot be undone."
+            "Are you sure? This will permanently delete all your data: "
+            "conversation history, profile, persona, and skills.\n\n"
+            "This cannot be undone."
         ),
+    },
+    "delete_my_data.done": {
+        "ru": "Все твои данные удалены навсегда.",
+        "en": "All your data has been permanently deleted.",
+    },
+    "delete_my_data.cancelled": {
+        "ru": "Удаление отменено. Твои данные в безопасности.",
+        "en": "Deletion cancelled. Your data is safe.",
+    },
+    "delete_my_data.expired": {
+        "ru": "Время подтверждения истекло. Используй /delete_my_data снова.",
+        "en": "Confirmation expired. Use /delete_my_data again.",
     },
     "handle.error": {
         "ru": "Не удалось обработать сообщение. Попробуй ещё раз чуть позже.",

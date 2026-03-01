@@ -812,32 +812,101 @@ async def cmd_privacy(message: Message, db_user: User | None = None) -> None:
 # --------------------------------------------------------------------------- #
 
 
+_DELETE_CONFIRM_PREFIX = "delete_confirm"
+_DELETE_CONFIRM_TTL = 60
+
+
 @router.message(Command("delete_my_data"))
 async def cmd_delete_my_data(
     message: Message,
+    db_user: User,
+    redis: Redis,
+) -> None:
+    """Show a confirmation prompt before deleting all personal data."""
+    if await _guard_private_only(message, db_user):
+        return
+    locale = _user_locale(db_user)
+    user_id_str = str(db_user.id)
+
+    # Set a short-lived Redis guard so the callback knows the request is fresh.
+    guard_key = f"{_DELETE_CONFIRM_PREFIX}:{user_id_str}"
+    await redis.set(guard_key, "1", ex=_DELETE_CONFIRM_TTL)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text=tr("btn.yes", locale), callback_data="delete_data:yes",
+        ),
+        InlineKeyboardButton(
+            text=tr("btn.no", locale), callback_data="delete_data:no",
+        ),
+    ]])
+    await message.answer(
+        tr("delete_my_data.confirm_prompt", locale),
+        reply_markup=keyboard,
+        parse_mode=None,
+    )
+    log.info("delete_my_data_prompt_shown", internal_user_id=user_id_str)
+
+
+@router.callback_query(F.data == "delete_data:yes")
+async def cb_delete_data_yes(
+    callback: CallbackQuery,
     db_user: User,
     db_session: AsyncSession,
     redis: Redis,
     snapshot_store: SnapshotStore,
 ) -> None:
-    """Hard-delete all personal data for the user.
-
-    Deletes conversation history, profile, persona snapshots, jobs, and
-    behavior-change events.  The audit log entry is preserved with a
-    null user_id (audit minimality requirement).  Redis keys scoped to
-    the user are also removed.  In-memory snapshot data is also purged.
-    """
-    if await _guard_private_only(message, db_user):
-        return
+    """Handle delete-data confirmation 'Yes'."""
     locale = _user_locale(db_user)
     user_id_str = str(db_user.id)
-    await hard_delete_user(db_user.id, db_session, redis, telegram_user_id=db_user.telegram_user_id)
+    guard_key = f"{_DELETE_CONFIRM_PREFIX}:{user_id_str}"
+
+    # Check the Redis guard (TTL-based).
+    guard = await redis.getdel(guard_key)
+    if guard is None:
+        await callback.answer(tr("delete_my_data.expired", locale), show_alert=True)
+        return
+
+    await hard_delete_user(
+        db_user.id, db_session, redis,
+        telegram_user_id=db_user.telegram_user_id,
+    )
     await snapshot_store.delete_for_user(db_user.id)
     log.info("delete_my_data_completed", internal_user_id=user_id_str)
+
+    await callback.answer()
     try:
-        await message.answer(tr("delete_my_data.done", locale), parse_mode=None)
+        if callback.message:
+            await callback.message.edit_text(
+                tr("delete_my_data.done", locale), reply_markup=None,
+            )
     except Exception:  # noqa: BLE001
-        log.warning("delete_my_data_confirmation_send_failed", internal_user_id=user_id_str)
+        log.warning("delete_my_data_edit_failed", internal_user_id=user_id_str)
+
+
+@router.callback_query(F.data == "delete_data:no")
+async def cb_delete_data_no(
+    callback: CallbackQuery,
+    db_user: User,
+    redis: Redis,
+) -> None:
+    """Handle delete-data confirmation 'No'."""
+    locale = _user_locale(db_user)
+    user_id_str = str(db_user.id)
+
+    # Clear the guard if still present.
+    guard_key = f"{_DELETE_CONFIRM_PREFIX}:{user_id_str}"
+    await redis.delete(guard_key)
+
+    await callback.answer()
+    try:
+        if callback.message:
+            await callback.message.edit_text(
+                tr("delete_my_data.cancelled", locale), reply_markup=None,
+            )
+    except Exception:  # noqa: BLE001
+        log.warning("delete_my_data_cancel_edit_failed", internal_user_id=user_id_str)
+    log.info("delete_my_data_cancelled", internal_user_id=user_id_str)
 
 
 # --------------------------------------------------------------------------- #

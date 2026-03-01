@@ -13,6 +13,8 @@ import pytest
 
 from companion_bot_core.behavior.extractor import VALID_TONES
 from companion_bot_core.bot.handlers import (
+    cb_delete_data_no,
+    cb_delete_data_yes,
     cmd_delete_my_data,
     cmd_memory_compact_now,
     cmd_privacy,
@@ -556,35 +558,95 @@ def _make_delete_session(user: User) -> AsyncMock:
 
 
 @pytest.mark.asyncio
-async def test_delete_my_data_replies() -> None:
+async def test_delete_my_data_shows_confirmation() -> None:
+    """The /delete_my_data command should show a confirmation prompt, not delete immediately."""
     msg = _make_message()
+    user = _make_user()
+    redis = AsyncMock()
+    redis.set = AsyncMock()
+    await cmd_delete_my_data(msg, user, redis)
+    # Should set a Redis confirmation guard.
+    redis.set.assert_awaited_once()
+    guard_key = redis.set.call_args[0][0]
+    assert "delete_confirm" in guard_key
+    # Should show a message with inline keyboard.
+    msg.answer.assert_called_once()
+    call_kwargs = msg.answer.call_args
+    assert call_kwargs.kwargs.get("reply_markup") is not None
+
+
+@pytest.mark.asyncio
+async def test_delete_my_data_confirm_yes_deletes() -> None:
+    """Pressing 'Yes' on the confirmation should delete all data."""
+    user = _make_user(telegram_user_id=42)
+    db_session = _make_delete_session(user)
+    redis = AsyncMock()
+    redis.getdel = AsyncMock(return_value="1")
+    redis.delete = AsyncMock()
+    snapshot_store = AsyncMock()
+    callback = AsyncMock()
+    callback.message = AsyncMock()
+    callback.message.edit_text = AsyncMock()
+    await cb_delete_data_yes(callback, user, db_session, redis, snapshot_store)
+    # Verify snapshot store cleanup.
+    snapshot_store.delete_for_user.assert_awaited_once_with(user.id)
+    # Verify the DB statements were executed (SELECT + DELETE).
+    assert db_session.execute.await_count == 2
+    # Verify Redis keys were cleaned up.
+    redis.delete.assert_awaited_once()
+    # Verify the message was updated.
+    callback.message.edit_text.assert_awaited_once()
+    text: str = callback.message.edit_text.call_args[0][0]
+    lower = text.lower()
+    assert "удален" in lower or "deleted" in lower
+
+
+@pytest.mark.asyncio
+async def test_delete_my_data_confirm_expired() -> None:
+    """Pressing 'Yes' after TTL expiry should show an expiry message."""
     user = _make_user()
     db_session = _make_delete_session(user)
     redis = AsyncMock()
-    redis.delete = AsyncMock()
+    redis.getdel = AsyncMock(return_value=None)
     snapshot_store = AsyncMock()
-    await cmd_delete_my_data(msg, user, db_session, redis, snapshot_store)
-    # Verify snapshot store cleanup
-    snapshot_store.delete_for_user.assert_awaited_once_with(user.id)
-    # Verify the DB statements were executed (SELECT + DELETE)
-    assert db_session.execute.await_count == 2
-    # Verify Redis keys were cleaned up
+    callback = AsyncMock()
+    await cb_delete_data_yes(callback, user, db_session, redis, snapshot_store)
+    callback.answer.assert_awaited_once()
+    alert_text: str = callback.answer.call_args[0][0]
+    assert "истекло" in alert_text.lower() or "expired" in alert_text.lower()
+    # No deletion should happen.
+    snapshot_store.delete_for_user.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delete_my_data_confirm_no_cancels() -> None:
+    """Pressing 'No' should cancel deletion and clear the guard."""
+    user = _make_user()
+    redis = AsyncMock()
+    redis.delete = AsyncMock()
+    callback = AsyncMock()
+    callback.message = AsyncMock()
+    callback.message.edit_text = AsyncMock()
+    await cb_delete_data_no(callback, user, redis)
     redis.delete.assert_awaited_once()
-    msg.answer.assert_called_once()
-    text: str = msg.answer.call_args[0][0]
+    callback.message.edit_text.assert_awaited_once()
+    text: str = callback.message.edit_text.call_args[0][0]
     lower = text.lower()
-    assert "deleted" in lower or "удален" in lower
+    assert "отмен" in lower or "cancel" in lower
 
 
 @pytest.mark.asyncio
 async def test_delete_my_data_cleans_correct_redis_keys() -> None:
-    msg = _make_message()
     user = _make_user(telegram_user_id=42)
     db_session = _make_delete_session(user)
     redis = AsyncMock()
+    redis.getdel = AsyncMock(return_value="1")
     redis.delete = AsyncMock()
     snapshot_store = AsyncMock()
-    await cmd_delete_my_data(msg, user, db_session, redis, snapshot_store)
+    callback = AsyncMock()
+    callback.message = AsyncMock()
+    callback.message.edit_text = AsyncMock()
+    await cb_delete_data_yes(callback, user, db_session, redis, snapshot_store)
     deleted_keys: tuple[str, ...] = redis.delete.call_args[0]
     user_id_str = str(user.id)
     # All internal-UUID-scoped keys must reference the user's UUID
