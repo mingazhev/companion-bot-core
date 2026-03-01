@@ -244,6 +244,14 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "Reply 'yes' to confirm or 'no' to cancel."
         ),
     },
+    "orchestrator.auto_applied_tone": {
+        "ru": "Кстати, я обновил тон общения.",
+        "en": "By the way, I've updated the conversation tone.",
+    },
+    "orchestrator.auto_applied_persona": {
+        "ru": "Кстати, я обновил персону.",
+        "en": "By the way, I've updated the persona.",
+    },
     "orchestrator.clarification": {
         "ru": (
             "Я не до конца понял, что именно нужно изменить. "

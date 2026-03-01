@@ -810,6 +810,15 @@ async def process_message(
             # persisting so that the stored assistant message matches what the
             # user actually receives.
 
+            # Notify the user when a tone or persona change was silently applied.
+            if action == "auto_apply" and applied:
+                if detection.intent == "tone_change":
+                    notice = tr("orchestrator.auto_applied_tone", ui_locale)
+                    reply_text = f"{reply_text}\n\n---\n{notice}"
+                elif detection.intent == "persona_change":
+                    notice = tr("orchestrator.auto_applied_persona", ui_locale)
+                    reply_text = f"{reply_text}\n\n---\n{notice}"
+
             # Notify user when a skill_remove auto-apply found no matching skill.
             if (
                 action == "auto_apply"
