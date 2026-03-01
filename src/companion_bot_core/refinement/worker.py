@@ -65,9 +65,25 @@ MAX_ATTEMPTS = 3
 # so 20 retries ≈ 10 minutes of back-off before giving up.
 MAX_CIRCUIT_BREAKER_RETRIES = 20
 
+# Maximum age (in seconds) of a refinement job before it is dead-lettered.
+# Prevents jobs from spinning indefinitely during sustained outages.
+MAX_JOB_AGE_SECONDS = 1800  # 30 minutes
+
 # Redis key for the per-user "profile updated" notice.
 _NOTICE_KEY_PREFIX = "refinement:notice"
 _NOTICE_TTL_SECONDS = 86400  # 24 hours
+
+
+def _is_job_expired(job_data: dict[str, Any]) -> bool:
+    """Return True if the job has exceeded ``MAX_JOB_AGE_SECONDS``."""
+    raw = job_data.get("created_at")
+    if not raw:
+        return False
+    try:
+        created = datetime.fromisoformat(str(raw))
+        return (datetime.now(tz=UTC) - created).total_seconds() > MAX_JOB_AGE_SECONDS
+    except (ValueError, TypeError):
+        return False
 
 
 async def _set_user_notice(redis: Redis, user_id: str) -> None:
@@ -198,6 +214,16 @@ async def process_one_job(
     job_requeued = False
 
     try:
+        # --- Check job age ---
+        if _is_job_expired(job_data):
+            age = int((datetime.now(tz=UTC) - datetime.fromisoformat(
+                str(job_data["created_at"]),
+            )).total_seconds())
+            log.warning("refinement_job_expired", user_id=user_id_str, age_seconds=age)
+            final_status = "dead_letter"
+            error_msg = f"job expired: age {age}s exceeds max {MAX_JOB_AGE_SECONDS}s"
+            return
+
         # --- Load active snapshot ---
         snapshot = await snapshot_store.get_active(user_id)
         if snapshot is None:
@@ -317,9 +343,9 @@ async def process_one_job(
         # burn through retries.  The worker's 30-second poll timeout on the
         # primary queue provides a natural back-off before the job is retried.
         cb_retries = int(job_data.get("cb_retries", 0)) + 1
-        if cb_retries > MAX_CIRCUIT_BREAKER_RETRIES:
+        if cb_retries > MAX_CIRCUIT_BREAKER_RETRIES or _is_job_expired(job_data):
             final_status = "dead_letter"
-            error_msg = "circuit breaker open — max retries exhausted"
+            error_msg = "circuit breaker open — max retries or age exhausted"
             log.error(
                 "refinement_job_dead_lettered_circuit_open",
                 user_id=user_id_str,

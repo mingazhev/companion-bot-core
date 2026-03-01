@@ -24,6 +24,7 @@ import html
 import json
 import secrets
 import time
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from aiogram import F, Router
@@ -635,7 +636,10 @@ async def cmd_refresh_memory(message: Message, db_user: User, redis: Redis) -> N
         return
 
     try:
-        await enqueue_refinement_job(redis, user_id_str, {"trigger": "manual_compact"})
+        await enqueue_refinement_job(redis, user_id_str, {
+            "trigger": "manual_compact",
+            "created_at": datetime.now(tz=UTC).isoformat(),
+        })
     except Exception:  # noqa: BLE001
         try:
             await redis.delete(guard_key)

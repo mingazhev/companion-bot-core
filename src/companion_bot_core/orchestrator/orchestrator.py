@@ -459,6 +459,7 @@ async def _maybe_enqueue_refinement(
             "user_id": str(user_id),
             "trigger": "activity_threshold",
             "count": count,
+            "created_at": datetime.now(tz=UTC).isoformat(),
         }
         try:
             await enqueue_refinement_job(redis, str(user_id), payload)
