@@ -37,6 +37,7 @@ from companion_bot_core.db.models import User, UserProfile
 from companion_bot_core.i18n import SUPPORTED_LOCALES, normalize_locale, tr
 from companion_bot_core.logging_config import get_logger
 from companion_bot_core.orchestrator import process_message
+from companion_bot_core.policy.guardrails import check_prompt_injection, check_unsafe_role_change
 from companion_bot_core.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
 from companion_bot_core.prompt.helpers import (
     acquire_profile_advisory_lock,
@@ -327,6 +328,17 @@ async def cmd_remember(
             tr("remember.truncated", locale), parse_mode=None,
         )
 
+    # Guardrail: reject prompt injection in user-supplied facts.
+    injection = check_prompt_injection(fact)
+    if not injection.allowed:
+        await message.answer(tr("guardrail.command_blocked", locale), parse_mode=None)
+        log.warning(
+            "remember_guardrail_blocked",
+            internal_user_id=str(db_user.id),
+            violation=injection.violation,
+        )
+        return
+
     await acquire_profile_advisory_lock(db_session, db_user.id)
     await add_fact_to_profile(snapshot_store, db_user.id, fact, session=db_session)
     await message.answer(
@@ -544,6 +556,18 @@ async def cmd_set_persona(
     if any(c < " " or c in _banned_chars for c in name):
         await message.answer(tr("set_persona.control_chars", locale), parse_mode=None)
         return
+
+    # Guardrail check: reject prompt injection and unsafe role names.
+    for _check in (check_prompt_injection, check_unsafe_role_change):
+        result = _check(name)
+        if not result.allowed:
+            await message.answer(tr("guardrail.command_blocked", locale), parse_mode=None)
+            log.warning(
+                "set_persona_guardrail_blocked",
+                internal_user_id=str(db_user.id),
+                violation=result.violation,
+            )
+            return
 
     # Serialize concurrent profile updates for the same user.
     lock_key = f"profile:write:{db_user.id}"
@@ -793,6 +817,13 @@ async def handle_message(
                     tr("onboarding.name_invalid", locale), parse_mode=None,
                 )
                 return
+            # Guardrail check on onboarding name
+            for _gcheck in (check_prompt_injection, check_unsafe_role_change):
+                if not _gcheck(name).allowed:
+                    await message.answer(
+                        tr("guardrail.command_blocked", locale), parse_mode=None,
+                    )
+                    return
             _ob_state["name"] = name
             _ob_state["step"] = "interests"
             await redis.set(_ob_key, json.dumps(_ob_state), ex=_ONBOARDING_TTL)

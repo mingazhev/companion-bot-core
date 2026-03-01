@@ -538,6 +538,11 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
     "tone_label.professional": {"ru": "Деловой", "en": "Professional"},
     "tone_label.playful": {"ru": "Игривый", "en": "Playful"},
     "tone_label.concise": {"ru": "Лаконичный", "en": "Concise"},
+    # --- Guardrail command blocks ---
+    "guardrail.command_blocked": {
+        "ru": "Значение содержит недопустимый контент. Попробуй другой вариант.",
+        "en": "That value contains disallowed content. Please try a different one.",
+    },
     # --- Unsupported content types ---
     "unsupported.photo": {
         "ru": "Я пока работаю только с текстом. Отправь мне текстовое сообщение!",
