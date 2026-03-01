@@ -591,6 +591,7 @@ async def process_message(
         # ------------------------------------------------------------------
         # Step 1 — Check for a pending medium-risk confirmation dialogue
         # ------------------------------------------------------------------
+        pending_was_cancelled = False
         pending = await get_pending_change(redis, user_id_str)
         if pending is not None:
             normalized = message_text.strip().lower().rstrip(".,!?;:")
@@ -654,6 +655,7 @@ async def process_message(
 
             # Any other text clears the pending state and proceeds normally
             await clear_pending_change(redis, user_id_str)
+            pending_was_cancelled = True
             BEHAVIOR_CHANGE_CONFIRMATIONS.labels(outcome="superseded").inc()
             log.info(
                 "behavior_change_pending_cleared_by_unrelated_message",
@@ -760,6 +762,12 @@ async def process_message(
                     finish_reason=sf.finish_reason,
                 )
                 reply_text = tr("orchestrator.safety_fallback", ui_locale)
+
+            # Notify user that their previous pending change was auto-cancelled
+            # because they sent an unrelated message instead of yes/no.
+            if pending_was_cancelled:
+                notice = tr("orchestrator.pending_cancelled", ui_locale)
+                reply_text = f"{notice}\n\n---\n\n{reply_text}"
 
             # Record token usage metrics (noqa: S106 — not a password, metric label)
             TOKENS_USED.labels(

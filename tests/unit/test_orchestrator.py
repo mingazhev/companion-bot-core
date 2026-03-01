@@ -383,7 +383,7 @@ async def test_process_message_confirm_unrelated_reply_clears_and_proceeds() -> 
             chat_client=client,
         )
 
-    assert reply == "Normal response"
+    assert reply == "Previous change request cancelled.\n\n---\n\nNormal response"
     assert await get_pending_change(redis, str(user_id)) is None
 
 

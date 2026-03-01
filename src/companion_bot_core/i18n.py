@@ -215,6 +215,10 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "Could you try rephrasing?"
         ),
     },
+    "orchestrator.pending_cancelled": {
+        "ru": "Предыдущий запрос на изменение отменён.",
+        "en": "Previous change request cancelled.",
+    },
     "orchestrator.change_applied": {
         "ru": "Готово! Я запомнил предпочтение и подстроюсь под него.",
         "en": "Done! I've recorded your preference and will adapt accordingly.",
