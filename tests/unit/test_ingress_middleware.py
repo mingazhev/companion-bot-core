@@ -199,6 +199,49 @@ async def test_per_user_rate_limit_drops_excess() -> None:
 
 
 @pytest.mark.asyncio
+async def test_per_user_rate_limit_notifies_on_first_exceed() -> None:
+    """First rate-limited request should send a user-facing notification."""
+    redis = fakeredis.FakeRedis(decode_responses=True)
+    settings = _make_settings(rate_limit_messages_per_minute=1)
+    engine = MagicMock()
+    middleware = IngressMiddleware(settings=settings, engine=engine, redis=redis)
+
+    db_user = _make_db_user()
+    handler = AsyncMock(return_value=None)
+
+    update1 = _make_update(update_id=310)
+    update2 = _make_update(update_id=311)
+    update3 = _make_update(update_id=312)
+    # Set chat type to private
+    for upd in (update1, update2, update3):
+        upd.message.chat.type = "private"
+        upd.message.answer = AsyncMock()
+        upd.message.reply = AsyncMock()
+        upd.message.from_user.language_code = "en"
+
+    async def run(upd: MagicMock) -> Any:
+        with patch("companion_bot_core.bot.middleware.get_async_session") as mock_cm, patch(
+            "companion_bot_core.bot.middleware.get_or_create_user", return_value=db_user
+        ):
+            sess = AsyncMock()
+            sess.info = {}
+            sess.__aenter__ = AsyncMock(return_value=sess)
+            sess.__aexit__ = AsyncMock(return_value=False)
+            mock_cm.return_value = sess
+            return await middleware(handler, upd, {})
+
+    # First message — passes
+    await run(update1)
+    # Second message — first exceed, should notify
+    await run(update2)
+    update2.message.answer.assert_called_once()
+    assert "too fast" in update2.message.answer.call_args[0][0].lower()
+    # Third message — still exceeded but no second notification
+    await run(update3)
+    update3.message.answer.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_global_rate_limit_drops_excess() -> None:
     """When the global RPS cap is saturated, excess updates are dropped."""
     redis = fakeredis.FakeRedis(decode_responses=True)

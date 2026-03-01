@@ -31,30 +31,32 @@ async def redis() -> AsyncGenerator[FakeRedis, None]:
 
 class TestUserRateLimit:
     async def test_first_request_is_allowed(self, redis: FakeRedis) -> None:
-        result = await check_user_rate_limit(redis, user_id="u1", max_requests=5)
-        assert result is True
+        count = await check_user_rate_limit(redis, user_id="u1", max_requests=5)
+        assert count == 1
 
     async def test_requests_within_limit_are_allowed(self, redis: FakeRedis) -> None:
-        for _ in range(5):
-            ok = await check_user_rate_limit(redis, user_id="u1", max_requests=5)
-            assert ok is True
+        for i in range(5):
+            count = await check_user_rate_limit(redis, user_id="u1", max_requests=5)
+            assert count == i + 1
+            assert count <= 5
 
     async def test_request_exceeding_limit_is_rejected(self, redis: FakeRedis) -> None:
         # Fill up the limit.
         for _ in range(5):
             await check_user_rate_limit(redis, user_id="u1", max_requests=5)
-        # The 6th request must be rejected.
-        result = await check_user_rate_limit(redis, user_id="u1", max_requests=5)
-        assert result is False
+        # The 6th request must exceed the limit.
+        count = await check_user_rate_limit(redis, user_id="u1", max_requests=5)
+        assert count == 6
+        assert count > 5
 
     async def test_different_users_are_isolated(self, redis: FakeRedis) -> None:
         # Fill user A to the limit.
         for _ in range(3):
             await check_user_rate_limit(redis, user_id="alice", max_requests=3)
-        # User A is now at limit.
-        assert await check_user_rate_limit(redis, user_id="alice", max_requests=3) is False
+        # User A is now over limit.
+        assert await check_user_rate_limit(redis, user_id="alice", max_requests=3) > 3
         # User B is unaffected.
-        assert await check_user_rate_limit(redis, user_id="bob", max_requests=3) is True
+        assert await check_user_rate_limit(redis, user_id="bob", max_requests=3) <= 3
 
     async def test_key_uses_user_prefix(self, redis: FakeRedis) -> None:
         await check_user_rate_limit(redis, user_id="u1", max_requests=5)
@@ -73,10 +75,10 @@ class TestUserRateLimit:
         # Wait for the window to expire.
         await asyncio.sleep(1.1)
         # The window has passed; count should now be 1 (just this new request).
-        result = await check_user_rate_limit(
+        count = await check_user_rate_limit(
             redis, user_id="u1", max_requests=3, window_seconds=1
         )
-        assert result is True
+        assert count == 1
 
     async def test_get_user_request_count_returns_zero_initially(
         self, redis: FakeRedis

@@ -21,9 +21,11 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from aiogram import BaseMiddleware
+from aiogram.enums import ChatType
 
 from companion_bot_core.bot.users import get_or_create_user
 from companion_bot_core.db.engine import get_async_session
+from companion_bot_core.i18n import tr
 from companion_bot_core.logging_config import bind_correlation_id, get_logger
 from companion_bot_core.prompt.postgres_store import (
     extract_deferred_lock_releases,
@@ -107,17 +109,32 @@ class IngressMiddleware(BaseMiddleware):
         # ------------------------------------------------------------------ #
         # Gate 3 — Per-user rate limit.
         # ------------------------------------------------------------------ #
-        within_user = await check_user_rate_limit(
+        max_rpm = self._settings.rate_limit_messages_per_minute
+        user_request_count = await check_user_rate_limit(
             self._redis,
             user_id=str(tg_user.id),
-            max_requests=self._settings.rate_limit_messages_per_minute,
+            max_requests=max_rpm,
         )
-        if not within_user:
+        if user_request_count > max_rpm:
             log.warning(
                 "user_rate_limit_exceeded",
                 telegram_user_id=tg_user.id,
                 update_id=update_id,
             )
+            # Notify the user only on the first exceeded request to avoid spam.
+            if user_request_count == max_rpm + 1 and event.message:
+                try:
+                    locale = tg_user.language_code
+                    text = tr("rate_limit.exceeded", locale)
+                    is_group = event.message.chat.type in (
+                        ChatType.GROUP, ChatType.SUPERGROUP,
+                    )
+                    if is_group:
+                        await event.message.reply(text)
+                    else:
+                        await event.message.answer(text)
+                except Exception:  # noqa: BLE001
+                    log.debug("rate_limit_notify_failed", update_id=update_id)
             return None
 
         # ------------------------------------------------------------------ #

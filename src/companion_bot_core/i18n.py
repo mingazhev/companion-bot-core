@@ -584,6 +584,11 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         "ru": "Я понимаю только текстовые сообщения. Попробуй написать мне текстом!",
         "en": "I only understand text messages. Try sending me some text!",
     },
+    # --- Rate limit ---
+    "rate_limit.exceeded": {
+        "ru": "Ты отправляешь сообщения слишком быстро. Подожди немного.",
+        "en": "You're sending messages too fast. Please wait a moment.",
+    },
     # --- Group chats ---
     "group.personal_command": {
         "ru": "Эта команда работает только в личных сообщениях.",

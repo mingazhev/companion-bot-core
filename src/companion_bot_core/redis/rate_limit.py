@@ -37,11 +37,11 @@ async def check_user_rate_limit(
     user_id: str,
     max_requests: int,
     window_seconds: int = _DEFAULT_WINDOW_SECONDS,
-) -> bool:
-    """Return True if the user is within their rate limit for the current window.
+) -> int:
+    """Record a request and return the current count within the window.
 
-    The request is always recorded; the caller must check the return value and
-    reject the message if False is returned.
+    The request is always recorded; the caller should compare the returned
+    count against ``max_requests`` to decide whether to allow the request.
 
     Args:
         redis: Active Redis client (decode_responses=True).
@@ -50,8 +50,8 @@ async def check_user_rate_limit(
         window_seconds: Rolling window duration in seconds (default 60).
 
     Returns:
-        True if the request count (including this one) does not exceed
-        ``max_requests``; False if the limit has been exceeded.
+        The number of requests (including this one) within the current
+        window.  The request is allowed when ``count <= max_requests``.
     """
     now = time.time()
     window_start = now - window_seconds
@@ -65,8 +65,7 @@ async def check_user_rate_limit(
     pipe.expire(key, window_seconds + 1)
     results: list[Any] = await pipe.execute()
 
-    count: int = int(results[2])
-    return count <= max_requests
+    return int(results[2])
 
 
 async def check_global_rate_limit(
