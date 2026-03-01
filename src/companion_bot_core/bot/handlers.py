@@ -2006,25 +2006,35 @@ async def cb_onboard_tone(
 
 @router.message(F.photo)
 async def handle_photo(message: Message, db_user: User) -> None:
+    if _is_group_chat(message):
+        return
     await message.answer(tr("unsupported.photo", _user_locale(db_user)), parse_mode=None)
 
 
 @router.message(F.voice)
 async def handle_voice(message: Message, db_user: User) -> None:
+    if _is_group_chat(message):
+        return
     await message.answer(tr("unsupported.voice", _user_locale(db_user)), parse_mode=None)
 
 
 @router.message(F.sticker)
 async def handle_sticker(message: Message, db_user: User) -> None:
+    if _is_group_chat(message):
+        return
     await message.answer(tr("unsupported.sticker", _user_locale(db_user)), parse_mode=None)
 
 
 @router.message(F.document)
 async def handle_document(message: Message, db_user: User) -> None:
+    if _is_group_chat(message):
+        return
     await message.answer(tr("unsupported.document", _user_locale(db_user)), parse_mode=None)
 
 
 @router.message()
 async def handle_unsupported(message: Message, db_user: User) -> None:
     """Catch-all for any message type not handled above."""
+    if _is_group_chat(message):
+        return
     await message.answer(tr("unsupported.other", _user_locale(db_user)), parse_mode=None)
