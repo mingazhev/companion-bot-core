@@ -393,6 +393,26 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "Check it out with /memory."
         ),
     },
+    "notice.facts_added": {
+        "ru": "Новое:\n{items}",
+        "en": "New:\n{items}",
+    },
+    "notice.facts_removed": {
+        "ru": "Забыто:\n{items}",
+        "en": "Removed:\n{items}",
+    },
+    "notice.persona_adjusted": {
+        "ru": "Тон общения немного подстроен.",
+        "en": "Communication tone slightly adjusted.",
+    },
+    "notice.skills_added": {
+        "ru": "Добавлены навыки: {items}",
+        "en": "Skills added: {items}",
+    },
+    "notice.skills_removed": {
+        "ru": "Удалены навыки: {items}",
+        "en": "Skills removed: {items}",
+    },
     # --- /refresh_memory (renamed from /memory_compact_now) ---
     "refresh_memory.requested": {
         "ru": (

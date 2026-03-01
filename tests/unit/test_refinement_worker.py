@@ -150,18 +150,30 @@ def test_apply_delta_preserves_user_id() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_check_notice_returns_false_when_not_set() -> None:
+async def test_check_notice_returns_none_when_not_set() -> None:
     redis = fakeredis.FakeRedis(decode_responses=True)
     result = await check_and_clear_user_notice(redis, "user-123")
-    assert result is False
+    assert result is None
 
 
-async def test_check_notice_returns_true_and_clears() -> None:
+async def test_check_notice_returns_empty_dict_for_legacy_format() -> None:
     redis = fakeredis.FakeRedis(decode_responses=True)
     await redis.set("refinement:notice:user-123", "1")
-    assert await check_and_clear_user_notice(redis, "user-123") is True
-    # Second call should return False (key was cleared)
-    assert await check_and_clear_user_notice(redis, "user-123") is False
+    result = await check_and_clear_user_notice(redis, "user-123")
+    assert result == {}
+    # Second call should return None (key was cleared)
+    assert await check_and_clear_user_notice(redis, "user-123") is None
+
+
+async def test_check_notice_returns_diff_dict() -> None:
+    import json
+
+    redis = fakeredis.FakeRedis(decode_responses=True)
+    diff = {"facts_added": ["Likes Python"], "persona_changed": True}
+    await redis.set("refinement:notice:user-123", json.dumps(diff))
+    result = await check_and_clear_user_notice(redis, "user-123")
+    assert result == diff
+    assert await check_and_clear_user_notice(redis, "user-123") is None
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +254,9 @@ async def test_process_one_job_sets_user_notice() -> None:
             engine=MagicMock(),
         )
 
-    assert await check_and_clear_user_notice(redis, str(user_id)) is True
+    notice = await check_and_clear_user_notice(redis, str(user_id))
+    assert notice is not None
+    assert notice.get("persona_changed") is True
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +283,7 @@ async def test_process_one_job_skips_when_no_snapshot() -> None:
     # No model call should have been made
     chat_client.chat_completion.assert_not_called()
     # No notice should be set
-    assert await check_and_clear_user_notice(redis, str(user_id)) is False
+    assert await check_and_clear_user_notice(redis, str(user_id)) is None
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +329,7 @@ async def test_process_one_job_rejects_policy_violation() -> None:
     assert active is not None
     assert active.version == 1  # unchanged
     # No notice should be set
-    assert await check_and_clear_user_notice(redis, str(user_id)) is False
+    assert await check_and_clear_user_notice(redis, str(user_id)) is None
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +505,6 @@ async def test_process_one_job_no_notice_on_redis_flush_failure() -> None:
         )
 
     # User notice must NOT be set (Redis pointer is stale).
-    assert await check_and_clear_user_notice(redis, str(user_id)) is False
+    assert await check_and_clear_user_notice(redis, str(user_id)) is None
     # All 3 retry attempts must be exhausted before marking the job failed.
     assert flush_mock.await_count == 3

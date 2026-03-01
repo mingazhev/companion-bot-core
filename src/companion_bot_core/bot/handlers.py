@@ -25,7 +25,7 @@ import json
 import secrets
 import time
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aiogram import F, Router
 from aiogram.enums import ChatAction
@@ -146,6 +146,24 @@ def _interest_keyboard(locale: str) -> InlineKeyboardMarkup:
             ),
         ],
     ])
+
+
+def _format_refinement_diff(diff: dict[str, Any], locale: str) -> str:
+    """Format a refinement diff dict into a human-readable notice message."""
+    parts: list[str] = [tr("notice.profile_updated_v2", locale)]
+    if "facts_added" in diff:
+        items = "\n".join(f"  + {fact}" for fact in diff["facts_added"])
+        parts.append(tr("notice.facts_added", locale, items=items))
+    if "facts_removed" in diff:
+        items = "\n".join(f"  - {fact}" for fact in diff["facts_removed"])
+        parts.append(tr("notice.facts_removed", locale, items=items))
+    if diff.get("persona_changed"):
+        parts.append(tr("notice.persona_adjusted", locale))
+    if "skills_added" in diff:
+        parts.append(tr("notice.skills_added", locale, items=", ".join(diff["skills_added"])))
+    if "skills_removed" in diff:
+        parts.append(tr("notice.skills_removed", locale, items=", ".join(diff["skills_removed"])))
+    return "\n\n".join(parts)
 
 
 # --------------------------------------------------------------------------- #
@@ -986,8 +1004,13 @@ async def handle_message(
         # Surface "profile updated" notice if the refinement worker finished
         # updating this user's prompt snapshot since their last message.
         try:
-            if await check_and_clear_user_notice(redis, user_id_str):
-                await message.answer(tr("notice.profile_updated_v2", locale), parse_mode=None)
+            notice_diff = await check_and_clear_user_notice(redis, user_id_str)
+            if notice_diff is not None:
+                if notice_diff:
+                    notice_text = _format_refinement_diff(notice_diff, locale)
+                else:
+                    notice_text = tr("notice.profile_updated_v2", locale)
+                await message.answer(notice_text, parse_mode=None)
         except Exception:
             log.warning("notice_send_failed", internal_user_id=user_id_str)
 

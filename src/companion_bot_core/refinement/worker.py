@@ -13,6 +13,7 @@ Public surface:
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 from datetime import UTC, datetime
@@ -86,21 +87,88 @@ def _is_job_expired(job_data: dict[str, Any]) -> bool:
         return False
 
 
-async def _set_user_notice(redis: Redis, user_id: str) -> None:
-    """Set a flag in Redis so the bot can surface a 'profile updated' notice."""
+async def _set_user_notice(
+    redis: Redis,
+    user_id: str,
+    diff_summary: dict[str, Any] | None = None,
+) -> None:
+    """Set a notice in Redis so the bot can surface a 'profile updated' message.
+
+    When *diff_summary* is provided, the notice contains a JSON-encoded
+    summary of what changed so the user gets a detailed notification.
+    """
     key = f"{_NOTICE_KEY_PREFIX}:{user_id}"
-    await redis.set(key, "1", ex=_NOTICE_TTL_SECONDS)
+    value = json.dumps(diff_summary) if diff_summary else "1"
+    await redis.set(key, value, ex=_NOTICE_TTL_SECONDS)
 
 
-async def check_and_clear_user_notice(redis: Redis, user_id: str) -> bool:
-    """Return True (and clear) if a refinement notice is pending for *user_id*.
+async def check_and_clear_user_notice(
+    redis: Redis, user_id: str,
+) -> dict[str, Any] | None:
+    """Consume and return a pending refinement notice for *user_id*.
 
-    Call this after each bot reply to inform the user when their profile has
-    been silently refined since their last message.
+    Returns ``None`` if no notice exists.  An empty dict ``{}`` means
+    the notice used the legacy ``"1"`` format (no diff detail available).
+    A populated dict contains diff keys such as ``facts_added``,
+    ``facts_removed``, ``persona_changed``.
     """
     key = f"{_NOTICE_KEY_PREFIX}:{user_id}"
     value: str | None = await redis.getdel(key)
-    return value is not None
+    if value is None:
+        return None
+    if value == "1":
+        return {}
+    try:
+        return json.loads(value)  # type: ignore[no-any-return]
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _compute_refinement_diff(
+    old_snapshot: SnapshotRecord,
+    new_snapshot: SnapshotRecord,
+) -> dict[str, Any]:
+    """Compare two snapshots and return a summary of what changed.
+
+    The dict may contain:
+    - ``facts_added``: list of new long-term profile lines (max 5)
+    - ``facts_removed``: list of removed long-term profile lines (max 5)
+    - ``persona_changed``: True if the persona section differs
+    - ``skills_added`` / ``skills_removed``: skill name lists
+    """
+    diff: dict[str, Any] = {}
+
+    old_ltp = extract_section(old_snapshot.system_prompt, "Long-term Profile")
+    new_ltp = extract_section(new_snapshot.system_prompt, "Long-term Profile")
+    if old_ltp != new_ltp:
+        old_facts = {
+            line.strip() for line in old_ltp.strip().splitlines() if line.strip()
+        }
+        new_facts = {
+            line.strip() for line in new_ltp.strip().splitlines() if line.strip()
+        }
+        added = new_facts - old_facts
+        removed = old_facts - new_facts
+        if added:
+            diff["facts_added"] = sorted(added)[:5]
+        if removed:
+            diff["facts_removed"] = sorted(removed)[:5]
+
+    old_persona = extract_section(old_snapshot.system_prompt, "Persona")
+    new_persona = extract_section(new_snapshot.system_prompt, "Persona")
+    if old_persona != new_persona:
+        diff["persona_changed"] = True
+
+    old_skills = set(old_snapshot.skill_prompts_json.keys())
+    new_skills = set(new_snapshot.skill_prompts_json.keys())
+    skills_added = sorted(new_skills - old_skills)
+    skills_removed = sorted(old_skills - new_skills)
+    if skills_added:
+        diff["skills_added"] = skills_added
+    if skills_removed:
+        diff["skills_removed"] = skills_removed
+
+    return diff
 
 
 def _apply_delta(snapshot: SnapshotRecord, proposed_delta: SnapshotDelta) -> SnapshotRecord:
@@ -322,8 +390,9 @@ async def process_one_job(
                 else:
                     await asyncio.sleep(0.25 * (_flush_attempt + 1))
         if flush_ok:
+            diff = _compute_refinement_diff(snapshot, new_snap)
             try:
-                await _set_user_notice(redis, user_id_str)
+                await _set_user_notice(redis, user_id_str, diff_summary=diff or None)
             except Exception:  # noqa: BLE001
                 log.warning(
                     "refinement_user_notice_failed",

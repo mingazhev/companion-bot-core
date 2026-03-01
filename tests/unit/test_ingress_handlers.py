@@ -622,7 +622,7 @@ async def test_handle_message_sends_reply() -> None:
             "companion_bot_core.bot.handlers.process_message",
             return_value="Hello back",
         ) as mock_process,
-        patch("companion_bot_core.bot.handlers.check_and_clear_user_notice", return_value=False),
+        patch("companion_bot_core.bot.handlers.check_and_clear_user_notice", return_value=None),
     ):
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
@@ -646,7 +646,7 @@ async def test_handle_message_sends_profile_updated_notice_when_set() -> None:
     settings.refinement_activity_threshold = 10
 
     with patch("companion_bot_core.bot.handlers.process_message", return_value="Reply text"), patch(
-        "companion_bot_core.bot.handlers.check_and_clear_user_notice", return_value=True
+        "companion_bot_core.bot.handlers.check_and_clear_user_notice", return_value={}
     ):
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
@@ -687,7 +687,7 @@ async def test_handle_message_no_notice_when_not_set() -> None:
     settings.refinement_activity_threshold = 10
 
     with patch("companion_bot_core.bot.handlers.process_message", return_value="Goodbye"), patch(
-        "companion_bot_core.bot.handlers.check_and_clear_user_notice", return_value=False
+        "companion_bot_core.bot.handlers.check_and_clear_user_notice", return_value=None
     ):
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
