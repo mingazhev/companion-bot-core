@@ -585,20 +585,38 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
     },
     # --- Unsupported content types ---
     "unsupported.photo": {
-        "ru": "Я пока работаю только с текстом. Отправь мне текстовое сообщение!",
-        "en": "I currently work with text only. Please send me a text message!",
+        "ru": (
+            "Я пока не умею смотреть картинки, но это в планах! "
+            "Если хочешь обсудить фото — просто опиши, что на нём."
+        ),
+        "en": (
+            "I can't see images yet, but it's on the roadmap! "
+            "If you'd like to discuss a photo, just describe what's in it."
+        ),
     },
     "unsupported.voice": {
-        "ru": "Я пока не умею обрабатывать голосовые сообщения. Напиши мне текстом!",
-        "en": "I can't process voice messages yet. Please type your message instead!",
+        "ru": (
+            "Голосовые пока не поддерживаю, но скоро научусь! "
+            "А пока можешь описать словами — я внимательно прочитаю."
+        ),
+        "en": (
+            "I can't listen to voice messages yet, but I'm learning! "
+            "For now, try typing it out — I'll read every word."
+        ),
     },
     "unsupported.sticker": {
-        "ru": "Стикеры — это весело, но я понимаю только текст. Напиши мне что-нибудь!",
-        "en": "Stickers are fun, but I only understand text. Send me a message!",
+        "ru": "Стикеры — это круто! Но я пока понимаю только текст. Напиши мне что-нибудь!",
+        "en": "Love the sticker! But I only understand text for now. Send me a message!",
     },
     "unsupported.document": {
-        "ru": "Я пока не умею открывать файлы. Отправь мне текстовое сообщение!",
-        "en": "I can't open files yet. Please send me a text message!",
+        "ru": (
+            "Я пока не умею читать файлы. "
+            "Если нужна помощь с содержимым — скопируй текст и отправь мне."
+        ),
+        "en": (
+            "I can't read files yet. "
+            "If you need help with the content, copy the text and send it to me."
+        ),
     },
     "unsupported.other": {
         "ru": "Я понимаю только текстовые сообщения. Попробуй написать мне текстом!",
