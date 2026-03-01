@@ -120,16 +120,11 @@ _ACTIVITY_KEY_TTL = 86400  # 1 day
 _REFINEMENT_GUARD_PREFIX = "refinement:pending"
 _REFINEMENT_GUARD_TTL = 600  # 10 minutes
 
-# User-facing messages
-_CIRCUIT_OPEN_MSG = (
-    "I'm having trouble reaching the AI service right now. Please try again in a moment."
-)
-_REFUSE_MSG = (
-    "I can't make that change — it conflicts with safety guidelines. "
-    "If you'd like to adjust your experience, try /set_tone or /set_persona."
-)
-_CHANGE_APPLIED_MSG = "Done! I've recorded your preference and will adapt accordingly."
-_CHANGE_CANCELLED_MSG = "No problem, keeping things as they are."
+# User-facing messages (used only by tests; production code uses tr())
+_CIRCUIT_OPEN_MSG = tr("orchestrator.circuit_open", "en")
+_REFUSE_MSG = tr("orchestrator.refuse", "en")
+_CHANGE_APPLIED_MSG = tr("orchestrator.change_applied", "en")
+_CHANGE_CANCELLED_MSG = tr("orchestrator.change_cancelled", "en")
 
 
 # ---------------------------------------------------------------------------

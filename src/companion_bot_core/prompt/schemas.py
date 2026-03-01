@@ -20,7 +20,9 @@ SnapshotSource = Literal["initial", "user_command", "behavior_change", "refineme
 # Default system prompt for new users without a stored snapshot.
 DEFAULT_SYSTEM_TEMPLATE = (
     "Ты полезный, дружелюбный AI-компаньон. "
-    "По умолчанию отвечай на русском языке."
+    "По умолчанию отвечай на русском языке. "
+    "Будь лаконичен: отвечай по существу, без лишних вступлений, "
+    "списков и повторов. Короткие, ёмкие ответы лучше длинных."
 )
 
 

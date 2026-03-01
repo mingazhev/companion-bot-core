@@ -602,8 +602,9 @@ async def test_medium_risk_unrelated_message_clears_pending_and_proceeds() -> No
     )
 
     assert await get_pending_change(redis, str(user_id)) is None
-    # Normal AI reply returned
-    assert reply == "Sure, the sky is blue!"
+    # Reply includes a cancellation notice followed by the normal AI reply
+    assert reply.endswith("Sure, the sky is blue!")
+    assert "---" in reply
 
 
 @pytest.mark.asyncio

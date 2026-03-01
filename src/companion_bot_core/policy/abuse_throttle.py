@@ -37,8 +37,10 @@ _BLOCK_THRESHOLD = 5
 _BLOCK_TTL_SECONDS = 600  # 10 minutes
 
 # Message returned to an abuse-blocked user.
+# Production code uses tr("orchestrator.abuse_block", locale); this constant
+# is kept for backward-compatible test imports.
 ABUSE_BLOCK_MESSAGE = (
-    "You've triggered too many policy violations in a short time. "
+    "🚫 You've triggered too many policy violations in a short time. "
     "Please wait a few minutes before sending more messages."
 )
 
