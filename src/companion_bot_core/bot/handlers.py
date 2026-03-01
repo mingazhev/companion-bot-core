@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
 
 from companion_bot_core.behavior.extractor import VALID_TONES
@@ -37,8 +38,11 @@ from companion_bot_core.orchestrator import process_message
 from companion_bot_core.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
 from companion_bot_core.prompt.helpers import (
     acquire_profile_advisory_lock,
+    add_fact_to_profile,
+    extract_memory_sections,
     get_or_create_profile,
     rebuild_and_save_snapshot,
+    remove_fact_from_profile,
 )
 from companion_bot_core.tracing import span
 
@@ -51,9 +55,28 @@ if TYPE_CHECKING:
     from companion_bot_core.inference.client import ChatAPIClient
     from companion_bot_core.prompt.snapshot_store import SnapshotStore
 
+from companion_bot_core.dev.seeds import PERSONAS as SEED_PERSONAS
 from companion_bot_core.privacy.delete_user import hard_delete_user
+from companion_bot_core.prompt.merge_builder import (
+    build_system_prompt as _build_system_prompt,
+)
+from companion_bot_core.prompt.merge_builder import (
+    extract_base_template as _extract_base_template,
+)
+from companion_bot_core.prompt.merge_builder import (
+    extract_section as _extract_section,
+)
 from companion_bot_core.prompt.postgres_store import PROFILE_LOCK_UNLOCK_SCRIPT, defer_lock_release
 from companion_bot_core.prompt.rollback import RollbackError, rollback_to_previous
+from companion_bot_core.prompt.schemas import (
+    DEFAULT_SYSTEM_TEMPLATE as _DEFAULT_SYSTEM_TEMPLATE,
+)
+from companion_bot_core.prompt.schemas import (
+    PromptComponents as _PromptComponents,
+)
+from companion_bot_core.prompt.schemas import (
+    SnapshotRecord as _SnapshotRecord,
+)
 from companion_bot_core.redis.queues import enqueue_refinement_job
 from companion_bot_core.refinement.worker import check_and_clear_user_notice
 
@@ -76,10 +99,86 @@ def _user_locale(db_user: User | None) -> str:
 
 
 @router.message(Command("start"))
-async def cmd_start(message: Message, db_user: User) -> None:
-    """Greet the user and show available commands."""
-    await message.answer(tr("start.text", _user_locale(db_user)), parse_mode=None)
+async def cmd_start(
+    message: Message,
+    db_user: User,
+    db_session: AsyncSession,
+    snapshot_store: SnapshotStore,
+    encryptor: FieldEncryptor | None = None,
+) -> None:
+    """Welcome message: value-prop for new users, personalised greeting for returning."""
+    locale = _user_locale(db_user)
+    enc = encryptor or NOOP_ENCRYPTOR
+
+    # Check if user has a profile (returning user)
+    result = await db_session.execute(
+        select(UserProfile).where(UserProfile.user_id == db_user.id)
+    )
+    profile = result.scalar_one_or_none()
+
+    if profile is not None and (profile.persona_name or profile.tone):
+        # Returning user — personalised greeting
+        name = ""
+        if profile.persona_name:
+            name = enc.decrypt_safe(profile.persona_name, default="")
+        if name:
+            text = tr("start.welcome_back", locale, name=html.escape(name))
+        else:
+            text = tr("start.welcome_back_no_name", locale)
+        await message.answer(text, parse_mode=None)
+    else:
+        # New user — warm value-prop + onboarding (interest selection)
+        await message.answer(
+            tr("start.welcome_new", locale), parse_mode=None,
+        )
+        # Trigger onboarding: show interest selection buttons
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=tr("interest.tech", locale),
+                    callback_data="onboard_interest:tech",
+                ),
+                InlineKeyboardButton(
+                    text=tr("interest.creative", locale),
+                    callback_data="onboard_interest:creative",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=tr("interest.learning", locale),
+                    callback_data="onboard_interest:learning",
+                ),
+                InlineKeyboardButton(
+                    text=tr("interest.fitness", locale),
+                    callback_data="onboard_interest:fitness",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=tr("onboarding.skip", locale),
+                    callback_data="onboard_interest:skip",
+                ),
+            ],
+        ])
+        await message.answer(
+            tr("onboarding.step2_interests_no_name", locale),
+            parse_mode=None,
+            reply_markup=kb,
+        )
+
     log.info("cmd_start", internal_user_id=str(db_user.id))
+
+
+# --------------------------------------------------------------------------- #
+# /help
+# --------------------------------------------------------------------------- #
+
+
+@router.message(Command("help"))
+async def cmd_help(message: Message, db_user: User) -> None:
+    """Show available commands."""
+    await message.answer(tr("help.text", _user_locale(db_user)), parse_mode=None)
+    log.info("cmd_help", internal_user_id=str(db_user.id))
 
 
 # --------------------------------------------------------------------------- #
@@ -130,6 +229,118 @@ async def cmd_profile(
         parse_mode=None,
     )
     log.info("cmd_profile", internal_user_id=str(db_user.id))
+
+
+# --------------------------------------------------------------------------- #
+# /memory
+# --------------------------------------------------------------------------- #
+
+
+@router.message(Command("memory"))
+async def cmd_memory(
+    message: Message,
+    db_user: User,
+    snapshot_store: SnapshotStore,
+) -> None:
+    """Show what the bot remembers about the user."""
+    locale = _user_locale(db_user)
+    snapshot = await snapshot_store.get_active(db_user.id)
+    sections = extract_memory_sections(snapshot)
+
+    parts: list[str] = []
+    has_content = False
+
+    if sections["persona"]:
+        parts.append(tr("memory.persona", locale, value=sections["persona"]))
+        has_content = True
+    if sections["tone"]:
+        parts.append(tr("memory.tone", locale, value=sections["tone"]))
+        has_content = True
+    if sections["skills"]:
+        parts.append(tr("memory.skills", locale, value=sections["skills"]))
+        has_content = True
+
+    profile_text = sections["long_term_profile"]
+    if profile_text.strip():
+        parts.append("")  # blank line separator
+        parts.append(tr("memory.profile", locale, value=profile_text))
+        has_content = True
+
+    if has_content:
+        text = tr("memory.header", locale) + "\n".join(parts)
+    else:
+        text = tr("memory.empty", locale)
+
+    await message.answer(text, parse_mode=None)
+    log.info("cmd_memory", internal_user_id=str(db_user.id))
+
+
+# --------------------------------------------------------------------------- #
+# /remember
+# --------------------------------------------------------------------------- #
+
+
+@router.message(Command("remember"))
+async def cmd_remember(
+    message: Message,
+    command: CommandObject,
+    db_user: User,
+    db_session: AsyncSession,
+    snapshot_store: SnapshotStore,
+) -> None:
+    """Append a fact to the user's long-term profile."""
+    locale = _user_locale(db_user)
+    fact = (command.args or "").strip()
+    if not fact:
+        await message.answer(tr("remember.missing", locale), parse_mode=None)
+        return
+    if len(fact) > 500:
+        fact = fact[:500]
+        await message.answer(
+            tr("remember.truncated", locale), parse_mode=None,
+        )
+
+    await acquire_profile_advisory_lock(db_session, db_user.id)
+    await add_fact_to_profile(snapshot_store, db_user.id, fact, session=db_session)
+    await message.answer(
+        tr("remember.saved", locale, fact=html.escape(fact)),
+        parse_mode=None,
+    )
+    log.info("cmd_remember", internal_user_id=str(db_user.id))
+
+
+# --------------------------------------------------------------------------- #
+# /forget
+# --------------------------------------------------------------------------- #
+
+
+@router.message(Command("forget"))
+async def cmd_forget(
+    message: Message,
+    command: CommandObject,
+    db_user: User,
+    db_session: AsyncSession,
+    snapshot_store: SnapshotStore,
+) -> None:
+    """Remove a matching fact from the user's long-term profile."""
+    locale = _user_locale(db_user)
+    query = (command.args or "").strip()
+    if not query:
+        await message.answer(tr("forget.missing", locale), parse_mode=None)
+        return
+
+    await acquire_profile_advisory_lock(db_session, db_user.id)
+    removed = await remove_fact_from_profile(
+        snapshot_store, db_user.id, query, session=db_session,
+    )
+    if removed is None:
+        await message.answer(tr("forget.not_found", locale), parse_mode=None)
+    else:
+        await message.answer(
+            tr("forget.done", locale, fact=html.escape(removed)),
+            parse_mode=None,
+        )
+    log.info("cmd_forget", internal_user_id=str(db_user.id), found=removed is not None)
 
 
 # --------------------------------------------------------------------------- #
@@ -264,7 +475,7 @@ async def cmd_set_tone(
                 log.error("profile_lock_release_impossible", internal_user_id=str(db_user.id))
             else:
                 try:
-                    await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[misc]
+                    await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[no-untyped-call]
                 except Exception:  # noqa: BLE001
                     log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
 
@@ -349,20 +560,19 @@ async def cmd_set_persona(
                 log.error("profile_lock_release_impossible", internal_user_id=str(db_user.id))
             else:
                 try:
-                    await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[misc]
+                    await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[no-untyped-call]
                 except Exception:  # noqa: BLE001
                     log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
 
 
 # --------------------------------------------------------------------------- #
-# /memory_compact_now
+# /refresh_memory (renamed from /memory_compact_now)
 # --------------------------------------------------------------------------- #
 
 
-@router.message(Command("memory_compact_now"))
-async def cmd_memory_compact_now(message: Message, db_user: User, redis: Redis) -> None:
-    """Request an immediate memory compaction for this user."""
-    locale = _user_locale(db_user)
+@router.message(Command("refresh_memory"))
+async def cmd_refresh_memory(message: Message, db_user: User, redis: Redis) -> None:
+    """Review conversations and refresh what the bot remembers about the user."""
     locale = _user_locale(db_user)
     user_id_str = str(db_user.id)
 
@@ -370,7 +580,7 @@ async def cmd_memory_compact_now(message: Message, db_user: User, redis: Redis) 
     guard_key = f"refinement:pending:{user_id_str}"
     acquired = await redis.set(guard_key, "1", nx=True, ex=600)
     if not acquired:
-        await message.answer(tr("memory_compact.in_progress", locale), parse_mode=None)
+        await message.answer(tr("refresh_memory.in_progress", locale), parse_mode=None)
         return
 
     try:
@@ -380,12 +590,19 @@ async def cmd_memory_compact_now(message: Message, db_user: User, redis: Redis) 
             await redis.delete(guard_key)
         except Exception:  # noqa: BLE001
             log.warning("compact_guard_cleanup_failed", internal_user_id=user_id_str)
-        await message.answer(tr("memory_compact.enqueue_failed", locale), parse_mode=None)
+        await message.answer(tr("refresh_memory.enqueue_failed", locale), parse_mode=None)
         log.warning("memory_compact_enqueue_failed", internal_user_id=user_id_str)
         return
 
-    await message.answer(tr("memory_compact.requested", locale), parse_mode=None)
-    log.info("memory_compact_now_requested", internal_user_id=user_id_str)
+    await message.answer(tr("refresh_memory.requested", locale), parse_mode=None)
+    log.info("refresh_memory_requested", internal_user_id=user_id_str)
+
+
+# Keep old name as alias for backwards compatibility
+@router.message(Command("memory_compact_now"))
+async def cmd_memory_compact_now(message: Message, db_user: User, redis: Redis) -> None:
+    """Legacy alias for /refresh_memory."""
+    await cmd_refresh_memory(message, db_user, redis)
 
 
 # --------------------------------------------------------------------------- #
@@ -438,7 +655,7 @@ async def cmd_reset_persona(
                 log.error("profile_lock_release_impossible", internal_user_id=str(db_user.id))
             else:
                 try:
-                    await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[misc]
+                    await redis.eval(PROFILE_LOCK_UNLOCK_SCRIPT, 1, lock_key, lock_token)  # type: ignore[no-untyped-call]
                 except Exception:  # noqa: BLE001
                     log.warning("profile_lock_release_failed", internal_user_id=str(db_user.id))
 
@@ -570,13 +787,43 @@ async def handle_message(
                 log.warning("error_reply_send_failed", internal_user_id=user_id_str)
             raise
 
+        # Check if a pending confirmation was just created — if so, attach
+        # inline Yes/No buttons so the user doesn't have to type "yes"/"no".
+        from companion_bot_core.orchestrator.dialogue_state import (
+            get_pending_change as _get_pending_for_buttons,
+        )
+
+        pending_for_buttons = await _get_pending_for_buttons(
+            redis, user_id_str,
+        )
+        confirm_kb: InlineKeyboardMarkup | None = None
+        if pending_for_buttons is not None:
+            confirm_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(
+                    text=tr("btn.yes", locale),
+                    callback_data="confirm:yes",
+                ),
+                InlineKeyboardButton(
+                    text=tr("btn.no", locale),
+                    callback_data="confirm:no",
+                ),
+            ]])
+
         # Split if the reply exceeds Telegram's message-length limit.
         # Wrap in try/except so a Telegram API failure (timeout, rate limit)
         # does not propagate and roll back the DB transaction \u2014 Redis state
         # (activity counter, refinement jobs) is already committed.
         try:
-            for i in range(0, len(reply), _TG_MSG_LIMIT):
-                await message.answer(reply[i : i + _TG_MSG_LIMIT], parse_mode=None)
+            chunks = [
+                reply[i : i + _TG_MSG_LIMIT]
+                for i in range(0, len(reply), _TG_MSG_LIMIT)
+            ]
+            for idx, chunk in enumerate(chunks):
+                # Attach confirm buttons to the last chunk only
+                kb = confirm_kb if idx == len(chunks) - 1 else None
+                await message.answer(
+                    chunk, parse_mode=None, reply_markup=kb,
+                )
         except Exception as exc:
             log.warning(
                 "reply_send_failed",
@@ -589,7 +836,7 @@ async def handle_message(
         # updating this user's prompt snapshot since their last message.
         try:
             if await check_and_clear_user_notice(redis, user_id_str):
-                await message.answer(tr("notice.profile_updated", locale), parse_mode=None)
+                await message.answer(tr("notice.profile_updated_v2", locale), parse_mode=None)
         except Exception:
             log.warning("notice_send_failed", internal_user_id=user_id_str)
 
@@ -600,3 +847,797 @@ async def handle_message(
         reply_length=len(reply),
         elapsed_ms=elapsed_ms,
     )
+
+
+# --------------------------------------------------------------------------- #
+# /settings — inline keyboard menu
+# --------------------------------------------------------------------------- #
+
+
+def _settings_keyboard(locale: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=tr("btn.tone", locale), callback_data="settings:tone"),
+            InlineKeyboardButton(text=tr("btn.persona", locale), callback_data="settings:persona"),
+        ],
+        [
+            InlineKeyboardButton(text=tr("btn.skills", locale), callback_data="settings:skills"),
+            InlineKeyboardButton(
+                text=tr("btn.language", locale),
+                callback_data="settings:language",
+            ),
+        ],
+    ])
+
+
+@router.message(Command("settings"))
+async def cmd_settings(message: Message, db_user: User) -> None:
+    """Show the settings menu with inline buttons."""
+    locale = _user_locale(db_user)
+    await message.answer(
+        tr("settings.choose", locale),
+        reply_markup=_settings_keyboard(locale),
+        parse_mode=None,
+    )
+    log.info("cmd_settings", internal_user_id=str(db_user.id))
+
+
+# --------------------------------------------------------------------------- #
+# Tone picker (inline keyboard)
+# --------------------------------------------------------------------------- #
+
+
+_TONE_LIST = sorted(VALID_TONES)
+
+
+def _tone_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text=tone.capitalize(), callback_data=f"tone:{tone}")]
+        for tone in _TONE_LIST
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@router.callback_query(F.data == "settings:tone")
+async def cb_settings_tone(callback: CallbackQuery, db_user: User) -> None:
+    locale = _user_locale(db_user)
+    if callback.message is not None:
+        await callback.message.edit_text(  # type: ignore[union-attr]
+            tr("tone.pick", locale),
+            reply_markup=_tone_keyboard(),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("tone:"))
+async def cb_tone_pick(
+    callback: CallbackQuery,
+    db_user: User,
+    db_session: AsyncSession,
+    snapshot_store: SnapshotStore,
+    encryptor: FieldEncryptor | None = None,
+) -> None:
+    tone = (callback.data or "").split(":", 1)[1]
+    locale = _user_locale(db_user)
+    enc = encryptor or NOOP_ENCRYPTOR
+
+    if tone not in VALID_TONES:
+        await callback.answer()
+        return
+
+    await acquire_profile_advisory_lock(db_session, db_user.id)
+    profile = await get_or_create_profile(db_session, db_user.id)
+    raw_persona = (
+        enc.decrypt_safe(profile.persona_name, default="")
+        if profile.persona_name else None
+    )
+    profile.tone = enc.encrypt(tone)
+    await db_session.flush()
+    await rebuild_and_save_snapshot(
+        snapshot_store, db_user.id, raw_persona, tone,
+        session=db_session,
+    )
+    if callback.message is not None:
+        await callback.message.edit_text(  # type: ignore[union-attr]
+            tr("tone.set", locale, tone=tone),
+        )
+    await callback.answer()
+    log.info("cb_tone_pick", internal_user_id=str(db_user.id), tone=tone)
+
+
+# --------------------------------------------------------------------------- #
+# Settings sub-menus
+# --------------------------------------------------------------------------- #
+
+
+@router.callback_query(F.data == "settings:language")
+async def cb_settings_language(callback: CallbackQuery, db_user: User) -> None:
+    locale = _user_locale(db_user)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Русский", callback_data="lang:ru"),
+            InlineKeyboardButton(text="English", callback_data="lang:en"),
+        ],
+    ])
+    if callback.message is not None:
+        await callback.message.edit_text(  # type: ignore[union-attr]
+            tr("set_language.help", locale),
+            reply_markup=kb,
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("lang:"))
+async def cb_lang_pick(
+    callback: CallbackQuery,
+    db_user: User,
+    db_session: AsyncSession,
+) -> None:
+    new_locale = (callback.data or "").split(":", 1)[1]
+    if new_locale not in SUPPORTED_LOCALES:
+        await callback.answer()
+        return
+    db_user.locale = new_locale
+    await db_session.flush()
+    if callback.message is not None:
+        await callback.message.edit_text(  # type: ignore[union-attr]
+            tr("set_language.updated", new_locale),
+        )
+    await callback.answer()
+    log.info("cb_lang_pick", internal_user_id=str(db_user.id), locale=new_locale)
+
+
+# --------------------------------------------------------------------------- #
+# Persona browser (inline keyboard)  — /personas
+# --------------------------------------------------------------------------- #
+
+# Deep persona definitions with personalities
+DEEP_PERSONAS: dict[str, dict[str, str]] = {
+    "study_buddy": {
+        "name_ru": "Учебный друг",
+        "name_en": "Study Buddy",
+        "desc_ru": (
+            "Помогаю разбираться в сложных темах. Использую метод Сократа, "
+            "разбиваю сложное на простые шаги и помогаю запоминать через повторение."
+        ),
+        "desc_en": (
+            "I help you understand complex topics. I use the Socratic method, "
+            "break down complex ideas into simple steps, and help with spaced repetition."
+        ),
+        "persona_text": (
+            "You are a patient, encouraging study companion. "
+            "Use the Socratic method: ask guiding questions rather than giving answers directly. "
+            "Break complex concepts into digestible steps. Suggest mnemonic devices and "
+            "spaced repetition when appropriate. Celebrate small wins in understanding."
+        ),
+    },
+    "creative_muse": {
+        "name_ru": "Творческая муза",
+        "name_en": "Creative Muse",
+        "desc_ru": (
+            "Вдохновляю и помогаю с творческими проектами. "
+            "Генерирую идеи, даю обратную связь и помогаю преодолевать творческий блок."
+        ),
+        "desc_en": (
+            "I inspire and help with creative projects. "
+            "I generate ideas, give feedback, and help overcome creative blocks."
+        ),
+        "persona_text": (
+            "You are an enthusiastic creative collaborator. "
+            "Generate unexpected ideas and connections. Give constructive, honest feedback "
+            "on creative work while staying encouraging. When the user is stuck, "
+            "suggest exercises and prompts to unblock creativity. Reference artistic "
+            "movements and techniques when relevant."
+        ),
+    },
+    "life_coach": {
+        "name_ru": "Лайф-коуч",
+        "name_en": "Life Coach",
+        "desc_ru": (
+            "Помогаю ставить цели и двигаться к ним. "
+            "Задаю правильные вопросы, помогаю расставить приоритеты и поддерживаю мотивацию."
+        ),
+        "desc_en": (
+            "I help you set goals and work toward them. "
+            "I ask the right questions, help prioritize, and keep you motivated."
+        ),
+        "persona_text": (
+            "You are a warm but direct life coach. "
+            "Help the user clarify their goals through thoughtful questions. "
+            "Break big goals into actionable steps. Gently challenge assumptions "
+            "and limiting beliefs. Celebrate progress. Never be preachy — "
+            "be a supportive thinking partner."
+        ),
+    },
+    "tech_mentor": {
+        "name_ru": "Тех-ментор",
+        "name_en": "Tech Mentor",
+        "desc_ru": (
+            "Помогаю с программированием и технологиями. "
+            "Объясняю архитектурные решения, ревьюю код и подсказываю лучшие практики."
+        ),
+        "desc_en": (
+            "I help with programming and technology. "
+            "I explain architectural decisions, review code, and suggest best practices."
+        ),
+        "persona_text": (
+            "You are an experienced senior developer and mentor. "
+            "Explain architectural trade-offs clearly. When reviewing code, "
+            "focus on the most impactful improvements. Teach idiomatic patterns "
+            "for the language being used. Ask clarifying questions before diving "
+            "into solutions. Prefer simple, readable code over clever abstractions."
+        ),
+    },
+}
+
+
+def _personas_keyboard(locale: str) -> InlineKeyboardMarkup:
+    buttons: list[list[InlineKeyboardButton]] = []
+    name_key = "name_ru" if locale == "ru" else "name_en"
+    for key, persona in DEEP_PERSONAS.items():
+        buttons.append([
+            InlineKeyboardButton(text=persona[name_key], callback_data=f"persona_view:{key}"),
+        ])
+    # Add seed personas
+    for key in SEED_PERSONAS:
+        buttons.append([
+            InlineKeyboardButton(text=key.capitalize(), callback_data=f"persona_set:{key}"),
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@router.message(Command("personas"))
+async def cmd_personas(message: Message, db_user: User) -> None:
+    """Browse available personas."""
+    locale = _user_locale(db_user)
+    await message.answer(
+        tr("personas.title", locale),
+        reply_markup=_personas_keyboard(locale),
+        parse_mode=None,
+    )
+    log.info("cmd_personas", internal_user_id=str(db_user.id))
+
+
+@router.callback_query(F.data == "settings:persona")
+async def cb_settings_persona(callback: CallbackQuery, db_user: User) -> None:
+    locale = _user_locale(db_user)
+    if callback.message is not None:
+        await callback.message.edit_text(  # type: ignore[union-attr]
+            tr("personas.title", locale),
+            reply_markup=_personas_keyboard(locale),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("persona_view:"))
+async def cb_persona_view(callback: CallbackQuery, db_user: User) -> None:
+    locale = _user_locale(db_user)
+    key = (callback.data or "").split(":", 1)[1]
+    persona = DEEP_PERSONAS.get(key)
+    if persona is None:
+        await callback.answer()
+        return
+    name_key = "name_ru" if locale == "ru" else "name_en"
+    desc_key = "desc_ru" if locale == "ru" else "desc_en"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=tr("btn.personas.select", locale),
+            callback_data=f"persona_deep:{key}",
+        )],
+        [InlineKeyboardButton(
+            text=tr("btn.back", locale),
+            callback_data="settings:persona",
+        )],
+    ])
+    if callback.message is not None:
+        await callback.message.edit_text(  # type: ignore[union-attr]
+            tr("personas.preview", locale, name=persona[name_key], description=persona[desc_key]),
+            reply_markup=kb,
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("persona_deep:"))
+async def cb_persona_deep_select(
+    callback: CallbackQuery,
+    db_user: User,
+    db_session: AsyncSession,
+    snapshot_store: SnapshotStore,
+    encryptor: FieldEncryptor | None = None,
+) -> None:
+    locale = _user_locale(db_user)
+    key = (callback.data or "").split(":", 1)[1]
+    persona = DEEP_PERSONAS.get(key)
+    if persona is None:
+        await callback.answer()
+        return
+
+    enc = encryptor or NOOP_ENCRYPTOR
+    name_key = "name_ru" if locale == "ru" else "name_en"
+    persona_name = persona[name_key]
+
+    await acquire_profile_advisory_lock(db_session, db_user.id)
+    profile = await get_or_create_profile(db_session, db_user.id)
+    raw_tone = (
+        enc.decrypt_safe(profile.tone, default="") if profile.tone else None
+    )
+    profile.persona_name = enc.encrypt(persona_name)
+    await db_session.flush()
+
+    # Build snapshot with rich persona text instead of just name
+    current = await snapshot_store.get_active(db_user.id)
+    if current is not None:
+        base_template = _extract_base_template(current.system_prompt)
+        skill_packs_dict: dict[str, str] = {
+            k: str(v) for k, v in current.skill_prompts_json.items()
+        }
+        ltp = _extract_section(current.system_prompt, "Long-term Profile")
+        raw_skills: dict[str, object] = dict(current.skill_prompts_json)
+    else:
+        base_template = _DEFAULT_SYSTEM_TEMPLATE
+        skill_packs_dict = {}
+        ltp = ""
+        raw_skills = {}
+
+    persona_segment = f"Name: {persona_name}\n{persona['persona_text']}"
+    if raw_tone:
+        persona_segment += f"\nTone: {raw_tone}"
+    components = _PromptComponents(
+        base_system_template=base_template,
+        persona_segment=persona_segment,
+        skill_packs=skill_packs_dict,
+        long_term_profile=ltp,
+    )
+    system_prompt = _build_system_prompt(components)
+    version = await snapshot_store.next_version(db_user.id)
+    record = _SnapshotRecord(
+        user_id=db_user.id,
+        version=version,
+        system_prompt=system_prompt,
+        skill_prompts_json=raw_skills,
+        source="user_command",
+    )
+    await snapshot_store.save(record, session=db_session)
+    await snapshot_store.set_active(db_user.id, record.id, session=db_session)
+
+    if callback.message is not None:
+        await callback.message.edit_text(  # type: ignore[union-attr]
+            tr("personas.selected", locale, name=persona_name),
+        )
+    await callback.answer()
+    log.info("cb_persona_deep", internal_user_id=str(db_user.id), persona=key)
+
+
+@router.callback_query(F.data.startswith("persona_set:"))
+async def cb_persona_set(
+    callback: CallbackQuery,
+    db_user: User,
+    db_session: AsyncSession,
+    snapshot_store: SnapshotStore,
+    encryptor: FieldEncryptor | None = None,
+) -> None:
+    locale = _user_locale(db_user)
+    key = (callback.data or "").split(":", 1)[1]
+    if key not in SEED_PERSONAS:
+        await callback.answer()
+        return
+
+    enc = encryptor or NOOP_ENCRYPTOR
+    await acquire_profile_advisory_lock(db_session, db_user.id)
+    profile = await get_or_create_profile(db_session, db_user.id)
+    raw_tone = (
+        enc.decrypt_safe(profile.tone, default="") if profile.tone else None
+    )
+    profile.persona_name = enc.encrypt(key)
+    await db_session.flush()
+    await rebuild_and_save_snapshot(
+        snapshot_store, db_user.id, key, raw_tone,
+        session=db_session,
+    )
+    if callback.message is not None:
+        await callback.message.edit_text(  # type: ignore[union-attr]
+            tr("personas.selected", locale, name=key.capitalize()),
+        )
+    await callback.answer()
+    log.info("cb_persona_set", internal_user_id=str(db_user.id), persona=key)
+
+
+# --------------------------------------------------------------------------- #
+# Skills catalog — /skills
+# --------------------------------------------------------------------------- #
+
+# Pre-built skill catalog
+SKILL_CATALOG: dict[str, dict[str, str]] = {
+    "code_assistant": {
+        "name_ru": "Код",
+        "name_en": "Code",
+        "prompt": (
+            "When helping with code: always specify the language, "
+            "prefer idiomatic patterns, and include brief comments for non-obvious logic."
+        ),
+    },
+    "study_coach": {
+        "name_ru": "Учёба",
+        "name_en": "Study",
+        "prompt": (
+            "When asked about learning topics: use the Socratic method where helpful, "
+            "suggest spaced-repetition techniques, and break complex concepts into steps."
+        ),
+    },
+    "writing_helper": {
+        "name_ru": "Письмо",
+        "name_en": "Writing",
+        "prompt": (
+            "Help with writing: suggest structural improvements, catch grammar issues, "
+            "and adapt tone to the audience. Offer alternatives rather than rewriting everything."
+        ),
+    },
+    "language_tutor": {
+        "name_ru": "Языки",
+        "name_en": "Languages",
+        "prompt": (
+            "Act as a language tutor: correct mistakes gently, explain grammar rules "
+            "when asked, and suggest natural phrasing. Practice conversation when appropriate."
+        ),
+    },
+    "fitness_coach": {
+        "name_ru": "Фитнес",
+        "name_en": "Fitness",
+        "prompt": (
+            "Provide fitness and wellness guidance: suggest exercises appropriate to "
+            "the user's level, explain proper form, and help build workout plans. "
+            "Always recommend consulting a doctor for medical concerns."
+        ),
+    },
+    "cooking_helper": {
+        "name_ru": "Кулинария",
+        "name_en": "Cooking",
+        "prompt": (
+            "Help with cooking: suggest recipes based on available ingredients, "
+            "explain techniques, and offer substitutions. Adapt portions and difficulty "
+            "to the user's experience level."
+        ),
+    },
+}
+
+
+def _skills_keyboard(
+    locale: str,
+    active_skills: dict[str, object],
+) -> InlineKeyboardMarkup:
+    name_key = "name_ru" if locale == "ru" else "name_en"
+    buttons: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for key, skill in SKILL_CATALOG.items():
+        is_active = key in active_skills
+        label = f"{'[x] ' if is_active else '[ ] '}{skill[name_key]}"
+        row.append(InlineKeyboardButton(text=label, callback_data=f"skill_toggle:{key}"))
+        if len(row) == 3:  # noqa: PLR2004
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@router.message(Command("skills"))
+async def cmd_skills(
+    message: Message,
+    db_user: User,
+    snapshot_store: SnapshotStore,
+) -> None:
+    """Show the skill catalog with toggle buttons."""
+    locale = _user_locale(db_user)
+    snapshot = await snapshot_store.get_active(db_user.id)
+    active_skills = snapshot.skill_prompts_json if snapshot else {}
+
+    await message.answer(
+        tr("skills.description", locale),
+        reply_markup=_skills_keyboard(locale, active_skills),
+        parse_mode=None,
+    )
+    log.info("cmd_skills", internal_user_id=str(db_user.id))
+
+
+@router.callback_query(F.data == "settings:skills")
+async def cb_settings_skills(
+    callback: CallbackQuery,
+    db_user: User,
+    snapshot_store: SnapshotStore,
+) -> None:
+    locale = _user_locale(db_user)
+    snapshot = await snapshot_store.get_active(db_user.id)
+    active_skills = snapshot.skill_prompts_json if snapshot else {}
+    if callback.message is not None:
+        await callback.message.edit_text(  # type: ignore[union-attr]
+            tr("skills.description", locale),
+            reply_markup=_skills_keyboard(locale, active_skills),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("skill_toggle:"))
+async def cb_skill_toggle(
+    callback: CallbackQuery,
+    db_user: User,
+    db_session: AsyncSession,
+    snapshot_store: SnapshotStore,
+) -> None:
+    locale = _user_locale(db_user)
+    key = (callback.data or "").split(":", 1)[1]
+    skill = SKILL_CATALOG.get(key)
+    if skill is None:
+        await callback.answer()
+        return
+
+    name_key = "name_ru" if locale == "ru" else "name_en"
+
+    await acquire_profile_advisory_lock(db_session, db_user.id)
+    snapshot = await snapshot_store.get_active(db_user.id)
+    active_skills = dict(snapshot.skill_prompts_json) if snapshot else {}
+
+    # Extract current snapshot components
+    if snapshot is not None:
+        base = _extract_base_template(snapshot.system_prompt)
+        sp: dict[str, str] = {k: str(v) for k, v in snapshot.skill_prompts_json.items()}
+        ltp = _extract_section(snapshot.system_prompt, "Long-term Profile")
+        ps = _extract_section(snapshot.system_prompt, "Persona")
+    else:
+        base = _DEFAULT_SYSTEM_TEMPLATE
+        sp = {}
+        ltp = ""
+        ps = ""
+
+    if key in active_skills:
+        # Remove skill
+        sp.pop(key, None)
+        msg = tr("skills.toggled_off", locale, name=skill[name_key])
+    else:
+        # Add skill
+        sp[key] = skill["prompt"]
+        msg = tr("skills.toggled_on", locale, name=skill[name_key])
+
+    comp = _PromptComponents(
+        base_system_template=base,
+        persona_segment=ps,
+        skill_packs=sp,
+        long_term_profile=ltp,
+    )
+    sys_p = _build_system_prompt(comp)
+    ver = await snapshot_store.next_version(db_user.id)
+    rec = _SnapshotRecord(
+        user_id=db_user.id,
+        version=ver,
+        system_prompt=sys_p,
+        skill_prompts_json=dict(sp),
+        source="user_command",
+    )
+    await snapshot_store.save(rec, session=db_session)
+    await snapshot_store.set_active(db_user.id, rec.id, session=db_session)
+
+    # Refresh the keyboard with updated state
+    snapshot = await snapshot_store.get_active(db_user.id)
+    new_active = snapshot.skill_prompts_json if snapshot else {}
+    if callback.message is not None:
+        await callback.message.edit_text(  # type: ignore[union-attr]
+            msg,
+            reply_markup=_skills_keyboard(locale, new_active),
+        )
+    await callback.answer()
+    log.info("cb_skill_toggle", internal_user_id=str(db_user.id), skill=key)
+
+
+# --------------------------------------------------------------------------- #
+# Confirmation inline buttons (Yes / No)
+# --------------------------------------------------------------------------- #
+
+
+@router.callback_query(F.data == "confirm:yes")
+async def cb_confirm_yes(
+    callback: CallbackQuery,
+    db_user: User,
+    db_session: AsyncSession,
+    snapshot_store: SnapshotStore,
+    redis: Redis,
+    encryptor: FieldEncryptor | None = None,
+) -> None:
+    """Handle confirmation 'Yes' button press."""
+    from companion_bot_core.orchestrator.dialogue_state import (
+        clear_pending_change as _clear_pending,
+    )
+    from companion_bot_core.orchestrator.dialogue_state import (
+        get_pending_change as _get_pending,
+    )
+    from companion_bot_core.orchestrator.orchestrator import (
+        _apply_behavior_change as _apply_change,
+    )
+    from companion_bot_core.orchestrator.orchestrator import (
+        _record_behavior_event as _record_event,
+    )
+
+    locale = _user_locale(db_user)
+    user_id_str = str(db_user.id)
+    pending = await _get_pending(redis, user_id_str)
+
+    if pending is None:
+        await callback.answer()
+        return
+
+    applied = await _apply_change(
+        intent=pending.detection_result.intent,
+        message_text=pending.original_message,
+        user_id=db_user.id,
+        session=db_session,
+        snapshot_store=snapshot_store,
+        encryptor=encryptor,
+    )
+    await _record_event(
+        db_session,
+        db_user.id,
+        pending.detection_result,
+        applied=applied,
+        confirmed=True,
+    )
+    await _clear_pending(redis, user_id_str)
+
+    if callback.message is not None:
+        text = (
+            tr("orchestrator.change_applied", locale)
+            if applied
+            else tr("orchestrator.change_apply_failed", locale)
+        )
+        await callback.message.edit_text(  # type: ignore[union-attr]
+            text,
+        )
+    await callback.answer()
+    log.info("cb_confirm_yes", internal_user_id=user_id_str, applied=applied)
+
+
+@router.callback_query(F.data == "confirm:no")
+async def cb_confirm_no(
+    callback: CallbackQuery,
+    db_user: User,
+    db_session: AsyncSession,
+    redis: Redis,
+) -> None:
+    """Handle confirmation 'No' button press."""
+    from companion_bot_core.orchestrator.dialogue_state import (
+        clear_pending_change as _clear_pending,
+    )
+    from companion_bot_core.orchestrator.dialogue_state import (
+        get_pending_change as _get_pending,
+    )
+    from companion_bot_core.orchestrator.orchestrator import (
+        _record_behavior_event as _record_event,
+    )
+
+    locale = _user_locale(db_user)
+    user_id_str = str(db_user.id)
+    pending = await _get_pending(redis, user_id_str)
+    if pending is not None:
+        await _record_event(
+            db_session,
+            db_user.id,
+            pending.detection_result,
+            applied=False,
+            confirmed=False,
+        )
+    await _clear_pending(redis, user_id_str)
+
+    if callback.message is not None:
+        await callback.message.edit_text(  # type: ignore[union-attr]
+            tr("orchestrator.change_cancelled", locale),
+        )
+    await callback.answer()
+    log.info("cb_confirm_no", internal_user_id=user_id_str)
+
+
+# --------------------------------------------------------------------------- #
+# Onboarding flow (callback queries)
+# --------------------------------------------------------------------------- #
+
+
+_ONBOARDING_PREFIX = "onboarding"
+_ONBOARDING_TTL = 600  # 10 minutes
+
+
+@router.callback_query(F.data.startswith("onboard_interest:"))
+async def cb_onboard_interest(
+    callback: CallbackQuery,
+    db_user: User,
+    redis: Redis,
+) -> None:
+    """Handle interest selection in onboarding step 2."""
+    import json as _json
+
+    locale = _user_locale(db_user)
+    interest = (callback.data or "").split(":", 1)[1]
+    state_key = f"{_ONBOARDING_PREFIX}:{db_user.id}"
+
+    # Store selected interest (skip means no interest)
+    raw = await redis.get(state_key)
+    state = _json.loads(raw) if raw else {}
+    if interest != "skip":
+        state["interest"] = interest
+    await redis.set(state_key, _json.dumps(state), ex=_ONBOARDING_TTL)
+
+    # Show tone selection (step 3)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=tr("tone_label.friendly", locale),
+                callback_data="onboard_tone:friendly",
+            ),
+            InlineKeyboardButton(
+                text=tr("tone_label.professional", locale),
+                callback_data="onboard_tone:professional",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=tr("tone_label.playful", locale),
+                callback_data="onboard_tone:playful",
+            ),
+            InlineKeyboardButton(
+                text=tr("tone_label.concise", locale),
+                callback_data="onboard_tone:concise",
+            ),
+        ],
+    ])
+    if callback.message is not None:
+        await callback.message.edit_text(  # type: ignore[union-attr]
+            tr("onboarding.step3_tone", locale),
+            reply_markup=kb,
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("onboard_tone:"))
+async def cb_onboard_tone(
+    callback: CallbackQuery,
+    db_user: User,
+    db_session: AsyncSession,
+    snapshot_store: SnapshotStore,
+    redis: Redis,
+    encryptor: FieldEncryptor | None = None,
+) -> None:
+    """Handle tone selection in onboarding step 3 — finalize onboarding."""
+    locale = _user_locale(db_user)
+    tone = (callback.data or "").split(":", 1)[1]
+    enc = encryptor or NOOP_ENCRYPTOR
+    state_key = f"{_ONBOARDING_PREFIX}:{db_user.id}"
+
+    import json as _json
+    raw = await redis.get(state_key)
+    state = _json.loads(raw) if raw else {}
+    interest = state.get("interest", "")
+    name = state.get("name", "")
+
+    # Set up profile
+    await acquire_profile_advisory_lock(db_session, db_user.id)
+    profile = await get_or_create_profile(db_session, db_user.id)
+    if name:
+        profile.persona_name = enc.encrypt(name)
+    profile.tone = enc.encrypt(tone)
+    await db_session.flush()
+
+    # Build initial snapshot with interest as long-term profile fact
+    await rebuild_and_save_snapshot(
+        snapshot_store, db_user.id, name or None, tone,
+        session=db_session,
+    )
+    if interest:
+        await add_fact_to_profile(
+            snapshot_store, db_user.id, f"Interested in: {interest}",
+            session=db_session,
+        )
+
+    # Clean up Redis state
+    await redis.delete(state_key)
+
+    if callback.message is not None:
+        await callback.message.edit_text(  # type: ignore[union-attr]
+            tr("onboarding.done", locale),
+        )
+    await callback.answer()
+    log.info("onboarding_completed", internal_user_id=str(db_user.id))

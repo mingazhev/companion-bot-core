@@ -26,34 +26,7 @@ def normalize_locale(locale: str | None) -> Locale:
 
 
 _MESSAGES: dict[str, dict[Locale, str]] = {
-    "start.text": {
-        "ru": (
-            "Привет! Я твой персональный бот-компаньон.\n\n"
-            "Доступные команды:\n"
-            "/profile — показать текущие настройки\n"
-            "/set_language <ru|en> — сменить язык общения\n"
-            "/set_tone <tone> — настроить тон (friendly, professional, playful…)\n"
-            "/set_persona <name> — задать имя персоны\n"
-            "/memory_compact_now — сжать историю диалога\n"
-            "/reset_persona — вернуть персону по умолчанию\n"
-            "/rollback — откатить профиль к предыдущей версии\n"
-            "/privacy — сводка по приватности\n"
-            "/delete_my_data — удалить все твои данные навсегда"
-        ),
-        "en": (
-            "Hello! I am your personal companion bot.\n\n"
-            "Available commands:\n"
-            "/profile — view your current settings\n"
-            "/set_language <ru|en> — change chat language\n"
-            "/set_tone <tone> — adjust my tone (friendly, professional, playful…)\n"
-            "/set_persona <name> — give me a persona name\n"
-            "/memory_compact_now — compress your conversation history\n"
-            "/reset_persona — restore default persona\n"
-            "/rollback — revert to the previous prompt version\n"
-            "/privacy — privacy policy summary\n"
-            "/delete_my_data — permanently delete all your data"
-        ),
-    },
+    # start.text removed — replaced by start.welcome_new / start.welcome_back
     "profile.not_set": {"ru": "(не задано)", "en": "(not set)"},
     "profile.decrypt_failed": {"ru": "(не удалось расшифровать)", "en": "(unable to decrypt)"},
     "profile.summary": {
@@ -120,24 +93,7 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         "ru": "Имя персоны изменено на '{name}'.",
         "en": "Persona name set to '{name}'.",
     },
-    "memory_compact.in_progress": {
-        "ru": "Компактизация уже выполняется. Пожалуйста, подожди.",
-        "en": "A compaction is already in progress. Please wait.",
-    },
-    "memory_compact.enqueue_failed": {
-        "ru": "Не удалось поставить компактизацию в очередь. Попробуй ещё раз.",
-        "en": "Failed to enqueue compaction. Please try again.",
-    },
-    "memory_compact.requested": {
-        "ru": (
-            "Компактизация памяти запрошена.\n"
-            "Профиль будет обновлён на основе недавних диалогов."
-        ),
-        "en": (
-            "Memory compaction requested.\n"
-            "Your prompt profile will be refined based on recent conversations shortly."
-        ),
-    },
+    # memory_compact.* keys removed — replaced by refresh_memory.*
     "reset_persona.updated": {
         "ru": (
             "Персона сброшена к значениям по умолчанию.\n"
@@ -187,10 +143,7 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         "ru": "Не удалось обработать сообщение. Попробуй ещё раз чуть позже.",
         "en": "Something went wrong while processing your message. Please try again in a moment.",
     },
-    "notice.profile_updated": {
-        "ru": "Твой профиль общения обновлён на основе недавних диалогов.",
-        "en": "Your conversation profile has been updated based on recent interactions.",
-    },
+    # notice.profile_updated removed — replaced by notice.profile_updated_v2
     "orchestrator.circuit_open": {
         "ru": "Сейчас есть проблемы с доступом к AI-сервису. Попробуй ещё раз чуть позже.",
         "en": "I'm having trouble reaching the AI service right now. Please try again in a moment.",
@@ -293,6 +246,311 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
     "prompt.language_instruction": {
         "ru": "Отвечай на русском языке, если пользователь явно не попросит другой язык.",
         "en": "Reply in English unless the user explicitly asks for another language.",
+    },
+    # --- /memory, /remember, /forget ---
+    "memory.header": {
+        "ru": "Вот что я о тебе помню:\n",
+        "en": "Here's what I remember about you:\n",
+    },
+    "memory.persona": {
+        "ru": "Персона: {value}",
+        "en": "Persona: {value}",
+    },
+    "memory.tone": {
+        "ru": "Тон: {value}",
+        "en": "Tone: {value}",
+    },
+    "memory.skills": {
+        "ru": "Навыки: {value}",
+        "en": "Skills: {value}",
+    },
+    "memory.profile": {
+        "ru": "Что я запомнил о тебе:\n{value}",
+        "en": "What I remember about you:\n{value}",
+    },
+    "memory.empty": {
+        "ru": (
+            "Я пока ничего о тебе не знаю. "
+            "Просто общайся со мной, и я постепенно узнаю тебя лучше.\n\n"
+            "Или используй /remember, чтобы рассказать мне что-то о себе."
+        ),
+        "en": (
+            "I don't know anything about you yet. "
+            "Just chat with me and I'll gradually get to know you.\n\n"
+            "Or use /remember to tell me something about yourself."
+        ),
+    },
+    "memory.no_profile": {
+        "ru": "О тебе пока ничего не записано.",
+        "en": "Nothing recorded about you yet.",
+    },
+    "remember.missing": {
+        "ru": (
+            "Расскажи, что запомнить.\n"
+            "Пример: /remember люблю кофе по утрам"
+        ),
+        "en": (
+            "Tell me what to remember.\n"
+            "Example: /remember I love coffee in the morning"
+        ),
+    },
+    "remember.saved": {
+        "ru": "Запомнил: {fact}",
+        "en": "Got it, I'll remember: {fact}",
+    },
+    "remember.truncated": {
+        "ru": "Текст был слишком длинным — я сохраню первые 500 символов.",
+        "en": "That was a bit long — I'll save the first 500 characters.",
+    },
+    "forget.missing": {
+        "ru": (
+            "Укажи, что забыть.\n"
+            "Пример: /forget кофе"
+        ),
+        "en": (
+            "Tell me what to forget.\n"
+            "Example: /forget coffee"
+        ),
+    },
+    "forget.not_found": {
+        "ru": "Не нашёл ничего похожего в своей памяти.",
+        "en": "I couldn't find anything matching that in my memory.",
+    },
+    "forget.done": {
+        "ru": "Забыл: {fact}",
+        "en": "Forgotten: {fact}",
+    },
+    # --- /help ---
+    "help.text": {
+        "ru": (
+            "Доступные команды:\n\n"
+            "/memory — что я о тебе помню\n"
+            "/remember <факт> — рассказать мне что-то о себе\n"
+            "/forget <факт> — попросить забыть что-то\n"
+            "/settings — настройки (тон, персона, навыки, язык)\n"
+            "/personas — выбрать персону\n"
+            "/skills — каталог навыков\n"
+            "/profile — твои текущие настройки\n"
+            "/set_language <ru|en> — сменить язык общения\n"
+            "/set_tone <тон> — настроить тон (friendly, professional, playful…)\n"
+            "/set_persona <имя> — задать имя персоны\n"
+            "/refresh_memory — обновить то, что я помню о тебе\n"
+            "/reset_persona — вернуть персону по умолчанию\n"
+            "/rollback — откатить профиль к предыдущей версии\n"
+            "/privacy — сводка по приватности\n"
+            "/delete_my_data — удалить все твои данные навсегда"
+        ),
+        "en": (
+            "Available commands:\n\n"
+            "/memory — what I remember about you\n"
+            "/remember <fact> — tell me something about yourself\n"
+            "/forget <fact> — ask me to forget something\n"
+            "/settings — settings (tone, persona, skills, language)\n"
+            "/personas — choose a persona\n"
+            "/skills — skill catalog\n"
+            "/profile — your current settings\n"
+            "/set_language <ru|en> — change chat language\n"
+            "/set_tone <tone> — adjust my tone (friendly, professional, playful…)\n"
+            "/set_persona <name> — give me a persona name\n"
+            "/refresh_memory — refresh what I remember about you\n"
+            "/reset_persona — restore default persona\n"
+            "/rollback — revert to the previous prompt version\n"
+            "/privacy — privacy policy summary\n"
+            "/delete_my_data — permanently delete all your data"
+        ),
+    },
+    # --- Reworked /start ---
+    "start.welcome_new": {
+        "ru": (
+            "Привет! Я твой персональный AI-компаньон.\n\n"
+            "Я учусь понимать тебя с каждым разговором — запоминаю, что тебе важно, "
+            "и подстраиваюсь под твой стиль общения.\n\n"
+            "Просто напиши мне что-нибудь, и мы начнём!"
+        ),
+        "en": (
+            "Hi there! I'm your personal AI companion.\n\n"
+            "I learn about you with every conversation — I remember what matters to you "
+            "and adapt to your communication style.\n\n"
+            "Just send me a message and let's get started!"
+        ),
+    },
+    "start.welcome_back": {
+        "ru": "С возвращением, {name}! Чем могу помочь?",
+        "en": "Welcome back, {name}! How can I help?",
+    },
+    "start.welcome_back_no_name": {
+        "ru": "С возвращением! Чем могу помочь?",
+        "en": "Welcome back! How can I help?",
+    },
+    # --- Reworked notice ---
+    "notice.profile_updated_v2": {
+        "ru": (
+            "Я обновил то, что помню о тебе, на основе наших разговоров. "
+            "Посмотри через /memory."
+        ),
+        "en": (
+            "I've updated what I remember about you based on our conversations. "
+            "Check it out with /memory."
+        ),
+    },
+    # --- /refresh_memory (renamed from /memory_compact_now) ---
+    "refresh_memory.requested": {
+        "ru": (
+            "Хорошо, я просмотрю наши разговоры и обновлю то, что помню о тебе. "
+            "Это займёт пару минут."
+        ),
+        "en": (
+            "Sure, I'll review our conversations and update what I remember about you. "
+            "This will take a couple of minutes."
+        ),
+    },
+    "refresh_memory.in_progress": {
+        "ru": "Я уже обновляю память, подожди немного.",
+        "en": "I'm already refreshing my memory, give me a moment.",
+    },
+    "refresh_memory.enqueue_failed": {
+        "ru": "Не получилось запустить обновление. Попробуй ещё раз.",
+        "en": "Couldn't start the refresh. Please try again.",
+    },
+    # --- /settings ---
+    "settings.title": {
+        "ru": "Настройки",
+        "en": "Settings",
+    },
+    "settings.choose": {
+        "ru": "Что хочешь настроить?",
+        "en": "What would you like to adjust?",
+    },
+    # --- Inline button labels ---
+    "btn.tone": {"ru": "Тон", "en": "Tone"},
+    "btn.persona": {"ru": "Персона", "en": "Persona"},
+    "btn.skills": {"ru": "Навыки", "en": "Skills"},
+    "btn.language": {"ru": "Язык", "en": "Language"},
+    "btn.back": {"ru": "Назад", "en": "Back"},
+    "btn.yes": {"ru": "Да", "en": "Yes"},
+    "btn.no": {"ru": "Нет", "en": "No"},
+    # --- Tone picker ---
+    "tone.pick": {
+        "ru": "Выбери тон общения:",
+        "en": "Choose a communication tone:",
+    },
+    "tone.set": {
+        "ru": "Тон изменён на «{tone}».",
+        "en": "Tone set to \"{tone}\".",
+    },
+    # --- Confirmation (natural) ---
+    "confirm.persona_change": {
+        "ru": "Хочешь, чтобы я сменил персону? Подтверди, пожалуйста.",
+        "en": "You'd like me to change my persona? Please confirm.",
+    },
+    "confirm.tone_change": {
+        "ru": "Хочешь изменить тон общения? Подтверди, пожалуйста.",
+        "en": "You'd like to change the tone? Please confirm.",
+    },
+    "confirm.skill_add_prompt": {
+        "ru": "Добавить этот навык? Подтверди, пожалуйста.",
+        "en": "Add this skill? Please confirm.",
+    },
+    "confirm.skill_remove": {
+        "ru": "Убрать этот навык? Подтверди, пожалуйста.",
+        "en": "Remove this skill? Please confirm.",
+    },
+    "confirm.generic": {
+        "ru": "Применить это изменение? Подтверди, пожалуйста.",
+        "en": "Apply this change? Please confirm.",
+    },
+    # --- Personas ---
+    "personas.title": {
+        "ru": "Выбери персону:",
+        "en": "Choose a persona:",
+    },
+    "personas.selected": {
+        "ru": "Персона «{name}» установлена!",
+        "en": "Persona \"{name}\" set!",
+    },
+    "personas.preview": {
+        "ru": "{name}\n\n{description}",
+        "en": "{name}\n\n{description}",
+    },
+    "personas.custom_prompt": {
+        "ru": "Опиши, какой персоной ты хочешь, чтобы я стал. Напиши в ответ описание.",
+        "en": "Describe what persona you'd like me to be. Reply with a description.",
+    },
+    "btn.personas.select": {"ru": "Выбрать", "en": "Select"},
+    "btn.personas.custom": {"ru": "Своя персона", "en": "Custom persona"},
+    # --- Skills catalog ---
+    "skills.title": {
+        "ru": "Навыки",
+        "en": "Skills",
+    },
+    "skills.description": {
+        "ru": "Включай и отключай навыки. Активные отмечены галочкой.",
+        "en": "Toggle skills on and off. Active ones are marked with a checkmark.",
+    },
+    "skills.toggled_on": {
+        "ru": "Навык «{name}» включён.",
+        "en": "Skill \"{name}\" enabled.",
+    },
+    "skills.toggled_off": {
+        "ru": "Навык «{name}» отключён.",
+        "en": "Skill \"{name}\" disabled.",
+    },
+    # --- Onboarding ---
+    "onboarding.step1_name": {
+        "ru": "Привет! Давай познакомимся. Как тебя зовут?",
+        "en": "Hi! Let's get to know each other. What's your name?",
+    },
+    "onboarding.step2_interests": {
+        "ru": "Приятно познакомиться, {name}! Что тебя интересует?",
+        "en": "Nice to meet you, {name}! What are you interested in?",
+    },
+    "onboarding.step2_interests_no_name": {
+        "ru": "Что тебя интересует? Это поможет мне стать полезнее.",
+        "en": "What are you interested in? This helps me be more useful.",
+    },
+    "onboarding.step3_tone": {
+        "ru": "Отлично! Как тебе удобнее общаться?",
+        "en": "Great! How would you prefer to communicate?",
+    },
+    "onboarding.done": {
+        "ru": "Готово! Я настроился под тебя. Просто напиши мне что-нибудь!",
+        "en": "All set! I've tuned myself for you. Just send me a message!",
+    },
+    "onboarding.skip": {
+        "ru": "Пропустить",
+        "en": "Skip",
+    },
+    # --- Interest labels for onboarding ---
+    "interest.tech": {"ru": "Технологии", "en": "Technology"},
+    "interest.creative": {"ru": "Творчество", "en": "Creative"},
+    "interest.learning": {"ru": "Учёба", "en": "Learning"},
+    "interest.fitness": {"ru": "Спорт и здоровье", "en": "Fitness & Health"},
+    # --- Tone labels for onboarding ---
+    "tone_label.friendly": {"ru": "Дружелюбный", "en": "Friendly"},
+    "tone_label.professional": {"ru": "Деловой", "en": "Professional"},
+    "tone_label.playful": {"ru": "Игривый", "en": "Playful"},
+    "tone_label.concise": {"ru": "Лаконичный", "en": "Concise"},
+    # --- Continuity ---
+    "prompt.continuity_instruction": {
+        "ru": (
+            "Пользователь возвращается после перерыва. "
+            "Можешь ненавязчиво упомянуть недавние темы: {topics}"
+        ),
+        "en": (
+            "The user is returning after a break. "
+            "You may naturally reference these recent topics: {topics}"
+        ),
+    },
+    # --- Suggestions ---
+    "prompt.suggestion_instruction": {
+        "ru": (
+            "На основе интересов пользователя ({interests}), "
+            "предложи что-нибудь полезное или интересное в конце ответа."
+        ),
+        "en": (
+            "Based on the user's interests ({interests}), "
+            "suggest something useful or interesting at the end of your reply."
+        ),
     },
 }
 

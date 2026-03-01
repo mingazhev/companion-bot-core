@@ -17,6 +17,7 @@ from companion_bot_core.bot.handlers import (
     cmd_memory_compact_now,
     cmd_privacy,
     cmd_profile,
+    cmd_refresh_memory,
     cmd_reset_persona,
     cmd_set_language,
     cmd_set_persona,
@@ -82,14 +83,40 @@ def _make_profile_session(
 
 
 @pytest.mark.asyncio
-async def test_start_replies() -> None:
+async def test_start_replies_new_user() -> None:
+    """New user (no profile) gets a warm welcome message."""
     msg = _make_message()
     user = _make_user()
-    await cmd_start(msg, user)
+    db_session = _make_profile_session()
+    # Override: scalar_one_or_none returns None (no existing profile)
+    select_result = MagicMock()
+    select_result.scalar_one_or_none.return_value = None
+    db_session.execute = AsyncMock(return_value=select_result)
+    snapshot_store = InMemorySnapshotStore()
+    await cmd_start(msg, user, db_session, snapshot_store)
+    # New user gets welcome message + onboarding interest selection
+    assert msg.answer.call_count >= 1
+    first_text: str = msg.answer.call_args_list[0][0][0]
+    assert "companion" in first_text.lower() or "компаньон" in first_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_start_replies_returning_user() -> None:
+    """Returning user (has profile with persona) gets a personalised greeting."""
+    msg = _make_message()
+    user = _make_user()
+    profile = UserProfile(user_id=user.id, persona_name="Ada")
+    profile.tone = "friendly"
+    select_result = MagicMock()
+    select_result.scalar_one_or_none.return_value = profile
+    db_session = AsyncMock()
+    db_session.info = {}
+    db_session.execute = AsyncMock(return_value=select_result)
+    snapshot_store = InMemorySnapshotStore()
+    await cmd_start(msg, user, db_session, snapshot_store)
     msg.answer.assert_called_once()
     text: str = msg.answer.call_args[0][0]
-    assert "/profile" in text
-    assert "/set_tone" in text
+    assert "Ada" in text or "возвращ" in text.lower() or "welcome back" in text.lower()
 
 
 # --------------------------------------------------------------------------- #
@@ -406,29 +433,28 @@ async def test_reset_persona_rejects_when_lock_held() -> None:
 
 
 @pytest.mark.asyncio
-async def test_memory_compact_now_replies() -> None:
+async def test_refresh_memory_replies() -> None:
     msg = _make_message()
     user = _make_user()
     redis = AsyncMock()
+    redis.set = AsyncMock(return_value=True)  # guard acquired
     redis.rpush = AsyncMock(return_value=1)
-    await cmd_memory_compact_now(msg, user, redis)
+    await cmd_refresh_memory(msg, user, redis)
     msg.answer.assert_called_once()
     text: str = msg.answer.call_args[0][0]
     lower = text.lower()
-    assert "compaction" in lower or "компактизац" in lower
-    assert (
-        ("prompt profile" in lower and "refined" in lower)
-        or ("профиль" in lower and "обнов" in lower)
-    )
+    # New natural wording: "review conversations" / "обновлю"
+    assert "review" in lower or "просмотрю" in lower or "обновлю" in lower
 
 
 @pytest.mark.asyncio
-async def test_memory_compact_now_enqueues_refinement_job() -> None:
+async def test_refresh_memory_enqueues_refinement_job() -> None:
     msg = _make_message()
     user = _make_user()
     redis = AsyncMock()
+    redis.set = AsyncMock(return_value=True)  # guard acquired
     redis.rpush = AsyncMock(return_value=1)
-    await cmd_memory_compact_now(msg, user, redis)
+    await cmd_refresh_memory(msg, user, redis)
     redis.rpush.assert_called_once()
     import json
 
@@ -438,6 +464,19 @@ async def test_memory_compact_now_enqueues_refinement_job() -> None:
     assert queue_name == "refinement_jobs"
     assert payload["trigger"] == "manual_compact"
     assert payload["user_id"] == str(user.id)
+
+
+@pytest.mark.asyncio
+async def test_memory_compact_now_delegates_to_refresh_memory() -> None:
+    """Legacy /memory_compact_now still works via delegation."""
+    msg = _make_message()
+    user = _make_user()
+    redis = AsyncMock()
+    redis.set = AsyncMock(return_value=True)
+    redis.rpush = AsyncMock(return_value=1)
+    await cmd_memory_compact_now(msg, user, redis)
+    msg.answer.assert_called_once()
+    redis.rpush.assert_called_once()
 
 
 # --------------------------------------------------------------------------- #
@@ -566,6 +605,7 @@ async def test_handle_message_sends_reply() -> None:
     user = _make_user()
     db_session = AsyncMock()
     redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)  # no pending change
     snapshot_store = AsyncMock()
     chat_client = AsyncMock()
     settings = MagicMock()
@@ -583,7 +623,7 @@ async def test_handle_message_sends_reply() -> None:
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
     mock_process.assert_awaited_once()
-    msg.answer.assert_called_once_with("Hello back", parse_mode=None)
+    msg.answer.assert_called_once_with("Hello back", parse_mode=None, reply_markup=None)
 
 
 @pytest.mark.asyncio
@@ -593,6 +633,7 @@ async def test_handle_message_sends_profile_updated_notice_when_set() -> None:
     user = _make_user()
     db_session = AsyncMock()
     redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)  # no pending change
     snapshot_store = AsyncMock()
     chat_client = AsyncMock()
     settings = MagicMock()
@@ -608,7 +649,7 @@ async def test_handle_message_sends_profile_updated_notice_when_set() -> None:
     assert msg.answer.call_count == 2
     assert msg.answer.call_args_list[0][0][0] == "Reply text"
     notice = msg.answer.call_args_list[1][0][0].lower()
-    assert "profile" in notice or "профил" in notice
+    assert "profile" in notice or "профил" in notice or "/memory" in notice
 
 
 @pytest.mark.asyncio
@@ -633,6 +674,7 @@ async def test_handle_message_no_notice_when_not_set() -> None:
     user = _make_user()
     db_session = AsyncMock()
     redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
     snapshot_store = AsyncMock()
     chat_client = AsyncMock()
     settings = MagicMock()
@@ -645,4 +687,4 @@ async def test_handle_message_no_notice_when_not_set() -> None:
     ):
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
-    msg.answer.assert_called_once_with("Goodbye", parse_mode=None)
+    msg.answer.assert_called_once_with("Goodbye", parse_mode=None, reply_markup=None)

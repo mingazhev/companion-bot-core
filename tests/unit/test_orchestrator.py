@@ -26,7 +26,6 @@ from companion_bot_core.orchestrator.orchestrator import (
     _CHANGE_APPLIED_MSG,
     _CHANGE_CANCELLED_MSG,
     _CIRCUIT_OPEN_MSG,
-    _CONFIRM_TEMPLATE,
     _REFUSE_MSG,
     process_message,
 )
@@ -285,8 +284,9 @@ async def test_process_message_confirm_stores_pending_and_asks() -> None:
             chat_client=client,
         )
 
-    expected = _CONFIRM_TEMPLATE.format(label="your persona")
-    assert reply == expected
+    # Confirmation text uses intent-specific natural phrasing (Task 8)
+    assert "persona" in reply.lower()
+    assert "confirm" in reply.lower()
     # Pending change should be stored in Redis
     pending = await get_pending_change(redis, str(user_id))
     assert pending is not None

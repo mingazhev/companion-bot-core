@@ -706,12 +706,13 @@ async def process_message(
             CHAT_LATENCY.labels(model=model).observe(
                 time.perf_counter() - pipeline_start
             )
-            label_key = f"orchestrator.intent.{detection.intent}"
+            # Use intent-specific natural confirmation text
+            confirm_key = f"confirm.{detection.intent}"
             try:
-                label = tr(label_key, ui_locale)
+                confirm_text = tr(confirm_key, ui_locale)
             except KeyError:
-                label = detection.intent.replace("_", " ")
-            return tr("orchestrator.confirm_template", ui_locale, label=label)
+                confirm_text = tr("confirm.generic", ui_locale)
+            return confirm_text
 
         # ------------------------------------------------------------------
         # Step 4 — Build context and generate reply (auto_apply / pass_through)
@@ -722,7 +723,7 @@ async def process_message(
             async with span("prompt_manager.load_context", user_id=user_id_str):
                 user_context = await load_user_context(
                     session, snapshot_store, user_id, max_tokens,
-                    encryptor=encryptor, locale=locale,
+                    encryptor=encryptor, locale=locale, redis=redis,
                 )
 
             try:

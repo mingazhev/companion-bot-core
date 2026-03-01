@@ -97,6 +97,184 @@ def build_persona_segment(
     return "\n".join(parts)
 
 
+def extract_memory_sections(
+    snapshot: SnapshotRecord | None,
+) -> dict[str, str]:
+    """Extract human-readable memory sections from an active snapshot.
+
+    Returns a dict with keys: ``persona``, ``tone``, ``skills``,
+    ``long_term_profile``.  Values are empty strings when absent.
+    """
+    if snapshot is None:
+        return {
+            "persona": "",
+            "tone": "",
+            "skills": "",
+            "long_term_profile": "",
+        }
+
+    persona_raw = extract_section(snapshot.system_prompt, "Persona")
+    persona = ""
+    tone = ""
+    for line in persona_raw.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("Name:"):
+            persona = stripped[len("Name:"):].strip()
+        elif stripped.startswith("Tone:"):
+            tone = stripped[len("Tone:"):].strip()
+
+    skills = (
+        ", ".join(sorted(snapshot.skill_prompts_json.keys()))
+        if snapshot.skill_prompts_json
+        else ""
+    )
+    long_term_profile = extract_section(snapshot.system_prompt, "Long-term Profile")
+
+    return {
+        "persona": persona,
+        "tone": tone,
+        "skills": skills,
+        "long_term_profile": long_term_profile,
+    }
+
+
+def _sanitize_fact(fact: str) -> str:
+    """Strip section separators and header-like patterns from a user fact.
+
+    Prevents section header injection (``[SectionName]``) and section separator
+    injection (``---``) that could corrupt snapshot parsing.
+    """
+    lines: list[str] = []
+    for line in fact.splitlines():
+        stripped = line.strip()
+        # Drop lines that look like section headers or separators
+        if stripped.startswith("[") and stripped.endswith("]"):
+            continue
+        if stripped == "---":
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+async def add_fact_to_profile(
+    snapshot_store: SnapshotStore,
+    user_id: uuid.UUID,
+    fact: str,
+    *,
+    session: Any = None,
+) -> None:
+    """Append a fact line to the long-term profile section and save a new snapshot."""
+    fact = _sanitize_fact(fact)
+    if not fact:
+        return
+
+    current = await snapshot_store.get_active(user_id)
+
+    if current is not None:
+        base_template = extract_base_template(current.system_prompt)
+        skill_packs: dict[str, str] = {
+            k: str(v) for k, v in current.skill_prompts_json.items()
+        }
+        long_term_profile = extract_section(current.system_prompt, "Long-term Profile")
+        persona_segment = extract_section(current.system_prompt, "Persona")
+        raw_skills: dict[str, object] = dict(current.skill_prompts_json)
+    else:
+        base_template = DEFAULT_SYSTEM_TEMPLATE
+        skill_packs = {}
+        long_term_profile = ""
+        persona_segment = ""
+        raw_skills = {}
+
+    # Append the new fact
+    if long_term_profile.strip():
+        long_term_profile = f"{long_term_profile.strip()}\n{fact.strip()}"
+    else:
+        long_term_profile = fact.strip()
+
+    components = PromptComponents(
+        base_system_template=base_template,
+        persona_segment=persona_segment,
+        skill_packs=skill_packs,
+        long_term_profile=long_term_profile,
+    )
+    system_prompt = build_system_prompt(components)
+
+    version = await snapshot_store.next_version(user_id)
+    record = SnapshotRecord(
+        user_id=user_id,
+        version=version,
+        system_prompt=system_prompt,
+        skill_prompts_json=raw_skills,
+        source="user_command",
+    )
+    await snapshot_store.save(record, session=session)
+    await snapshot_store.set_active(user_id, record.id, session=session)
+
+
+async def remove_fact_from_profile(
+    snapshot_store: SnapshotStore,
+    user_id: uuid.UUID,
+    query: str,
+    *,
+    session: Any = None,
+) -> str | None:
+    """Remove a matching fact line from the long-term profile.
+
+    Returns the removed line text, or ``None`` if no match was found.
+    Uses case-insensitive substring matching.
+    """
+    current = await snapshot_store.get_active(user_id)
+    if current is None:
+        return None
+
+    base_template = extract_base_template(current.system_prompt)
+    skill_packs: dict[str, str] = {
+        k: str(v) for k, v in current.skill_prompts_json.items()
+    }
+    long_term_profile = extract_section(current.system_prompt, "Long-term Profile")
+    persona_segment = extract_section(current.system_prompt, "Persona")
+    raw_skills: dict[str, object] = dict(current.skill_prompts_json)
+
+    if not long_term_profile.strip():
+        return None
+
+    lines = long_term_profile.strip().splitlines()
+    query_lower = query.strip().lower()
+    removed_line: str | None = None
+    remaining: list[str] = []
+
+    for line in lines:
+        if removed_line is None and query_lower in line.strip().lower():
+            removed_line = line.strip()
+        else:
+            remaining.append(line)
+
+    if removed_line is None:
+        return None
+
+    new_profile = "\n".join(remaining)
+
+    components = PromptComponents(
+        base_system_template=base_template,
+        persona_segment=persona_segment,
+        skill_packs=skill_packs,
+        long_term_profile=new_profile,
+    )
+    system_prompt = build_system_prompt(components)
+
+    version = await snapshot_store.next_version(user_id)
+    record = SnapshotRecord(
+        user_id=user_id,
+        version=version,
+        system_prompt=system_prompt,
+        skill_prompts_json=raw_skills,
+        source="user_command",
+    )
+    await snapshot_store.save(record, session=session)
+    await snapshot_store.set_active(user_id, record.id, session=session)
+    return removed_line
+
+
 async def rebuild_and_save_snapshot(
     snapshot_store: SnapshotStore,
     user_id: uuid.UUID,
