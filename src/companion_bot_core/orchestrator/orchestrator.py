@@ -518,6 +518,7 @@ async def process_message(
     encryptor: FieldEncryptor | None = None,
     locale: str | None = None,
     on_stream_chunk: Callable[[str], Awaitable[None]] | None = None,
+    context_message_limit: int = 50,
 ) -> str:
     """Orchestrate a single user message through the full processing pipeline.
 
@@ -727,6 +728,7 @@ async def process_message(
                 user_context = await load_user_context(
                     session, snapshot_store, user_id, max_tokens,
                     encryptor=encryptor, locale=locale, redis=redis,
+                    context_message_limit=context_message_limit,
                 )
 
             try:

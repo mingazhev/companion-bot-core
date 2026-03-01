@@ -230,6 +230,7 @@ async def load_user_context(
     encryptor: FieldEncryptor | None = None,
     locale: str | None = None,
     redis: Redis | None = None,
+    context_message_limit: int = 50,
 ) -> UserContext:
     """Build a :class:`~companion_bot_core.inference.schemas.UserContext` for *user_id*.
 
@@ -297,7 +298,9 @@ async def load_user_context(
             f"{tr('prompt.language_instruction', normalize_locale(locale))}"
         )
 
-    history = await load_recent_messages(session, user_id, limit=20, encryptor=encryptor)
+    history = await load_recent_messages(
+        session, user_id, limit=context_message_limit, encryptor=encryptor,
+    )
 
     # Inject continuity hints and proactive suggestions when Redis is available
     activity_gap = 0

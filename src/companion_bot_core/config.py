@@ -86,6 +86,14 @@ class Settings(BaseSettings):
         description="Minimum new messages since last refinement to trigger a job",
     )
 
+    # --- Context window ---
+    context_message_limit: int = Field(
+        default=50,
+        ge=5,
+        le=200,
+        description="Maximum number of recent messages to include in conversation context",
+    )
+
     # --- Observability ---
     log_level: str = Field(default="INFO", description="Root log level")
     log_format: str = Field(

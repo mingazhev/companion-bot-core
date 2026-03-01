@@ -904,6 +904,7 @@ async def handle_message(
                 encryptor=encryptor,
                 locale=locale,
                 on_stream_chunk=_on_chunk,
+                context_message_limit=settings.context_message_limit,
             )
         except Exception:
             log.exception(
