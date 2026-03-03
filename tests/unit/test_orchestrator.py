@@ -189,7 +189,8 @@ async def test_process_message_auto_apply_records_behavior_event() -> None:
             chat_client=client,
         )
 
-    assert reply == "Sure!\n\n---\nBy the way, I've updated the conversation tone."
+    # Tone/persona changes are now applied silently — no inline notice.
+    assert reply == "Sure!"
     # BehaviorChangeEvent + user msg + assistant msg = 3 adds
     assert session.add.call_count == 3
 

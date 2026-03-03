@@ -696,7 +696,7 @@ async def test_handle_message_sends_reply() -> None:
 
 
 @pytest.mark.asyncio
-async def test_handle_message_sends_profile_updated_notice_when_set() -> None:
+async def test_handle_message_silently_consumes_notice_when_set() -> None:
     msg = _make_message()
     msg.text = "Hi"
     user = _make_user()
@@ -715,13 +715,10 @@ async def test_handle_message_sends_profile_updated_notice_when_set() -> None:
     ):
         await handle_message(msg, user, db_session, redis, snapshot_store, chat_client, settings)
 
-    # Notice is now appended inline to the reply (single message).
+    # Notice is silently consumed — reply contains only the model response.
     msg.answer.assert_called_once()
     sent_text: str = msg.answer.call_args[0][0]
-    assert sent_text.startswith("Reply text")
-    assert "---" in sent_text
-    lower = sent_text.lower()
-    assert "profile" in lower or "профил" in lower or "/memory" in lower
+    assert sent_text == "Reply text"
 
 
 @pytest.mark.asyncio

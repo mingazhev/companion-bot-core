@@ -729,9 +729,20 @@ async def process_message(
 
             reply_text = inference_reply.reply
 
+            # Log when the model ran out of tokens (finish_reason=length) —
+            # the reply is truncated mid-sentence.  Consider raising
+            # CHAT_MAX_TOKENS if this happens frequently.
+            sf = inference_reply.safety_flags
+            if sf.finish_reason == "length":
+                log.warning(
+                    "inference_truncated_by_max_tokens",
+                    user_id=user_id_str,
+                    completion_tokens=inference_reply.usage.completion_tokens,
+                    max_tokens=max_tokens,
+                )
+
             # Handle content-filtered or refused model responses gracefully
             # instead of forwarding empty/truncated text to the user.
-            sf = inference_reply.safety_flags
             if sf.content_filtered or sf.refusal:
                 log.warning(
                     "inference_safety_flag_triggered",
@@ -797,14 +808,8 @@ async def process_message(
             # persisting so that the stored assistant message matches what the
             # user actually receives.
 
-            # Notify the user when a tone or persona change was silently applied.
-            if action == "auto_apply" and applied:
-                if detection.intent == "tone_change":
-                    notice = tr("orchestrator.auto_applied_tone", ui_locale)
-                    reply_text = f"{reply_text}\n\n---\n{notice}"
-                elif detection.intent == "persona_change":
-                    notice = tr("orchestrator.auto_applied_persona", ui_locale)
-                    reply_text = f"{reply_text}\n\n---\n{notice}"
+            # Tone/persona changes are applied silently — the user can check
+            # their profile via /memory.  No inline notice is appended.
 
             # Notify user when a skill_remove auto-apply found no matching skill.
             if (

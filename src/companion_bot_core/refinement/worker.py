@@ -87,7 +87,7 @@ def _is_job_expired(job_data: dict[str, Any]) -> bool:
         return False
 
 
-async def _set_user_notice(
+async def set_user_notice(
     redis: Redis,
     user_id: str,
     diff_summary: dict[str, Any] | None = None,
@@ -392,7 +392,7 @@ async def process_one_job(
         if flush_ok:
             diff = _compute_refinement_diff(snapshot, new_snap)
             try:
-                await _set_user_notice(redis, user_id_str, diff_summary=diff or None)
+                await set_user_notice(redis, user_id_str, diff_summary=diff or None)
             except Exception:  # noqa: BLE001
                 log.warning(
                     "refinement_user_notice_failed",

@@ -177,24 +177,6 @@ def _interest_keyboard(locale: str) -> InlineKeyboardMarkup:
     ])
 
 
-def _format_refinement_diff(diff: dict[str, Any], locale: str) -> str:
-    """Format a refinement diff dict into a human-readable notice message."""
-    parts: list[str] = [tr("notice.profile_updated_v2", locale)]
-    if "facts_added" in diff:
-        items = "\n".join(f"  + {fact}" for fact in diff["facts_added"])
-        parts.append(tr("notice.facts_added", locale, items=items))
-    if "facts_removed" in diff:
-        items = "\n".join(f"  - {fact}" for fact in diff["facts_removed"])
-        parts.append(tr("notice.facts_removed", locale, items=items))
-    if diff.get("persona_changed"):
-        parts.append(tr("notice.persona_adjusted", locale))
-    if "skills_added" in diff:
-        parts.append(tr("notice.skills_added", locale, items=", ".join(diff["skills_added"])))
-    if "skills_removed" in diff:
-        parts.append(tr("notice.skills_removed", locale, items=", ".join(diff["skills_removed"])))
-    return "\n\n".join(parts)
-
-
 class _ProfileLockBusyError(Exception):
     """Raised when the Redis profile write lock cannot be acquired."""
 
@@ -1127,6 +1109,21 @@ async def handle_message(
 
     # Streaming state — populated by _on_chunk closure during inference.
     _placeholder: Message | None = None
+
+    # Re-send typing indicator every 4 seconds until the streaming
+    # placeholder is sent.  Telegram typing indicators expire after ~5s,
+    # so this keeps the "typing..." visible during long context loads.
+    async def _keep_typing() -> None:
+        while _placeholder is None:
+            await asyncio.sleep(4)
+            if _placeholder is not None:
+                break
+            try:
+                await message.answer_chat_action(ChatAction.TYPING)
+            except Exception:  # noqa: BLE001
+                break
+
+    _typing_task = asyncio.create_task(_keep_typing())
     _stream_buf: list[str] = []
     _last_edit: float = 0.0
     _edit_interval: float = 0.3  # minimum seconds between edits
@@ -1198,12 +1195,14 @@ async def handle_message(
                 conversation_ttl_seconds=settings.conversation_ttl_seconds,
                 refinement_activity_threshold=settings.refinement_activity_threshold,
                 refinement_cadence_seconds=settings.refinement_cadence_seconds,
+                max_tokens=settings.chat_max_tokens,
                 encryptor=encryptor,
                 locale=locale,
                 on_stream_chunk=_on_chunk,
                 context_message_limit=settings.context_message_limit,
             )
         except Exception:
+            _typing_task.cancel()
             log.exception(
                 "process_message_failed",
                 internal_user_id=user_id_str,
@@ -1220,17 +1219,14 @@ async def handle_message(
             except Exception:  # noqa: BLE001
                 log.warning("error_reply_send_failed", internal_user_id=user_id_str)
             raise
+        finally:
+            _typing_task.cancel()
 
-        # Append refinement notice inline if the worker updated the prompt
-        # since the user's last message — avoids a separate "double bubble".
+        # Silently consume the refinement notice — profile updates are
+        # applied without user-facing notifications.  The user can always
+        # check their profile via /memory.
         try:
-            notice_diff = await check_and_clear_user_notice(redis, user_id_str)
-            if notice_diff is not None:
-                if notice_diff:
-                    notice_text = _format_refinement_diff(notice_diff, locale)
-                else:
-                    notice_text = tr("notice.profile_updated_v2", locale)
-                reply = f"{reply}\n\n---\n{notice_text}"
+            await check_and_clear_user_notice(redis, user_id_str)
         except Exception:  # noqa: BLE001
             log.warning("notice_check_failed", internal_user_id=user_id_str)
 

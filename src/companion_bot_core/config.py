@@ -64,6 +64,12 @@ class Settings(BaseSettings):
         default="https://api.openai.com/v1",
         description="Override to route to a compatible proxy",
     )
+    chat_max_tokens: int = Field(
+        default=2048,
+        ge=256,
+        le=4096,
+        description="Maximum completion tokens for chat replies (default 2048)",
+    )
 
     # --- Rate limits ---
     rate_limit_messages_per_minute: int = Field(default=20, ge=1)
