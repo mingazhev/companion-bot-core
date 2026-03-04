@@ -1677,7 +1677,7 @@ async def cb_persona_deep_select(
                 ltp = ""
                 raw_skills = {}
 
-            persona_segment = f"Name: {persona_name}\n{persona['persona_text']}"
+            persona_segment = f"Имя пользователя: {persona_name}\n{persona['persona_text']}"
             if raw_tone:
                 persona_segment += f"\nTone: {raw_tone}"
             components = _PromptComponents(

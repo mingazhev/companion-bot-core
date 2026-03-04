@@ -91,7 +91,7 @@ def build_persona_segment(
     """Build the persona section content from profile fields."""
     parts: list[str] = []
     if persona_name:
-        parts.append(f"Name: {persona_name}")
+        parts.append(f"Имя пользователя: {persona_name}")
     if tone:
         parts.append(f"Tone: {tone}")
     return "\n".join(parts)
@@ -118,7 +118,10 @@ def extract_memory_sections(
     tone = ""
     for line in persona_raw.splitlines():
         stripped = line.strip()
-        if stripped.startswith("Name:"):
+        if stripped.startswith("Имя пользователя:"):
+            persona = stripped[len("Имя пользователя:"):].strip()
+        elif stripped.startswith("Name:"):
+            # Legacy format — backwards compat
             persona = stripped[len("Name:"):].strip()
         elif stripped.startswith("Tone:"):
             tone = stripped[len("Tone:"):].strip()

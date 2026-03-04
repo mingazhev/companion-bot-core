@@ -250,7 +250,7 @@ async def test_set_tone_updates_existing_profile() -> None:
     active = await snapshot_store.get_active(user.id)
     assert active is not None
     assert "Tone: casual" in active.system_prompt
-    assert "Name: Ada" in active.system_prompt
+    assert "Имя пользователя: Ada" in active.system_prompt
 
 
 @pytest.mark.asyncio
@@ -378,7 +378,7 @@ async def test_set_persona_persists_profile_and_creates_snapshot() -> None:
     active = await snapshot_store.get_active(user.id)
     assert active is not None
     assert active.source == "user_command"
-    assert "Name: Nova" in active.system_prompt
+    assert "Имя пользователя: Nova" in active.system_prompt
 
 
 @pytest.mark.asyncio

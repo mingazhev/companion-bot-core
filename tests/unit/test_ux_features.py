@@ -122,7 +122,7 @@ async def _make_snapshot_with_profile(
     store = InMemorySnapshotStore()
     components = PromptComponents(
         base_system_template="You are a helpful AI.",
-        persona_segment="Name: TestBot\nTone: friendly",
+        persona_segment="Имя пользователя: TestBot\nTone: friendly",
         skill_packs={"code_assistant": "Help with code."},
         long_term_profile="Likes coffee\nStudies math",
     )

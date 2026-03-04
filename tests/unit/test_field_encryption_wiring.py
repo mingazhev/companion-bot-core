@@ -348,7 +348,7 @@ async def test_confirmed_persona_change_encrypts_profile_name() -> None:
     # But the prompt snapshot should contain the raw name
     active = await store.get_active(user_id)
     assert active is not None
-    assert "Name: Alex" in active.system_prompt
+    assert "Имя пользователя: Alex" in active.system_prompt
 
 
 # ---------------------------------------------------------------------------

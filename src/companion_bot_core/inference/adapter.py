@@ -129,10 +129,13 @@ async def generate_reply_stream(
         # Stream interrupted (timeout, network error, etc.). Return
         # whatever was collected so the user sees a partial reply
         # rather than an error message replacing the streamed text.
-        if collected:
+        # But if very little was collected (< 30 chars), re-raise —
+        # a 4-letter fragment like "Прин" is worse than an error message.
+        collected_len = sum(len(c) for c in collected)
+        if collected_len >= 30:
             log.warning(
                 "stream_interrupted_returning_partial",
-                collected_chars=sum(len(c) for c in collected),
+                collected_chars=collected_len,
             )
         else:
             raise

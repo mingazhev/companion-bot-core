@@ -280,7 +280,7 @@ async def test_confirmed_persona_change_updates_snapshot() -> None:
     assert active is not None
     assert active.version > initial.version
     assert active.source == "behavior_change"
-    assert "Name: Alex" in active.system_prompt
+    assert "Имя пользователя: Alex" in active.system_prompt
 
 
 # ---------------------------------------------------------------------------
