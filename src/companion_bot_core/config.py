@@ -65,10 +65,10 @@ class Settings(BaseSettings):
         description="Override to route to a compatible proxy",
     )
     chat_max_tokens: int = Field(
-        default=2048,
+        default=4096,
         ge=256,
         le=4096,
-        description="Maximum completion tokens for chat replies (default 2048)",
+        description="Maximum completion tokens for chat replies (default 4096)",
     )
 
     # --- Rate limits ---

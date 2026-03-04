@@ -2145,15 +2145,37 @@ async def cb_onboard_tone(
             await db_session.flush()
 
             effective_tone = tone if tone != "skip" else None
-            await rebuild_and_save_snapshot(
-                snapshot_store, db_user.id, name or None, effective_tone,
-                session=db_session,
-            )
+            # Build the complete initial snapshot in one step.  Calling
+            # rebuild_and_save_snapshot followed by add_fact_to_profile
+            # caused a visibility bug: add_fact_to_profile's get_active()
+            # opened a separate DB session that couldn't see the uncommitted
+            # snapshot from rebuild_and_save_snapshot, so the interest-fact
+            # snapshot overwrote the name+tone snapshot with an empty
+            # persona segment.  Building everything atomically avoids this.
+            from companion_bot_core.prompt.helpers import build_persona_segment
+
+            long_term = ""
             if interest:
-                await add_fact_to_profile(
-                    snapshot_store, db_user.id, tr(f"interest_fact.{interest}", locale),
-                    session=db_session,
-                )
+                fact = tr(f"interest_fact.{interest}", locale)
+                long_term = f"[manual] {fact}"
+
+            components = _PromptComponents(
+                base_system_template=_DEFAULT_SYSTEM_TEMPLATE,
+                persona_segment=build_persona_segment(name or None, effective_tone),
+                skill_packs={},
+                long_term_profile=long_term,
+            )
+            system_prompt = _build_system_prompt(components)
+            version = await snapshot_store.next_version(db_user.id)
+            record = _SnapshotRecord(
+                user_id=db_user.id,
+                version=version,
+                system_prompt=system_prompt,
+                skill_prompts_json={},
+                source="user_command",
+            )
+            await snapshot_store.save(record, session=db_session)
+            await snapshot_store.set_active(db_user.id, record.id, session=db_session)
 
             await redis.delete(state_key)
 
