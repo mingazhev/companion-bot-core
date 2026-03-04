@@ -2055,7 +2055,7 @@ async def cb_confirm_no(
 
 
 _ONBOARDING_PREFIX = "onboarding"
-_ONBOARDING_TTL = 180  # 3 minutes
+_ONBOARDING_TTL = 600  # 10 minutes
 
 
 @router.callback_query(F.data.startswith("onboard_interest:"))

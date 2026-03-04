@@ -127,14 +127,14 @@ class ChatAPIClient:
     async def chat_completion(
         self,
         messages: list[ChatMessage],
-        max_tokens: int = 1024,
+        max_tokens: int = 2048,
         temperature: float = 0.7,
     ) -> OpenAIResponse:
         """Call the Chat Completions API and return a validated response.
 
         Args:
             messages:    Full message list (system + history + new user turn).
-            max_tokens:  Maximum completion tokens (default 1024).
+            max_tokens:  Maximum completion tokens (default 2048).
             temperature: Sampling temperature (default 0.7).
 
         Returns:
@@ -171,7 +171,7 @@ class ChatAPIClient:
     async def chat_completion_stream(
         self,
         messages: list[ChatMessage],
-        max_tokens: int = 1024,
+        max_tokens: int = 2048,
         temperature: float = 0.7,
     ) -> AsyncGenerator[str | _StreamEnd, None]:
         """Stream tokens from the Chat Completions API via SSE.

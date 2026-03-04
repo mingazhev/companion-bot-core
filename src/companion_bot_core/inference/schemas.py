@@ -36,7 +36,7 @@ class UserContext(BaseModel):
         description="Recent message window (oldest first, excluding the new turn)",
     )
     max_tokens: Annotated[int, Field(ge=1, le=4096)] = Field(
-        default=1024,
+        default=2048,
         description="Upper bound on completion tokens",
     )
 

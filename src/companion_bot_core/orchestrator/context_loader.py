@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-_DEFAULT_MAX_TOKENS = 1024
+_DEFAULT_MAX_TOKENS = 2048
 # Type alias for valid chat message roles — used to satisfy ChatMessage.role narrowing
 _MessageRole = Literal["system", "user", "assistant"]
 

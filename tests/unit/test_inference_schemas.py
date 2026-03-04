@@ -39,7 +39,7 @@ def test_chat_message_invalid_role() -> None:
 def test_user_context_defaults() -> None:
     ctx = UserContext(user_id="u1", system_prompt="You are helpful.")
     assert ctx.conversation_history == []
-    assert ctx.max_tokens == 1024
+    assert ctx.max_tokens == 2048
 
 
 def test_user_context_with_history() -> None:

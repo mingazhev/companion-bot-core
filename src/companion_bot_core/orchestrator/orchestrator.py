@@ -493,7 +493,7 @@ async def process_message(
     conversation_ttl_seconds: int = 604800,
     refinement_activity_threshold: int = 10,
     refinement_cadence_seconds: int = 3600,
-    max_tokens: int = 1024,
+    max_tokens: int = 2048,
     encryptor: FieldEncryptor | None = None,
     locale: str | None = None,
     on_stream_chunk: Callable[[str], Awaitable[None]] | None = None,

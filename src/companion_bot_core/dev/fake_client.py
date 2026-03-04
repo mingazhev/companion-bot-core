@@ -97,7 +97,7 @@ class FakeChatAPIClient(ChatAPIClient):
     async def chat_completion(
         self,
         messages: list[ChatMessage],
-        max_tokens: int = 1024,
+        max_tokens: int = 2048,
         temperature: float = 0.7,
     ) -> OpenAIResponse:
         """Return a canned response without any network I/O.
@@ -124,7 +124,7 @@ class FakeChatAPIClient(ChatAPIClient):
     async def chat_completion_stream(
         self,
         messages: list[ChatMessage],
-        max_tokens: int = 1024,
+        max_tokens: int = 2048,
         temperature: float = 0.7,
     ) -> AsyncGenerator[str | _StreamEnd, None]:
         """Yield canned reply word-by-word, then a ``_StreamEnd`` sentinel."""
