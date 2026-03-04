@@ -115,7 +115,13 @@ async def test_load_user_context_uses_active_snapshot_prompt() -> None:
     await store.save(snap)
     await store.set_active(user_id, snap.id)
 
-    session = _make_session([])
+    # Provide enough messages so first-contact hint is NOT injected (threshold = 3)
+    rows = [
+        _make_conv_message("user", "Hello"),
+        _make_conv_message("assistant", "Hi!"),
+        _make_conv_message("user", "How are you?"),
+    ]
+    session = _make_session(rows)
     ctx = await load_user_context(session, store, user_id)
 
     assert isinstance(ctx, UserContext)

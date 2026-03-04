@@ -48,6 +48,8 @@ _SUGGESTION_COOLDOWN_PREFIX = "suggestion:last"
 _SUGGESTION_COOLDOWN_TTL = 86400  # 24 hours
 # Gap (in seconds) before considering a proactive suggestion
 _SUGGESTION_GAP_SECONDS = 14400  # 4 hours
+# Fewer than this many messages means the user just finished onboarding
+_FIRST_CONTACT_THRESHOLD = 3
 
 
 async def load_recent_messages(
@@ -246,6 +248,15 @@ async def build_suggestion_hint(
     return tr("prompt.suggestion_instruction", resolved, interests=interests_str)
 
 
+def _extract_interest_from_profile(profile_text: str) -> str:
+    """Extract the user's interest from their long-term profile text."""
+    for line in profile_text.splitlines():
+        stripped = line.strip().lower()
+        if "интересуется:" in stripped or "interested in:" in stripped:
+            return line.strip().split(":", 1)[-1].strip()
+    return ""
+
+
 async def load_user_context(
     session: AsyncSession,
     snapshot_store: SnapshotStore,
@@ -325,6 +336,17 @@ async def load_user_context(
     history = await load_recent_messages(
         session, user_id, limit=context_message_limit, encryptor=encryptor,
     )
+
+    # Inject first-contact hint for new users (fewer than 3 messages = just finished onboarding)
+    if len(history) < _FIRST_CONTACT_THRESHOLD:
+        ltp = extract_section(system_prompt, "Long-term Profile")
+        interest = _extract_interest_from_profile(ltp)
+        resolved_locale = normalize_locale(locale)
+        first_contact = tr(
+            "prompt.first_contact_hint", resolved_locale,
+            interest=interest,
+        )
+        system_prompt = f"{system_prompt}\n\n[FirstContact]\n{first_contact}"
 
     # Inject continuity hints and proactive suggestions when Redis is available
     activity_gap = 0

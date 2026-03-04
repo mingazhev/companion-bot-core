@@ -434,12 +434,12 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         ),
     },
     "start.welcome_back": {
-        "ru": "👋 С возвращением, {name}! Чем могу помочь?",
-        "en": "👋 Welcome back, {name}! How can I help?",
+        "ru": "👋 О, {name}! Рада видеть снова.",
+        "en": "👋 Hey, {name}! Good to see you again.",
     },
     "start.welcome_back_no_name": {
-        "ru": "👋 С возвращением! Чем могу помочь?",
-        "en": "👋 Welcome back! How can I help?",
+        "ru": "👋 С возвращением! Как дела?",
+        "en": "👋 Welcome back! How's it going?",
     },
     # --- Reworked notice ---
     "notice.profile_updated_v2": {
@@ -705,16 +705,41 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
     # --- Continuity ---
     "prompt.continuity_instruction": {
         "ru": (
-            "Пользователь возвращается после перерыва в {gap}. "
-            "Поприветствуй его возвращение и естественно упомяни "
-            "недавние темы: {topics}. "
-            "Не перечисляй их списком — вплети в разговор."
+            "Пользователь вернулся после перерыва в {gap}. "
+            "Упомяни это естественно, в стиле текущего тона. "
+            "НЕ перечисляй темы списком. Недавние темы: {topics}. "
+            "Примеры тёплого возвращения:\n"
+            "- дружелюбный: «О, привет! Как там дела с [тема]?»\n"
+            "- деловой: «Привет. Продолжим с [тема]?»\n"
+            "- игривый: «ооо, вернулся! как [тема]?»\n"
+            "- лаконичный: «Привет. Чем помочь?»"
         ),
         "en": (
-            "The user is returning after being away for {gap}. "
-            "Welcome them back and naturally reference "
-            "these recent topics: {topics}. "
-            "Don't list them — weave them into the conversation."
+            "The user is returning after {gap}. "
+            "Acknowledge this naturally, matching the current tone. "
+            "Do NOT list topics. Recent topics: {topics}. "
+            "Examples of warm returns:\n"
+            "- friendly: 'Hey, welcome back! How did [topic] go?'\n"
+            "- professional: 'Hi. Shall we pick up where we left off on [topic]?'\n"
+            "- playful: 'omg you're back! how's [topic]?'\n"
+            "- concise: 'Hi. What's up?'"
+        ),
+    },
+    # --- First contact ---
+    "prompt.first_contact_hint": {
+        "ru": (
+            "Это начало общения с новым пользователем. "
+            "Покажи свою пользу через конкретный пример, "
+            "привязанный к интересу пользователя ({interest}). "
+            "НЕ спрашивай «чем помочь?» — предложи сам. "
+            "Если интерес не указан — предложи что-нибудь универсальное."
+        ),
+        "en": (
+            "This is the start of a conversation with a new user. "
+            "Show your value through a concrete example "
+            "related to the user's interest ({interest}). "
+            "Do NOT ask 'how can I help?' — proactively suggest something. "
+            "If no interest is specified, suggest something universal."
         ),
     },
     # --- Suggestions ---
