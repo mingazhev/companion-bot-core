@@ -729,17 +729,19 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
     "prompt.first_contact_hint": {
         "ru": (
             "Это начало общения с новым пользователем. "
-            "Покажи свою пользу через конкретный пример, "
-            "привязанный к интересу пользователя ({interest}). "
-            "НЕ спрашивай «чем помочь?» — предложи сам. "
-            "Если интерес не указан — предложи что-нибудь универсальное."
+            "Начни разговор естественно, как знакомый — "
+            "не предлагай меню и не перечисляй варианты. "
+            "Если знаешь интерес ({interest}) — заведи тему сам, "
+            "а не спрашивай «чем помочь?». "
+            "Если интерес не указан — просто поддержи диалог."
         ),
         "en": (
             "This is the start of a conversation with a new user. "
-            "Show your value through a concrete example "
-            "related to the user's interest ({interest}). "
-            "Do NOT ask 'how can I help?' — proactively suggest something. "
-            "If no interest is specified, suggest something universal."
+            "Start the conversation naturally, like an acquaintance — "
+            "do not offer menus or list options. "
+            "If you know their interest ({interest}), bring up a topic yourself "
+            "instead of asking 'how can I help?'. "
+            "If no interest is specified, just keep the conversation going."
         ),
     },
     # --- Suggestions ---
