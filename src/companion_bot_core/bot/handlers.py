@@ -1270,20 +1270,18 @@ async def handle_message(
                 for i in range(0, len(reply), _TG_MSG_LIMIT)
             ]
             if _placeholder is not None:
-                # Edit the streaming placeholder with the final first chunk.
-                # Skip if the placeholder already shows the same text.
+                # Always do the final edit — streaming edits are rate-limited
+                # so the Telegram message may lag behind the in-memory buffer.
                 first_kb = confirm_kb if len(chunks) == 1 else None
-                current_display = "".join(_stream_buf)[:_TG_MSG_LIMIT]
-                if chunks[0] != current_display or first_kb is not None:
-                    try:
-                        await _placeholder.edit_text(
-                            chunks[0], parse_mode=None, reply_markup=first_kb,
-                        )
-                    except Exception:  # noqa: BLE001
-                        log.debug(
-                            "stream_final_edit_failed",
-                            internal_user_id=user_id_str,
-                        )
+                try:
+                    await _placeholder.edit_text(
+                        chunks[0], parse_mode=None, reply_markup=first_kb,
+                    )
+                except Exception:  # noqa: BLE001
+                    log.debug(
+                        "stream_final_edit_failed",
+                        internal_user_id=user_id_str,
+                    )
                 # Send overflow chunks as new messages.
                 for idx, chunk in enumerate(chunks[1:], start=1):
                     kb = confirm_kb if idx == len(chunks) - 1 else None
