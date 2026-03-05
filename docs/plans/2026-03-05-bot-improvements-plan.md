@@ -243,12 +243,19 @@
 - New: `tests/unit/test_sessions.py`
 
 **Implementation:**
-1. `conversation_sessions` table: id, user_id, started_at, ended_at, message_count, dominant_mood, ended_with_farewell (bool)
-2. Session boundary: gap > 30 min between messages = new session
-3. Update session on each message (message_count++, ended_at = now)
-4. Close session when farewell detected or timeout
-5. `GET /internal/analytics/overview` — active users, avg session length, return rate
-6. `GET /internal/analytics/users/{user_id}` — per-user engagement profile
+- [x] `conversation_sessions` table: id, user_id, started_at, ended_at, message_count, dominant_mood, ended_with_farewell (bool)
+- [x] Session boundary: gap > 30 min between messages = new session
+- [x] Update session on each message (message_count++, ended_at = now)
+- [x] Close session when farewell detected or timeout
+- [x] `GET /internal/analytics/overview` — active users, avg session length, return rate
+- [x] `GET /internal/analytics/users/{user_id}` — per-user engagement profile
+
+**Tests:**
+- [x] Unit: session creation, continuation, boundary detection (8 tests in TestTrackSession)
+- [x] Unit: analytics overview returns expected keys and handles empty state
+- [x] Unit: per-user analytics computes metrics and mood distribution
+- [x] Unit: HTTP endpoint validation (invalid UUID, missing engine, invalid days)
+- [x] Unit: HTTP endpoints return correct data via mocked analytics functions
 
 **Dependencies:** 1.1 (mood for dominant_mood field).
 

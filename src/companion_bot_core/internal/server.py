@@ -33,13 +33,21 @@ from typing import TYPE_CHECKING
 from aiohttp import web
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-from companion_bot_core.internal.routes import REDIS_KEY, handle_detect_change, handle_refine
+from companion_bot_core.internal.routes import (
+    ENGINE_KEY,
+    REDIS_KEY,
+    handle_analytics_overview,
+    handle_analytics_user,
+    handle_detect_change,
+    handle_refine,
+)
 from companion_bot_core.metrics import INTERNAL_REQUEST_LATENCY, INTERNAL_REQUESTS
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from redis.asyncio import Redis
+    from sqlalchemy.ext.asyncio import AsyncEngine
 
 
 @web.middleware
@@ -84,16 +92,22 @@ async def _handle_metrics(_request: web.Request) -> web.Response:
     return web.Response(body=body, headers={"Content-Type": CONTENT_TYPE_LATEST})
 
 
-def build_internal_app(redis: Redis) -> web.Application:
+def build_internal_app(
+    redis: Redis,
+    engine: AsyncEngine | None = None,
+) -> web.Application:
     """Create and return the internal aiohttp :class:`web.Application`.
 
     The ``redis`` client is stored on the application object so route handlers
-    can access it without global state.
+    can access it without global state.  An optional ``engine`` enables the
+    ``/internal/analytics/*`` endpoints.
 
     Parameters
     ----------
     redis:
         An already-connected async Redis client.
+    engine:
+        Optional async SQLAlchemy engine for analytics queries.
 
     Returns
     -------
@@ -102,9 +116,15 @@ def build_internal_app(redis: Redis) -> web.Application:
     """
     app = web.Application(middlewares=[_metrics_middleware])
     app[REDIS_KEY] = redis
+    if engine is not None:
+        app[ENGINE_KEY] = engine
 
     app.router.add_post("/internal/refine/{user_id}", handle_refine)
     app.router.add_post("/internal/detect-change", handle_detect_change)
+    app.router.add_get("/internal/analytics/overview", handle_analytics_overview)
+    app.router.add_get(
+        "/internal/analytics/users/{user_id}", handle_analytics_user,
+    )
     app.router.add_get("/metrics", _handle_metrics)
 
     return app

@@ -110,7 +110,7 @@ async def _run() -> None:
             )
 
         # Start the internal HTTP service.
-        internal_app = build_internal_app(redis)
+        internal_app = build_internal_app(redis, engine=engine)
         runner = web.AppRunner(internal_app)
         await runner.setup()
         site = web.TCPSite(

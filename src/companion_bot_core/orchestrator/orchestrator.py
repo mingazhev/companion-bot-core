@@ -70,6 +70,7 @@ from companion_bot_core.orchestrator.response_filter import (
     build_anti_repetition_instruction,
     check_repetition,
 )
+from companion_bot_core.orchestrator.session_tracker import track_session
 from companion_bot_core.orchestrator.topic_tracker import (
     TOPIC_SWITCH_INSTRUCTION,
     detect_topic_switch,
@@ -776,8 +777,10 @@ async def process_message(
             # Skip for auto_apply — the message is a behavior-change request,
             # and emotion instructions would conflict with the change intent.
             detected_farewell = False
+            detected_emotion_mode: str | None = None
             if action != "auto_apply":
                 emotion = detect_emotion(message_text)
+                detected_emotion_mode = emotion.mode
                 EMOTION_DETECTED.labels(mode=emotion.mode).inc()
                 if emotion.mode == "farewell":
                     FAREWELL_DETECTED.inc()
@@ -998,6 +1001,19 @@ async def process_message(
             await _track_session_message(
                 redis, user_id_str, is_farewell=detected_farewell,
             )
+
+            # ------------------------------------------------------------------
+            # Step 5c — DB session tracking
+            # ------------------------------------------------------------------
+            try:
+                await track_session(
+                    session,
+                    user_id,
+                    emotion_mode=detected_emotion_mode,
+                    is_farewell=detected_farewell,
+                )
+            except Exception:  # noqa: BLE001
+                log.warning("session_tracker_failed", user_id=user_id_str)
 
             # ------------------------------------------------------------------
             # Step 6 — Persist conversation messages

@@ -12,6 +12,12 @@ POST /internal/refine/{user_id}
 POST /internal/detect-change
     Classify configuration-change intent in a user message and return the
     DetectionResult as JSON.
+
+GET /internal/analytics/overview
+    Aggregate engagement metrics over a configurable window.
+
+GET /internal/analytics/users/{user_id}
+    Per-user engagement profile.
 """
 
 from __future__ import annotations
@@ -24,15 +30,18 @@ from aiohttp import web
 from pydantic import ValidationError
 
 from companion_bot_core.behavior.detector import classify
+from companion_bot_core.db.engine import get_async_session
+from companion_bot_core.internal.analytics import get_analytics_overview, get_user_analytics
 from companion_bot_core.internal.schemas import DetectChangeRequest, RefineRequest, RefineResponse
 from companion_bot_core.logging_config import get_logger
 from companion_bot_core.redis.queues import enqueue_refinement_job
 
 log = get_logger(__name__)
 
-# Type-safe application key for the shared Redis client.
+# Type-safe application keys for shared resources.
 # Using web.AppKey avoids the NotAppKeyWarning introduced in aiohttp 3.9+.
 REDIS_KEY: web.AppKey[Any] = web.AppKey("redis")
+ENGINE_KEY: web.AppKey[Any] = web.AppKey("engine")
 
 
 async def handle_refine(request: web.Request) -> web.Response:
@@ -164,3 +173,99 @@ async def handle_detect_change(request: web.Request) -> web.Response:
 
     result = classify(req.text)
     return web.json_response(result.model_dump())
+
+
+async def handle_analytics_overview(request: web.Request) -> web.Response:
+    """GET /internal/analytics/overview — aggregate engagement metrics.
+
+    Query parameters
+    ----------------
+    days : int, optional
+        Look-back window in days.  Defaults to 7.
+
+    Responses
+    ---------
+    200 OK
+        JSON with active_users, total_sessions, avg_session_messages, etc.
+    400 Bad Request
+        When ``days`` is not a valid positive integer.
+    500 Internal Server Error
+        When the database engine is not configured.
+    """
+    engine = request.app.get(ENGINE_KEY)
+    if engine is None:
+        return web.json_response(
+            {"error": "analytics not available: no database engine configured"},
+            status=500,
+        )
+
+    days_str = request.query.get("days", "7")
+    try:
+        days = int(days_str)
+        if days < 1:
+            raise ValueError  # noqa: TRY301
+    except ValueError:
+        return web.json_response(
+            {"error": "days must be a positive integer"},
+            status=400,
+        )
+
+    async with get_async_session(engine) as session:
+        overview = await get_analytics_overview(session, days=days)
+
+    return web.json_response(overview)
+
+
+async def handle_analytics_user(request: web.Request) -> web.Response:
+    """GET /internal/analytics/users/{user_id} — per-user engagement profile.
+
+    Path parameters
+    ---------------
+    user_id : str
+        Must be a valid UUID string.
+
+    Query parameters
+    ----------------
+    days : int, optional
+        Look-back window in days.  Defaults to 30.
+
+    Responses
+    ---------
+    200 OK
+        JSON with per-user metrics.
+    400 Bad Request
+        When ``user_id`` is not valid or ``days`` is not a positive integer.
+    500 Internal Server Error
+        When the database engine is not configured.
+    """
+    engine = request.app.get(ENGINE_KEY)
+    if engine is None:
+        return web.json_response(
+            {"error": "analytics not available: no database engine configured"},
+            status=500,
+        )
+
+    user_id_str: str = request.match_info["user_id"]
+    try:
+        user_id = uuid.UUID(user_id_str)
+    except ValueError:
+        return web.json_response(
+            {"error": "invalid user_id: not a valid UUID"},
+            status=400,
+        )
+
+    days_str = request.query.get("days", "30")
+    try:
+        days = int(days_str)
+        if days < 1:
+            raise ValueError  # noqa: TRY301
+    except ValueError:
+        return web.json_response(
+            {"error": "days must be a positive integer"},
+            status=400,
+        )
+
+    async with get_async_session(engine) as session:
+        profile = await get_user_analytics(session, user_id, days=days)
+
+    return web.json_response(profile)

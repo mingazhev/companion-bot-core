@@ -80,6 +80,9 @@ class User(Base):
     audit_log_entries: Mapped[list[AuditLog]] = relationship(
         "AuditLog", back_populates="user", lazy="raise"
     )
+    conversation_sessions: Mapped[list[ConversationSession]] = relationship(
+        "ConversationSession", back_populates="user", lazy="raise"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -389,3 +392,53 @@ class AuditLog(Base):
 
     # --- relationships ---
     user: Mapped[User | None] = relationship("User", back_populates="audit_log_entries")
+
+
+# ---------------------------------------------------------------------------
+# conversation_sessions
+# ---------------------------------------------------------------------------
+
+
+class ConversationSession(Base):
+    """Tracks a contiguous block of user messages as one session.
+
+    A new session starts when the gap since the last message exceeds 30 minutes.
+    """
+
+    __tablename__ = "conversation_sessions"
+    __table_args__ = (
+        Index(
+            "ix_conversation_sessions_user_id_started_at",
+            "user_id",
+            "started_at",
+            postgresql_using="btree",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    ended_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    message_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    dominant_mood: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="Most recent non-neutral emotion mode detected during session",
+    )
+    ended_with_farewell: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False,
+    )
+
+    # --- relationships ---
+    user: Mapped[User] = relationship("User", back_populates="conversation_sessions")
