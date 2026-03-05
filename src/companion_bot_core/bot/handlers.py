@@ -1315,6 +1315,49 @@ async def handle_message(
 
 
 # --------------------------------------------------------------------------- #
+# /mood — mood journal
+# --------------------------------------------------------------------------- #
+
+
+@router.message(Command("mood"))
+async def cmd_mood(
+    message: Message,
+    db_user: User,
+    db_session: AsyncSession,
+    command: CommandObject | None = None,
+) -> None:
+    """Show the user's mood timeline."""
+    if await _guard_private_only(message, db_user):
+        return
+    locale = _user_locale(db_user)
+
+    # Parse subcommand: /mood week | /mood month
+    args = (command.args or "").strip().lower() if command else ""
+    if args == "month":
+        days = 30
+    elif args in ("week", ""):
+        days = 7
+    else:
+        await message.answer(tr("mood.help", locale), parse_mode=None)
+        return
+
+    from companion_bot_core.orchestrator.mood_journal import (
+        format_mood_timeline,
+        get_mood_entries,
+    )
+
+    entries = await get_mood_entries(db_session, db_user.id, days=days)
+    if not entries:
+        await message.answer(tr("mood.empty", locale), parse_mode=None)
+        return
+
+    header = tr("mood.header", locale, days=days)
+    timeline = format_mood_timeline(entries, locale=locale)
+    await message.answer(f"{header}{timeline}", parse_mode=None)
+    log.info("cmd_mood", internal_user_id=str(db_user.id), days=days, count=len(entries))
+
+
+# --------------------------------------------------------------------------- #
 # /bookmarks — saved conversation moments
 # --------------------------------------------------------------------------- #
 

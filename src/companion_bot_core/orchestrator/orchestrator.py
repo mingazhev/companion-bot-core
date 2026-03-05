@@ -79,6 +79,7 @@ from companion_bot_core.orchestrator.feedback import (
     save_feedback,
     should_ask_feedback,
 )
+from companion_bot_core.orchestrator.mood_journal import emotion_to_mood, save_mood_entry
 from companion_bot_core.orchestrator.response_filter import (
     build_anti_repetition_instruction,
     check_repetition,
@@ -840,6 +841,20 @@ async def process_message(
                     mode=emotion.mode,
                     confidence=emotion.confidence,
                 )
+
+            # Step 4b+ — Mood journal: save mood entry if emotion is non-neutral.
+            if detected_emotion_mode and detected_emotion_mode != "neutral":
+                try:
+                    mood, intensity = emotion_to_mood(
+                        detected_emotion_mode, emotion.confidence,
+                    )
+                    if mood != "neutral":
+                        await save_mood_entry(
+                            session, user_id, mood, intensity,
+                            context_snippet=message_text[:50] if message_text else None,
+                        )
+                except Exception:  # noqa: BLE001
+                    log.warning("mood_save_failed", user_id=user_id_str)
 
             # Step 4c — Topic tracking: detect switches and inject instruction.
             # Skip for auto_apply — the message is a behavior-change request.

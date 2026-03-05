@@ -89,6 +89,9 @@ class User(Base):
     bookmarks: Mapped[list[Bookmark]] = relationship(
         "Bookmark", back_populates="user", lazy="raise"
     )
+    mood_entries: Mapped[list[MoodEntry]] = relationship(
+        "MoodEntry", back_populates="user", lazy="raise"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -545,3 +548,55 @@ class Bookmark(Base):
 
     # --- relationships ---
     user: Mapped[User] = relationship("User", back_populates="bookmarks")
+
+
+# ---------------------------------------------------------------------------
+# mood_entries
+# ---------------------------------------------------------------------------
+
+
+class MoodEntry(Base):
+    """Automatic mood tracking entry derived from emotion detection.
+
+    Created after the emotion detector runs on each message when the
+    detected mode is non-neutral.
+    """
+
+    __tablename__ = "mood_entries"
+    __table_args__ = (
+        Index(
+            "ix_mood_entries_user_id_created_at",
+            "user_id",
+            "created_at",
+            postgresql_using="btree",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    mood: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        comment="happy | sad | anxious | angry | neutral | excited",
+    )
+    intensity: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="Intensity 1 (low) to 5 (high)",
+    )
+    context_snippet: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="First 50 chars of the user message",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    # --- relationships ---
+    user: Mapped[User] = relationship("User", back_populates="mood_entries")

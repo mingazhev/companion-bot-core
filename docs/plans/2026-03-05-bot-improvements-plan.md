@@ -98,18 +98,19 @@
 - New: `tests/unit/test_mood_journal.py`
 
 **Implementation:**
-1. `mood_entries` table: id, user_id, mood (enum: happy, sad, anxious, angry, neutral, excited), intensity (1-5), context_snippet (first 50 chars of message), created_at
-2. After emotion detector runs (1.1), save mood entry if mode != neutral
-3. `/mood` command: show last 7 days as text timeline
-4. `/mood week` / `/mood month` for different ranges
-5. No diagnosis, no advice based on mood patterns (Phase 1)
+- [x] `mood_entries` table: id, user_id, mood (enum: happy, sad, anxious, angry, neutral, excited), intensity (1-5), context_snippet (first 50 chars of message), created_at
+- [x] After emotion detector runs (1.1), save mood entry if mode != neutral
+- [x] `/mood` command: show last 7 days as text timeline
+- [x] `/mood week` / `/mood month` for different ranges
+- [x] No diagnosis, no advice based on mood patterns (Phase 1)
 
 **Dependencies:** 1.1 (emotion detector provides mood classification).
 
 **Tests:**
-- Unit: mood saving logic
-- Unit: `/mood` output formatting
-- Integration: full flow message → mood saved → `/mood` displays it
+- [x] Unit: mood saving logic (3 tests: save with/without snippet, truncation)
+- [x] Unit: emotion_to_mood mapping (11 tests: all modes, intensity clamping)
+- [x] Unit: `/mood` output formatting (8 tests: empty, locale, intensity bars, grouping, emojis)
+- [x] Unit: get_mood_entries retrieval (2 tests: results and empty state)
 
 ---
 

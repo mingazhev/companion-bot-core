@@ -287,6 +287,25 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         "ru": "Спасибо за обратную связь!",
         "en": "Thanks for the feedback!",
     },
+    # --- Mood journal ---
+    "mood.header": {
+        "ru": "📊 Твоё настроение за последние {days} дн.:\n",
+        "en": "📊 Your mood over the last {days} days:\n",
+    },
+    "mood.empty": {
+        "ru": (
+            "У меня пока нет записей о твоём настроении. "
+            "Просто общайся со мной, и я начну отслеживать."
+        ),
+        "en": (
+            "I don't have any mood entries yet. "
+            "Just chat with me and I'll start tracking."
+        ),
+    },
+    "mood.help": {
+        "ru": "Используй /mood, /mood week или /mood month.",
+        "en": "Use /mood, /mood week, or /mood month.",
+    },
     # --- Bookmarks ---
     "bookmark.saved": {
         "ru": "🔖 Сохранила этот момент! Посмотри все закладки через /bookmarks.",
@@ -404,6 +423,7 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "/memory — что я о тебе помню\n"
             "/remember <факт> — рассказать мне что-то о себе\n"
             "/forget <факт> — попросить забыть что-то\n"
+            "/mood — дневник настроения\n"
             "/bookmarks — сохранённые моменты из разговоров\n"
             "/settings — настройки (тон, персона, навыки, язык)\n"
             "/personas — выбрать персону\n"
@@ -426,6 +446,7 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "/memory — what I remember about you\n"
             "/remember <fact> — tell me something about yourself\n"
             "/forget <fact> — ask me to forget something\n"
+            "/mood — mood journal\n"
             "/bookmarks — saved conversation moments\n"
             "/settings — settings (tone, persona, skills, language)\n"
             "/personas — choose a persona\n"
