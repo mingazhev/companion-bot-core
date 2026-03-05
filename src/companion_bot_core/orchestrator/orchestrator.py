@@ -547,6 +547,9 @@ async def _track_session_message(
 
         if is_farewell:
             SESSION_MESSAGES.observe(count)
+            # Delete prev_key so the next new-session check doesn't
+            # observe the same count a second time.
+            await redis.delete(prev_key)
     except Exception:  # noqa: BLE001
         log.warning("session_message_tracking_failed", user_id=user_id_str)
 

@@ -187,6 +187,28 @@ class TestTrackSessionMessage:
             await _track_session_message(redis, uid)
             mock_hist.observe.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_farewell_then_new_session_does_not_double_count(self) -> None:
+        redis = fakeredis.FakeRedis(decode_responses=True)
+        uid = "user-8"
+
+        # Session: 3 messages + farewell
+        await _track_session_message(redis, uid)
+        await _track_session_message(redis, uid)
+        await _track_session_message(redis, uid)
+        await _track_session_message(redis, uid, is_farewell=True)
+
+        # Simulate session expiry
+        session_key = f"{_SESSION_COUNT_PREFIX}:{uid}"
+        await redis.delete(session_key)
+
+        # New session — should NOT observe again (farewell already did)
+        with patch(
+            "companion_bot_core.orchestrator.orchestrator.SESSION_MESSAGES"
+        ) as mock_hist:
+            await _track_session_message(redis, uid)
+            mock_hist.observe.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Quality metrics in process_message
