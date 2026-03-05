@@ -356,17 +356,23 @@ async def load_user_context(
             continuity, activity_gap = await build_continuity_hint(
                 redis, user_id_str, history, locale,
             )
-            if continuity:
-                system_prompt = f"{system_prompt}\n\n[Continuity]\n{continuity}"
         except Exception:  # noqa: BLE001
+            continuity = ""
             log.warning("continuity_hint_failed", user_id=user_id_str)
 
-        # Warm return: inject a stronger welcome-back hint for 48h+ gaps
+        # Warm return: inject a stronger welcome-back hint for 48h+ gaps.
+        # When warm return fires, suppress the weaker continuity hint to
+        # avoid giving the model two conflicting return-acknowledgment
+        # instructions.
         try:
             warm_hint = build_warm_return_hint(activity_gap, locale)
             if warm_hint:
                 system_prompt = f"{system_prompt}\n\n[WarmReturn]\n{warm_hint}"
+            elif continuity:
+                system_prompt = f"{system_prompt}\n\n[Continuity]\n{continuity}"
         except Exception:  # noqa: BLE001
+            if continuity:
+                system_prompt = f"{system_prompt}\n\n[Continuity]\n{continuity}"
             log.warning("warm_return_hint_failed", user_id=user_id_str)
 
         try:

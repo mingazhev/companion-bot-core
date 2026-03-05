@@ -652,19 +652,21 @@ async def process_message(
         # ------------------------------------------------------------------
         try:
             if await is_feedback_pending(redis, user_id_str):
-                score = classify_sentiment(message_text)
-                await save_feedback(session, user_id, message_text, score)
-                USER_FEEDBACK_SCORE.observe(score)
-                await clear_feedback_pending(redis, user_id_str)
-                log.info(
-                    "feedback_collected",
-                    user_id=user_id_str,
-                    sentiment_score=score,
-                )
-                CHAT_LATENCY.labels(model=model).observe(
-                    time.perf_counter() - pipeline_start
-                )
-                return tr("feedback.thanks", ui_locale)
+                try:
+                    score = classify_sentiment(message_text)
+                    await save_feedback(session, user_id, message_text, score)
+                    USER_FEEDBACK_SCORE.observe(score)
+                    log.info(
+                        "feedback_collected",
+                        user_id=user_id_str,
+                        sentiment_score=score,
+                    )
+                    CHAT_LATENCY.labels(model=model).observe(
+                        time.perf_counter() - pipeline_start
+                    )
+                    return tr("feedback.thanks", ui_locale)
+                finally:
+                    await clear_feedback_pending(redis, user_id_str)
         except Exception:  # noqa: BLE001
             log.warning("feedback_processing_failed", user_id=user_id_str)
 
@@ -818,6 +820,7 @@ async def process_message(
             # and emotion instructions would conflict with the change intent.
             detected_farewell = False
             detected_emotion_mode: str | None = None
+            emotion = None
             if action != "auto_apply":
                 emotion = detect_emotion(message_text)
                 detected_emotion_mode = emotion.mode
@@ -828,7 +831,7 @@ async def process_message(
                 emotion_instruction = EMOTION_INSTRUCTIONS[emotion.mode]
             else:
                 emotion_instruction = ""
-            if emotion_instruction:
+            if emotion_instruction and emotion is not None:
                 user_context = user_context.model_copy(update={
                     "system_prompt": (
                         f"{user_context.system_prompt}\n\n"
@@ -843,7 +846,7 @@ async def process_message(
                 )
 
             # Step 4b+ — Mood journal: save mood entry if emotion is non-neutral.
-            if detected_emotion_mode and detected_emotion_mode != "neutral":
+            if detected_emotion_mode and detected_emotion_mode != "neutral" and emotion is not None:
                 try:
                     mood, intensity = emotion_to_mood(
                         detected_emotion_mode, emotion.confidence,

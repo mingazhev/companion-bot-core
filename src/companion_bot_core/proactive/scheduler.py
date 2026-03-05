@@ -36,7 +36,7 @@ log = get_logger(__name__)
 POLL_INTERVAL_SECONDS = 60
 
 
-def _parse_timezone(tz_str: str | None) -> timezone:
+def parse_timezone(tz_str: str | None) -> timezone:
     """Parse a timezone string like 'UTC+3' or 'UTC-5' into a timezone.
 
     Returns UTC for unknown/invalid formats.
@@ -139,7 +139,7 @@ async def _process_one_checkin(
             await unschedule_checkin(redis, user_id_str)
             return
 
-        user_tz = _parse_timezone(user.timezone)
+        user_tz = parse_timezone(user.timezone)
         now_local = datetime.now(tz=user_tz).time()
 
         # Check quiet hours
@@ -152,6 +152,7 @@ async def _process_one_checkin(
 
         telegram_user_id = user.telegram_user_id
         locale = user.locale
+        checkin_time = profile.checkin_time
 
     # Send outside the DB session
     sent = await _send_checkin(bot, telegram_user_id, locale)
@@ -160,11 +161,5 @@ async def _process_one_checkin(
         log.info("checkin_sent", user_id=user_id_str)
 
     # Reschedule for tomorrow regardless of success/failure
-    # (re-read checkin_time since we're outside the session)
-    async with get_async_session(engine) as session:
-        q2 = select(UserProfile.checkin_time).where(UserProfile.user_id == user_uuid)
-        result2 = await session.execute(q2)
-        checkin_time = result2.scalar_one_or_none()
-
     if checkin_time is not None:
         await reschedule_tomorrow(redis, user_id_str, checkin_time, user_tz)

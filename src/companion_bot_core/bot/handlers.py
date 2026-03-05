@@ -40,6 +40,7 @@ from sqlalchemy import delete, select
 from companion_bot_core.behavior.extractor import VALID_TONES
 from companion_bot_core.db.models import (
     BehaviorChangeEvent,
+    Bookmark,
     ConversationMessage,
     Job,
     MemoryCompaction,
@@ -599,14 +600,7 @@ async def cmd_set_persona(
         return
     # Reject control characters (newlines, tabs, DEL, Unicode direction overrides,
     # zero-width chars) to prevent stored prompt injection via persona names.
-    _banned_chars = frozenset(
-        "\x7f"                          # DEL
-        "\u200b\u200c\u200d\u200e\u200f"  # zero-width + directional marks
-        "\u2028\u2029"                  # line/paragraph separators
-        "\u202a\u202b\u202c\u202d\u202e"  # bidi embedding/override
-        "\ufeff"                        # BOM / zero-width no-break space
-    )
-    if any(c < " " or c in _banned_chars for c in name):
+    if any(c < " " or c in _BANNED_NAME_CHARS for c in name):
         await message.answer(tr("set_persona.control_chars", locale), parse_mode=None)
         return
 
@@ -1407,7 +1401,7 @@ async def cmd_bookmarks(
     log.info("cmd_bookmarks", internal_user_id=str(db_user.id), count=len(bookmarks))
 
 
-def _format_bookmark_list(bookmarks: list[Any], locale: str) -> str:
+def _format_bookmark_list(bookmarks: list[Bookmark], locale: str) -> str:
     """Format a list of bookmarks into a human-readable string.
 
     Truncates output to stay within Telegram's 4096-character message limit.
@@ -1550,11 +1544,11 @@ def _parse_checkin_time(time_str: str) -> dt_time | None:
         return None
 
 
-def _get_user_timezone(user: User) -> timezone | None:
+def _get_user_timezone(user: User) -> timezone:
     """Extract timezone from user profile."""
-    from companion_bot_core.proactive.scheduler import _parse_timezone
+    from companion_bot_core.proactive.scheduler import parse_timezone
 
-    return _parse_timezone(user.timezone)
+    return parse_timezone(user.timezone)
 
 
 # --------------------------------------------------------------------------- #

@@ -231,52 +231,52 @@ class TestCheckinRedisOps:
 
 class TestParseTimezone:
     def test_none_returns_utc(self) -> None:
-        from companion_bot_core.proactive.scheduler import _parse_timezone
+        from companion_bot_core.proactive.scheduler import parse_timezone
 
-        assert _parse_timezone(None) == UTC
+        assert parse_timezone(None) == UTC
 
     def test_empty_returns_utc(self) -> None:
-        from companion_bot_core.proactive.scheduler import _parse_timezone
+        from companion_bot_core.proactive.scheduler import parse_timezone
 
-        assert _parse_timezone("") == UTC
+        assert parse_timezone("") == UTC
 
     def test_utc_string(self) -> None:
-        from companion_bot_core.proactive.scheduler import _parse_timezone
+        from companion_bot_core.proactive.scheduler import parse_timezone
 
-        assert _parse_timezone("UTC") == UTC
+        assert parse_timezone("UTC") == UTC
 
     def test_gmt_string(self) -> None:
-        from companion_bot_core.proactive.scheduler import _parse_timezone
+        from companion_bot_core.proactive.scheduler import parse_timezone
 
-        assert _parse_timezone("GMT") == UTC
+        assert parse_timezone("GMT") == UTC
 
     def test_utc_plus_offset(self) -> None:
-        from companion_bot_core.proactive.scheduler import _parse_timezone
+        from companion_bot_core.proactive.scheduler import parse_timezone
 
-        tz = _parse_timezone("UTC+3")
+        tz = parse_timezone("UTC+3")
         assert tz == timezone(timedelta(hours=3))
 
     def test_utc_minus_offset(self) -> None:
-        from companion_bot_core.proactive.scheduler import _parse_timezone
+        from companion_bot_core.proactive.scheduler import parse_timezone
 
-        tz = _parse_timezone("UTC-5")
+        tz = parse_timezone("UTC-5")
         assert tz == timezone(timedelta(hours=-5))
 
     def test_gmt_plus_offset(self) -> None:
-        from companion_bot_core.proactive.scheduler import _parse_timezone
+        from companion_bot_core.proactive.scheduler import parse_timezone
 
-        tz = _parse_timezone("GMT+2")
+        tz = parse_timezone("GMT+2")
         assert tz == timezone(timedelta(hours=2))
 
     def test_invalid_returns_utc(self) -> None:
-        from companion_bot_core.proactive.scheduler import _parse_timezone
+        from companion_bot_core.proactive.scheduler import parse_timezone
 
-        assert _parse_timezone("America/New_York") == UTC
+        assert parse_timezone("America/New_York") == UTC
 
     def test_utc_invalid_offset_returns_utc(self) -> None:
-        from companion_bot_core.proactive.scheduler import _parse_timezone
+        from companion_bot_core.proactive.scheduler import parse_timezone
 
-        assert _parse_timezone("UTC+abc") == UTC
+        assert parse_timezone("UTC+abc") == UTC
 
 
 # ---------------------------------------------------------------------------
