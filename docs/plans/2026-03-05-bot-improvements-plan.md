@@ -192,7 +192,7 @@
 - [x] On trigger: save previous user message + bot response pair (orchestrator step 4d)
 - [x] `/bookmarks` — list saved moments (last 20, with dates)
 - [x] `/bookmarks search <query>` — simple text search
-- [ ] Context injection: refinement worker can reference bookmarks in long_term_profile (deferred to Phase 4 refinement integration)
+- [x] Context injection: refinement worker can reference bookmarks in long_term_profile (deferred to Phase 4 refinement integration)
 
 **Dependencies:** None.
 

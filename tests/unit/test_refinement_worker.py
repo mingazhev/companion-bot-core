@@ -26,6 +26,7 @@ from companion_bot_core.refinement.worker import (
     MAX_ATTEMPTS,
     _apply_delta,
     check_and_clear_user_notice,
+    format_bookmarks_context,
     process_one_job,
 )
 
@@ -508,3 +509,177 @@ async def test_process_one_job_no_notice_on_redis_flush_failure() -> None:
     assert await check_and_clear_user_notice(redis, str(user_id)) is None
     # All 3 retry attempts must be exhausted before marking the job failed.
     assert flush_mock.await_count == 3
+
+
+# ---------------------------------------------------------------------------
+# format_bookmarks_context
+# ---------------------------------------------------------------------------
+
+
+def test_format_bookmarks_context_empty() -> None:
+    assert format_bookmarks_context([]) == ""
+
+
+def test_format_bookmarks_context_single_bookmark() -> None:
+    bm = MagicMock()
+    bm.user_message = "I love cooking pasta"
+    bm.bot_response = "Pasta is a great choice!"
+    bm.tag = None
+    result = format_bookmarks_context([bm])
+    assert "Bookmark 1" in result
+    assert "I love cooking pasta" in result
+    assert "Pasta is a great choice!" in result
+
+
+def test_format_bookmarks_context_with_tag() -> None:
+    bm = MagicMock()
+    bm.user_message = "Remember this recipe"
+    bm.bot_response = "Noted!"
+    bm.tag = "recipes"
+    result = format_bookmarks_context([bm])
+    assert "[tag: recipes]" in result
+
+
+def test_format_bookmarks_context_truncates_long_text() -> None:
+    bm = MagicMock()
+    bm.user_message = "x" * 200
+    bm.bot_response = "y" * 200
+    bm.tag = None
+    result = format_bookmarks_context([bm])
+    # Content should be truncated to 120 chars
+    assert len(result) < 200 + 200 + 50
+
+
+def test_format_bookmarks_context_multiple_bookmarks() -> None:
+    bookmarks = []
+    for i in range(3):
+        bm = MagicMock()
+        bm.user_message = f"Message {i}"
+        bm.bot_response = f"Reply {i}"
+        bm.tag = None
+        bookmarks.append(bm)
+    result = format_bookmarks_context(bookmarks)
+    assert "Bookmark 1" in result
+    assert "Bookmark 2" in result
+    assert "Bookmark 3" in result
+    assert result.count("\n") == 2  # 3 lines, 2 newlines
+
+
+# ---------------------------------------------------------------------------
+# process_one_job — bookmarks loaded and passed to refinement
+# ---------------------------------------------------------------------------
+
+
+async def test_process_one_job_passes_bookmarks_to_refine_prompt() -> None:
+    """Verify that bookmarks are loaded and forwarded to refine_prompt."""
+    redis = fakeredis.FakeRedis()
+    snapshot_store = InMemorySnapshotStore()
+    user_id = uuid.uuid4()
+    snap = _make_snapshot(user_id)
+    await snapshot_store.save(snap)
+    await snapshot_store.set_active(user_id, snap.id)
+
+    import json
+
+    good_json = json.dumps(
+        {
+            "proposed_delta": {
+                "persona_segment": "Be warm and concise",
+                "skill_packs": None,
+                "long_term_profile": None,
+            },
+            "rationale": "Observed user preference",
+            "risk_flags": [],
+        }
+    )
+    chat_client = AsyncMock()
+    chat_client.chat_completion = AsyncMock(
+        return_value=_make_openai_response(good_json),
+    )
+
+    # Mock get_bookmarks to return fake bookmarks
+    fake_bookmark = MagicMock()
+    fake_bookmark.user_message = "This is important"
+    fake_bookmark.bot_response = "I understand"
+    fake_bookmark.tag = None
+
+    with (
+        patch(
+            "companion_bot_core.refinement.worker.get_async_session",
+            new=_fake_session_ctx,
+        ),
+        patch(
+            "companion_bot_core.refinement.worker.get_bookmarks",
+            return_value=[fake_bookmark],
+        ) as mock_get_bookmarks,
+    ):
+        await process_one_job(
+            {"user_id": str(user_id)},
+            redis=redis,
+            snapshot_store=snapshot_store,
+            chat_client=chat_client,
+            engine=MagicMock(),
+        )
+
+    # get_bookmarks should have been called with the user_id
+    mock_get_bookmarks.assert_awaited_once()
+    call_args = mock_get_bookmarks.call_args
+    assert call_args.args[1] == user_id
+
+    # The bookmark text should appear in the message sent to the model
+    call_args = chat_client.chat_completion.call_args
+    messages = call_args.args[0]
+    user_msg = messages[1].content
+    assert "This is important" in user_msg
+
+
+async def test_process_one_job_works_without_bookmarks() -> None:
+    """Verify that the worker works fine when there are no bookmarks."""
+    redis = fakeredis.FakeRedis()
+    snapshot_store = InMemorySnapshotStore()
+    user_id = uuid.uuid4()
+    snap = _make_snapshot(user_id)
+    await snapshot_store.save(snap)
+    await snapshot_store.set_active(user_id, snap.id)
+
+    import json
+
+    good_json = json.dumps(
+        {
+            "proposed_delta": {
+                "persona_segment": "Be warm and concise",
+                "skill_packs": None,
+                "long_term_profile": None,
+            },
+            "rationale": "Observed user preference",
+            "risk_flags": [],
+        }
+    )
+    chat_client = AsyncMock()
+    chat_client.chat_completion = AsyncMock(
+        return_value=_make_openai_response(good_json),
+    )
+
+    with (
+        patch(
+            "companion_bot_core.refinement.worker.get_async_session",
+            new=_fake_session_ctx,
+        ),
+        patch(
+            "companion_bot_core.refinement.worker.get_bookmarks",
+            return_value=[],
+        ),
+    ):
+        await process_one_job(
+            {"user_id": str(user_id)},
+            redis=redis,
+            snapshot_store=snapshot_store,
+            chat_client=chat_client,
+            engine=MagicMock(),
+        )
+
+    # Model should still be called, without bookmarks in the message
+    call_args = chat_client.chat_completion.call_args
+    messages = call_args.args[0]
+    user_msg = messages[1].content
+    assert "bookmarks" not in user_msg.lower()

@@ -164,3 +164,57 @@ async def test_refine_prompt_raises_on_schema_mismatch() -> None:
     client = _make_client(json.dumps({"wrong_field": "value"}))
     with pytest.raises(ValueError, match="schema validation"):
         await refine_prompt(client, _make_snapshot(), [])
+
+
+# ---------------------------------------------------------------------------
+# _build_refinement_messages — bookmark context
+# ---------------------------------------------------------------------------
+
+
+def test_build_refinement_messages_includes_bookmarks_context() -> None:
+    snapshot = _make_snapshot()
+    bookmarks_ctx = "- Bookmark 1: User: I love cooking | Bot: Great!"
+    messages = _build_refinement_messages(snapshot, [], bookmarks_context=bookmarks_ctx)
+    user_content = messages[1].content
+    assert "Recent bookmarks" in user_content
+    assert "I love cooking" in user_content
+
+
+def test_build_refinement_messages_omits_bookmarks_when_empty() -> None:
+    snapshot = _make_snapshot()
+    messages = _build_refinement_messages(snapshot, [], bookmarks_context="")
+    user_content = messages[1].content
+    assert "bookmarks" not in user_content.lower()
+
+
+def test_build_refinement_system_prompt_mentions_bookmarks() -> None:
+    snapshot = _make_snapshot()
+    messages = _build_refinement_messages(snapshot, [])
+    system_content = messages[0].content
+    assert "bookmark" in system_content.lower()
+
+
+# ---------------------------------------------------------------------------
+# refine_prompt — bookmarks_context passed through
+# ---------------------------------------------------------------------------
+
+
+async def test_refine_prompt_passes_bookmarks_to_model() -> None:
+    no_change_delta = {
+        "persona_segment": None,
+        "skill_packs": None,
+        "long_term_profile": None,
+    }
+    payload = json.dumps(
+        {"proposed_delta": no_change_delta, "rationale": "No change", "risk_flags": []}
+    )
+    client = _make_client(payload)
+    snapshot = _make_snapshot()
+    await refine_prompt(
+        client, snapshot, [],
+        bookmarks_context="- Bookmark 1: User: test | Bot: ok",
+    )
+    call_args = client.chat_completion.call_args
+    messages = call_args.args[0]
+    user_msg = messages[1].content
+    assert "Bookmark 1" in user_msg

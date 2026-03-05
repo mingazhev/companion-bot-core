@@ -53,6 +53,13 @@ Style analysis:
   - "The user prefers concise answers. Keep responses brief."
   - "The user writes detailed messages. Match their depth in responses."
 
+Bookmarks:
+- If recent bookmarks are provided, analyse their themes to understand what
+  the user considers important or wants to remember.
+- Incorporate recurring bookmark themes into the long_term_profile
+  (e.g. "User frequently saves moments about [topic]").
+- Do NOT copy bookmark text verbatim — summarise the pattern.
+
 CRITICAL — preserving user identity fields in persona_segment:
 - If the existing persona_segment contains "Имя пользователя:" or "Name:" lines,
   you MUST preserve them verbatim at the top of your proposed persona_segment.
@@ -82,6 +89,7 @@ Output ONLY this JSON object — no prose before or after:
 def _build_refinement_messages(
     snapshot: SnapshotRecord,
     recent_context: list[ChatMessage],
+    bookmarks_context: str = "",
 ) -> list[ChatMessage]:
     """Build the message list sent to the refinement model."""
     context = recent_context[-_MAX_CONTEXT_MESSAGES:]
@@ -89,11 +97,14 @@ def _build_refinement_messages(
         "\n".join(f"[{m.role}]: {m.content}" for m in context)
         or "(no recent messages)"
     )
-    user_content = (
-        f"Current assistant configuration:\n{snapshot.system_prompt}\n\n"
-        f"Recent conversation:\n{conversation_text}\n\n"
-        "Return the JSON delta now."
-    )
+    parts = [
+        f"Current assistant configuration:\n{snapshot.system_prompt}\n",
+        f"Recent conversation:\n{conversation_text}\n",
+    ]
+    if bookmarks_context:
+        parts.append(f"Recent bookmarks (user-saved moments):\n{bookmarks_context}\n")
+    parts.append("Return the JSON delta now.")
+    user_content = "\n".join(parts)
     return [
         ChatMessage(role="system", content=_REFINEMENT_SYSTEM_PROMPT),
         ChatMessage(role="user", content=user_content),
@@ -105,15 +116,17 @@ async def refine_prompt(
     snapshot: SnapshotRecord,
     recent_context: list[ChatMessage],
     *,
+    bookmarks_context: str = "",
     max_tokens: int = 1024,
 ) -> RefinementResult:
     """Call the refinement model and return a validated ``RefinementResult``.
 
     Args:
-        client:         Configured ``ChatAPIClient`` instance.
-        snapshot:       The current active prompt snapshot for the user.
-        recent_context: Recent conversation messages (oldest first).
-        max_tokens:     Maximum completion tokens (default 1024).
+        client:            Configured ``ChatAPIClient`` instance.
+        snapshot:          The current active prompt snapshot for the user.
+        recent_context:    Recent conversation messages (oldest first).
+        bookmarks_context: Formatted bookmark summaries for profile enrichment.
+        max_tokens:        Maximum completion tokens (default 1024).
 
     Returns:
         Validated ``RefinementResult`` with the proposed delta.
@@ -125,7 +138,9 @@ async def refine_prompt(
         httpx.HTTPStatusError: On non-retryable API errors.
         tenacity.RetryError: When all retry attempts are exhausted.
     """
-    messages = _build_refinement_messages(snapshot, recent_context)
+    messages = _build_refinement_messages(
+        snapshot, recent_context, bookmarks_context=bookmarks_context,
+    )
     response = await client.chat_completion(
         messages,
         max_tokens=max_tokens,

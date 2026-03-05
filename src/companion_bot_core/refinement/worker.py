@@ -26,6 +26,7 @@ from companion_bot_core.db.models import AuditLog, Job, MemoryCompaction
 from companion_bot_core.inference.circuit_breaker import CircuitBreakerOpen
 from companion_bot_core.logging_config import get_logger
 from companion_bot_core.metrics import REFINEMENT_JOBS
+from companion_bot_core.orchestrator.bookmarks import get_bookmarks
 from companion_bot_core.orchestrator.context_loader import load_recent_messages
 from companion_bot_core.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
 from companion_bot_core.prompt.merge_builder import (
@@ -52,6 +53,7 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
     from sqlalchemy.ext.asyncio import AsyncEngine
 
+    from companion_bot_core.db.models import Bookmark
     from companion_bot_core.inference.client import ChatAPIClient
     from companion_bot_core.prompt.snapshot_store import SnapshotStore
     from companion_bot_core.refinement.schemas import SnapshotDelta
@@ -70,9 +72,25 @@ MAX_CIRCUIT_BREAKER_RETRIES = 20
 # Prevents jobs from spinning indefinitely during sustained outages.
 MAX_JOB_AGE_SECONDS = 1800  # 30 minutes
 
+# Maximum bookmarks to include in refinement context.
+_MAX_BOOKMARKS = 5
+
 # Redis key for the per-user "profile updated" notice.
 _NOTICE_KEY_PREFIX = "refinement:notice"
 _NOTICE_TTL_SECONDS = 86400  # 24 hours
+
+
+def format_bookmarks_context(bookmarks: list[Bookmark]) -> str:
+    """Format bookmark rows into a text block for the refinement model."""
+    if not bookmarks:
+        return ""
+    lines: list[str] = []
+    for i, bm in enumerate(bookmarks, 1):
+        user_msg = (bm.user_message or "")[:120]
+        bot_resp = (bm.bot_response or "")[:120]
+        tag_part = f" [tag: {bm.tag}]" if bm.tag else ""
+        lines.append(f"- Bookmark {i}{tag_part}: User: {user_msg} | Bot: {bot_resp}")
+    return "\n".join(lines)
 
 
 def _is_job_expired(job_data: dict[str, Any]) -> bool:
@@ -299,15 +317,22 @@ async def process_one_job(
             final_status = "skipped"
             return
 
-        # --- Load recent messages ---
+        # --- Load recent messages and bookmarks ---
         async with get_async_session(engine) as session:
             enc = encryptor or NOOP_ENCRYPTOR
             recent_messages = await load_recent_messages(
                 session, user_id, limit=30, encryptor=enc,
             )
+            bookmarks = await get_bookmarks(
+                session, user_id, limit=_MAX_BOOKMARKS,
+            )
+        bookmarks_ctx = format_bookmarks_context(bookmarks)
 
         # --- Call refinement model ---
-        result = await refine_prompt(chat_client, snapshot, recent_messages)
+        result = await refine_prompt(
+            chat_client, snapshot, recent_messages,
+            bookmarks_context=bookmarks_ctx,
+        )
 
         # --- Validate output ---
         violations = validate_refinement_result(result)
