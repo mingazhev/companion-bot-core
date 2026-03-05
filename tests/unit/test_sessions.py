@@ -205,35 +205,6 @@ class TestTrackSession:
 # ---------------------------------------------------------------------------
 
 
-class FakeAnalyticsSession:
-    """Minimal session stub for analytics query tests.
-
-    Stores ConversationSession objects and supports the SQLAlchemy-style
-    execute pattern used by analytics.py.
-    """
-
-    def __init__(self, sessions: list[ConversationSession]) -> None:
-        self._sessions = sessions
-
-    async def execute(self, stmt: Any) -> Any:
-        """Delegate to a real in-memory filter. For simplicity, returns all."""
-        result = MagicMock()
-        # Analytics queries use scalar_one() or scalars().all()
-        # We need to handle both patterns.
-        if hasattr(stmt, 'is_select') and stmt.is_select:
-            # For select queries returning full rows
-            scalars_mock = MagicMock()
-            scalars_mock.all.return_value = self._sessions
-            result.scalars.return_value = scalars_mock
-            result.scalar_one.return_value = self._compute_scalar(stmt)
-        else:
-            result.scalar_one.return_value = self._compute_scalar(stmt)
-        return result
-
-    def _compute_scalar(self, stmt: Any) -> Any:
-        return len(self._sessions)
-
-
 class TestAnalyticsOverview:
     @pytest.mark.asyncio
     async def test_empty_returns_zeros(self) -> None:
@@ -401,7 +372,7 @@ class TestAnalyticsOverviewEndpoint:
             resp = await tc.get("/internal/analytics/overview?days=abc")
             assert resp.status == 400
             body = await resp.json()
-            assert "positive integer" in body["error"]
+            assert "days must be" in body["error"]
         finally:
             await tc.close()
 

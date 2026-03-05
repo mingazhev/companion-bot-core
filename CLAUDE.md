@@ -5,7 +5,7 @@
 ```
 src/companion_bot_core/
   bot/          — aiogram app, handlers (commands + message), outer middleware
-  orchestrator/ — full message pipeline: context loader, dialogue state, orchestrator
+  orchestrator/ — full message pipeline: context loader, dialogue state, orchestrator, topic tracker, response filter, session tracker, feedback, bookmarks
   behavior/     — intent classifier (tone_change, persona_change, skill_*, safety_override_attempt, normal_chat), emotion mode classifier (venting, validation, task, farewell, neutral)
   prompt/       — snapshot versioning (SnapshotRecord), merge builder, rollback
   inference/    — OpenAI Chat API client, circuit breaker, response schemas
@@ -14,8 +14,10 @@ src/companion_bot_core/
   privacy/      — TTL sweeper, hard-delete, PII redactor, field encryption
   redis/        — rate limiting, idempotency, job queues, prompt cache
   db/           — SQLAlchemy async models, engine factory
-  internal/     — aiohttp internal HTTP service + Prometheus endpoints
+  internal/     — aiohttp internal HTTP service + Prometheus endpoints + analytics queries
+  quality/      — deterministic response quality checks (no LLM): AI markers, n-gram overlap, sentence utils
   dev/          — FakeChatAPIClient and seed personas for local dev
+  i18n.py       — lightweight i18n with ru/en locales (tr() function, normalize_locale)
   metrics.py    — Prometheus counter/histogram registry (singleton)
   tracing.py    — in-process span context managers (structlog-based, NOT OpenTelemetry)
   logging_config.py — structlog configuration with correlation IDs
@@ -32,7 +34,7 @@ src/companion_bot_core/
 - Fake adapter mode: `USE_FAKE_ADAPTERS=true` replaces `ChatAPIClient` with `FakeChatAPIClient` and uses `InMemorySnapshotStore`. In production mode, `PostgresSnapshotStore` (backed by `prompt_snapshots` table with Redis active-pointer caching) is used. Seed personas from `dev/seeds.py`.
 - User provisioning: `get_or_create_user(session, telegram_user_id)` in `bot/users.py` uses a PostgreSQL upsert (`INSERT … ON CONFLICT DO NOTHING` on `telegram_user_id`) followed by a SELECT. This is race-condition-safe for concurrent first messages. The caller (`IngressMiddleware`) is responsible for committing the enclosing transaction.
 - Internal route body parsing: always use `await request.read()` to read the request body; do not rely on `Content-Length`. This supports chunked transfer encoding. Parse JSON manually from the raw bytes with `json.loads()`. See `internal/routes.py` for the reference pattern.
-- Orchestrator pipeline: `process_message()` runs a strict step sequence: (0a) abuse block check, (0b) guardrail checks (prompt injection, unsafe role, risky capability), (1) pending confirmation dialogue resolution, (2) behavior intent classification, (3) route by action (refuse/confirm/auto_apply/pass_through), (4) context assembly, (4b) emotion detection (skipped for auto_apply), (5) inference call, (6) message persistence, (7) refinement trigger. `CHAT_LATENCY` is recorded on every exit path including early exits.
+- Orchestrator pipeline: `process_message()` runs a strict step sequence: (0a) abuse block check, (0b) guardrail checks (prompt injection, unsafe role, risky capability), (0c) pending feedback response collection (early exit), (1) pending confirmation dialogue resolution, (2) behavior intent classification, (3) route by action (refuse/confirm/auto_apply/pass_through), (4) context assembly, (4b) emotion detection (skipped for auto_apply), (4c) topic switch detection and injection (skipped for auto_apply), (4d) bookmark detection and save, (4e) inference + repetition guard (strip or re-call), (5) auto_apply behavior change + quality metrics, (5b) response length metric, (5c) DB session tracking, (5d) feedback trigger on farewell, (6) message persistence, (7) refinement triggers. `CHAT_LATENCY` is recorded on every exit path including early exits.
 - Dual-path profile updates: User profile and prompt snapshots can be modified via two paths: (1) explicit commands (`/set_tone`, `/set_persona`, `/reset_persona`) in `bot/handlers.py`, and (2) in-chat behavior detection in `orchestrator/orchestrator.py` (`_apply_behavior_change`). For `tone_change` and `persona_change`, both paths use `rebuild_and_save_snapshot` from `prompt/helpers.py`. For `skill_add_prompt` and `skill_remove`, the orchestrator uses private helpers (`_add_skill_to_snapshot`, `_remove_skill_from_snapshot`) defined in `orchestrator/orchestrator.py`. When adding new profile fields, ensure both paths are updated.
 - Ephemeral prompt injection: The emotion detector (`behavior/emotion.py`) appends a `[EmotionMode]` instruction block to the system prompt at inference time via `user_context.model_copy()`. This modification is per-request and NOT persisted to the snapshot store. This is distinct from the dual-path profile updates which persist changes.
 - Refinement worker queue priority: The worker drains the retry queue (`retry_jobs`, non-blocking 1-second poll) before blocking on the primary queue (`refinement_jobs`, 30-second poll). This ensures retried jobs are processed promptly.
@@ -42,6 +44,12 @@ src/companion_bot_core/
 - Snapshot store session parameter: `SnapshotStore` protocol methods (`save`, `get`, `set_active`) accept an optional `session` parameter. When provided, the operation participates in the caller's DB transaction (committed atomically). When `None`, a private session is opened and committed immediately.
 - Deferred Redis writes: `PostgresSnapshotStore.set_active()` defers the Redis active-pointer write when a DB session is provided — the write is stored in `session.info["_snapshot_deferred_redis_writes"]`. Callers must call `extract_deferred_redis_writes(session)` while the session is still open to obtain the writes list, then call `flush_deferred_redis_writes(writes, redis)` after the transaction commits. This prevents the Redis pointer from referencing an uncommitted or rolled-back snapshot row, and avoids accessing `session.info` after the session context manager exits. `IngressMiddleware` performs this flush with up to 3 retries (exponential back-off). The refinement worker calls `flush_deferred_redis_writes` directly after its session commits.
 - Idempotency key error handling: When a handler raises an exception, `IngressMiddleware` clears the Redis idempotency key (`clear_update_key`) so that Telegram retries of the same `update_id` are not permanently suppressed. After a successful commit, the idempotency key is preserved and deferred Redis writes are flushed.
+- Repetition guard: After inference, `response_filter.check_repetition()` compares the response against the last 5 assistant messages using trigram overlap (threshold 0.6). Two strategies: Option B (strip repeated sentences) if cleaned text has 3+ words, otherwise Option A (re-call with `[RepetitionGuard]` anti-repetition instruction). Max 1 re-call. The canonical `ngram_overlap` and `split_sentences` live in `quality/checks.py`.
+- Topic tracker: `orchestrator/topic_tracker.py` detects topic switches via signal phrases (threshold 0.35) or keyword divergence (Jaccard below 0.3 with min 2 keywords). On switch, a `[TopicSwitch]` instruction is injected into the system prompt via `model_copy()` (ephemeral, not persisted). Current/previous topic keywords stored in Redis with 30-minute TTL.
+- Feedback collection: `orchestrator/feedback.py` manages in-bot user satisfaction feedback. Triggered every N sessions (configurable via `feedback_session_interval`) at farewell, with per-user cooldown (`feedback_cooldown_days`). Uses Redis state machine: session counter, pending flag (5-min TTL), cooldown key. Feedback response collection is an early-exit path at step 0c — the message is NOT processed through the rest of the pipeline.
+- DB-backed session tracking: `orchestrator/session_tracker.py` maintains `ConversationSession` rows. New session starts when gap > 30 min. Each message increments `message_count` and updates `ended_at`. `dominant_mood` and `ended_with_farewell` set from emotion detection.
+- Conversation bookmarks: `orchestrator/bookmarks.py` uses signal-based detection (threshold 0.4) to save previous user+bot message pair as a `Bookmark` row at step 4d. The refinement worker loads last 5 bookmarks and includes them as context for profile enrichment.
+- Analytics endpoints: `GET /internal/analytics/overview` returns aggregate engagement metrics. `GET /internal/analytics/users/{user_id}` returns per-user profile. Both accept `days` query parameter (1-365). Require DB engine passed to `build_internal_app(redis, engine=engine)`.
 
 ## Build and test commands
 
@@ -80,6 +88,13 @@ companion-bot-core                       # run the bot
 - `prompt:active:{user_uuid}` — active snapshot pointer (PostgresSnapshotStore)
 - `prompt:version:{user_uuid}` — monotonic snapshot version counter (PostgresSnapshotStore)
 - `refinement_jobs` / `retry_jobs` — Redis list queues for the worker
+- `topic:{user_uuid}` — comma-separated current topic keywords (30-minute TTL)
+- `topic:prev:{user_uuid}` — previous topic keywords for warm-return (30-minute TTL)
+- `session:messages:{user_uuid}` — per-user session message counter (30-minute TTL)
+- `session:prev_count:{user_uuid}` — previous session message count for Prometheus (1-day TTL)
+- `feedback:session_count:{user_uuid}` — session counter for feedback trigger cadence (no TTL, reset on ask)
+- `feedback:pending:{user_uuid}` — flag: next message is a feedback response (5-minute TTL)
+- `feedback:last_asked:{user_uuid}` — cooldown marker (configurable TTL, default 7 days)
 
 ## Known incomplete features (explicitly deferred)
 

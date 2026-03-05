@@ -80,7 +80,7 @@ _NOTICE_KEY_PREFIX = "refinement:notice"
 _NOTICE_TTL_SECONDS = 86400  # 24 hours
 
 
-def format_bookmarks_context(bookmarks: list[Bookmark]) -> str:
+def _format_bookmarks_context(bookmarks: list[Bookmark]) -> str:
     """Format bookmark rows into a text block for the refinement model."""
     if not bookmarks:
         return ""
@@ -326,7 +326,7 @@ async def process_one_job(
             bookmarks = await get_bookmarks(
                 session, user_id, limit=_MAX_BOOKMARKS,
             )
-        bookmarks_ctx = format_bookmarks_context(bookmarks)
+        bookmarks_ctx = _format_bookmarks_context(bookmarks)
 
         # --- Call refinement model ---
         result = await refine_prompt(

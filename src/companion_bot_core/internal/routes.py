@@ -202,11 +202,11 @@ async def handle_analytics_overview(request: web.Request) -> web.Response:
     days_str = request.query.get("days", "7")
     try:
         days = int(days_str)
-        if days < 1:
+        if days < 1 or days > 365:
             raise ValueError  # noqa: TRY301
     except ValueError:
         return web.json_response(
-            {"error": "days must be a positive integer"},
+            {"error": "days must be an integer between 1 and 365"},
             status=400,
         )
 
@@ -257,11 +257,11 @@ async def handle_analytics_user(request: web.Request) -> web.Response:
     days_str = request.query.get("days", "30")
     try:
         days = int(days_str)
-        if days < 1:
+        if days < 1 or days > 365:
             raise ValueError  # noqa: TRY301
     except ValueError:
         return web.json_response(
-            {"error": "days must be a positive integer"},
+            {"error": "days must be an integer between 1 and 365"},
             status=400,
         )
 

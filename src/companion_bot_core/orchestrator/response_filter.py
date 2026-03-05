@@ -7,25 +7,15 @@ incoherent, the caller should re-invoke inference with an anti-repetition
 instruction (Option A).
 
 Public surface:
-    ngram_overlap      — re-exported from quality.checks
     check_repetition   — identify repeated sentences in a response
-    strip_repeated     — remove repeated sentences, return cleaned text
     RepetitionResult   — result of a repetition check
 """
 
 from __future__ import annotations
 
-import re
 from typing import NamedTuple
 
-from companion_bot_core.quality.checks import ngram_overlap as ngram_overlap  # noqa: PLC0414
-from companion_bot_core.quality.checks import tokenize
-
-
-def _split_sentences(text: str) -> list[str]:
-    """Split *text* into sentences on common sentence-ending punctuation."""
-    raw = re.split(r"(?<=[.!?…])\s+", text.strip())
-    return [s.strip() for s in raw if s.strip()]
+from companion_bot_core.quality.checks import ngram_overlap, split_sentences, tokenize
 
 
 class RepetitionResult(NamedTuple):
@@ -56,7 +46,7 @@ def check_repetition(
         A :class:`RepetitionResult` with the list of repeated phrases and a
         cleaned response with those phrases removed.
     """
-    sentences = _split_sentences(response)
+    sentences = split_sentences(response)
     repeated: list[str] = []
     kept: list[str] = []
 

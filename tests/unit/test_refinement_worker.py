@@ -25,8 +25,8 @@ from companion_bot_core.refinement.schemas import (
 from companion_bot_core.refinement.worker import (
     MAX_ATTEMPTS,
     _apply_delta,
+    _format_bookmarks_context,
     check_and_clear_user_notice,
-    format_bookmarks_context,
     process_one_job,
 )
 
@@ -512,45 +512,45 @@ async def test_process_one_job_no_notice_on_redis_flush_failure() -> None:
 
 
 # ---------------------------------------------------------------------------
-# format_bookmarks_context
+# _format_bookmarks_context
 # ---------------------------------------------------------------------------
 
 
-def test_format_bookmarks_context_empty() -> None:
-    assert format_bookmarks_context([]) == ""
+def test__format_bookmarks_context_empty() -> None:
+    assert _format_bookmarks_context([]) == ""
 
 
-def test_format_bookmarks_context_single_bookmark() -> None:
+def test__format_bookmarks_context_single_bookmark() -> None:
     bm = MagicMock()
     bm.user_message = "I love cooking pasta"
     bm.bot_response = "Pasta is a great choice!"
     bm.tag = None
-    result = format_bookmarks_context([bm])
+    result = _format_bookmarks_context([bm])
     assert "Bookmark 1" in result
     assert "I love cooking pasta" in result
     assert "Pasta is a great choice!" in result
 
 
-def test_format_bookmarks_context_with_tag() -> None:
+def test__format_bookmarks_context_with_tag() -> None:
     bm = MagicMock()
     bm.user_message = "Remember this recipe"
     bm.bot_response = "Noted!"
     bm.tag = "recipes"
-    result = format_bookmarks_context([bm])
+    result = _format_bookmarks_context([bm])
     assert "[tag: recipes]" in result
 
 
-def test_format_bookmarks_context_truncates_long_text() -> None:
+def test__format_bookmarks_context_truncates_long_text() -> None:
     bm = MagicMock()
     bm.user_message = "x" * 200
     bm.bot_response = "y" * 200
     bm.tag = None
-    result = format_bookmarks_context([bm])
+    result = _format_bookmarks_context([bm])
     # Content should be truncated to 120 chars
     assert len(result) < 200 + 200 + 50
 
 
-def test_format_bookmarks_context_multiple_bookmarks() -> None:
+def test__format_bookmarks_context_multiple_bookmarks() -> None:
     bookmarks = []
     for i in range(3):
         bm = MagicMock()
@@ -558,7 +558,7 @@ def test_format_bookmarks_context_multiple_bookmarks() -> None:
         bm.bot_response = f"Reply {i}"
         bm.tag = None
         bookmarks.append(bm)
-    result = format_bookmarks_context(bookmarks)
+    result = _format_bookmarks_context(bookmarks)
     assert "Bookmark 1" in result
     assert "Bookmark 2" in result
     assert "Bookmark 3" in result

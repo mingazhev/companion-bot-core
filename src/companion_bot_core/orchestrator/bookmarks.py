@@ -112,7 +112,8 @@ async def search_bookmarks(
     """Search user's bookmarks by text content (case-insensitive LIKE)."""
     from sqlalchemy import or_, select
 
-    pattern = f"%{query}%"
+    escaped = query.replace("%", r"\%").replace("_", r"\_")
+    pattern = f"%{escaped}%"
     stmt = (
         select(Bookmark)
         .where(

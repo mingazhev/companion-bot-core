@@ -1364,7 +1364,11 @@ async def cmd_bookmarks(
 
 
 def _format_bookmark_list(bookmarks: list[Any], locale: str) -> str:
-    """Format a list of bookmarks into a human-readable string."""
+    """Format a list of bookmarks into a human-readable string.
+
+    Truncates output to stay within Telegram's 4096-character message limit.
+    """
+    max_len = 4000  # leave margin for Telegram's 4096 limit
     header = tr("bookmark.list_header", locale)
     lines: list[str] = [header]
     for i, bk in enumerate(bookmarks, start=1):
@@ -1372,11 +1376,16 @@ def _format_bookmark_list(bookmarks: list[Any], locale: str) -> str:
         user_msg = (bk.user_message[:80] + "...") if len(bk.user_message) > 80 else bk.user_message  # noqa: PLR2004
         bot_msg = (bk.bot_response[:80] + "...") if len(bk.bot_response) > 80 else bk.bot_response  # noqa: PLR2004
         tag_str = f" [{bk.tag}]" if bk.tag else ""
-        lines.append(
+        entry = (
             f"{i}. {date_str}{tag_str}\n"
             f"   > {user_msg}\n"
             f"   < {bot_msg}"
         )
+        candidate = "\n\n".join(lines + [entry])
+        if len(candidate) > max_len:
+            lines.append(f"... ({len(bookmarks) - i + 1} more)")
+            break
+        lines.append(entry)
     return "\n\n".join(lines)
 
 

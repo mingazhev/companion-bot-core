@@ -6,6 +6,7 @@ and the repetition guard (``orchestrator.response_filter``).
 Public surface:
     has_ai_markers       — detect common AI-assistant phrases
     count_bullet_points  — count markdown/numbered list items
+    split_sentences      — split text into sentences
     count_sentences      — count sentences in text
     has_menu_pattern     — detect numbered/bulleted menus (3+ items)
     is_short_farewell    — check if text is a brief goodbye
@@ -74,13 +75,17 @@ def has_menu_pattern(text: str) -> bool:
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…])\s+")
 
 
-def count_sentences(text: str) -> int:
-    """Count sentences in *text* by splitting on sentence-ending punctuation."""
+def split_sentences(text: str) -> list[str]:
+    """Split *text* into sentences on sentence-ending punctuation."""
     stripped = text.strip()
     if not stripped:
-        return 0
-    parts = _SENTENCE_SPLIT_RE.split(stripped)
-    return len([p for p in parts if p.strip()])
+        return []
+    return [p.strip() for p in _SENTENCE_SPLIT_RE.split(stripped) if p.strip()]
+
+
+def count_sentences(text: str) -> int:
+    """Count sentences in *text* by splitting on sentence-ending punctuation."""
+    return len(split_sentences(text))
 
 
 def is_short_farewell(text: str, max_sentences: int = 3) -> bool:
@@ -140,9 +145,6 @@ def ngram_overlap(text_a: str, text_b: str, n: int = 3) -> float:
     grams_b: Counter[tuple[str, ...]] = Counter(
         tuple(tokens_b[i : i + n]) for i in range(len(tokens_b) - n + 1)
     )
-
-    if not grams_a or not grams_b:
-        return 0.0
 
     intersection = sum((grams_a & grams_b).values())
     smaller = min(sum(grams_a.values()), sum(grams_b.values()))

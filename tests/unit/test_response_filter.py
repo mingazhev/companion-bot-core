@@ -7,8 +7,8 @@ import pytest
 from companion_bot_core.orchestrator.response_filter import (
     build_anti_repetition_instruction,
     check_repetition,
-    ngram_overlap,
 )
+from companion_bot_core.quality.checks import ngram_overlap
 
 # ---------------------------------------------------------------------------
 # ngram_overlap

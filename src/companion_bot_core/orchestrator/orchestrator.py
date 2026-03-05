@@ -644,21 +644,23 @@ async def process_message(
                 return tr(reason_key, ui_locale)
 
         # ------------------------------------------------------------------
-        # Step 0c — Process pending feedback response
+        # Step 0c — Process pending feedback response (early exit)
         # ------------------------------------------------------------------
-        feedback_thanks: str | None = None
         try:
             if await is_feedback_pending(redis, user_id_str):
                 score = classify_sentiment(message_text)
                 await save_feedback(session, user_id, message_text, score)
                 USER_FEEDBACK_SCORE.observe(score)
                 await clear_feedback_pending(redis, user_id_str)
-                feedback_thanks = tr("feedback.thanks", ui_locale)
                 log.info(
                     "feedback_collected",
                     user_id=user_id_str,
                     sentiment_score=score,
                 )
+                CHAT_LATENCY.labels(model=model).observe(
+                    time.perf_counter() - pipeline_start
+                )
+                return tr("feedback.thanks", ui_locale)
         except Exception:  # noqa: BLE001
             log.warning("feedback_processing_failed", user_id=user_id_str)
 
@@ -1099,10 +1101,6 @@ async def process_message(
                         log.info("feedback_asked", user_id=user_id_str)
                 except Exception:  # noqa: BLE001
                     log.warning("feedback_trigger_failed", user_id=user_id_str)
-
-            # Prepend feedback thanks notice if a feedback response was collected.
-            if feedback_thanks is not None:
-                reply_text = f"{feedback_thanks}\n\n---\n\n{reply_text}"
 
             # Prepend bookmark notice if a bookmark was saved.
             if bookmark_notice is not None:
