@@ -42,8 +42,11 @@ from companion_bot_core.db.models import (
     BehaviorChangeEvent,
     Bookmark,
     ConversationMessage,
+    ConversationSession,
+    FeedbackEntry,
     Job,
     MemoryCompaction,
+    MoodEntry,
     PromptSnapshot,
     User,
     UserProfile,
@@ -926,6 +929,10 @@ async def cb_reset_yes(
         MemoryCompaction,
         Job,
         BehaviorChangeEvent,
+        FeedbackEntry,
+        MoodEntry,
+        Bookmark,
+        ConversationSession,
         ConversationMessage,
         PromptSnapshot,
         UserProfile,
@@ -947,6 +954,8 @@ async def cb_reset_yes(
     ]
     redis_keys.append(f"{_ONBOARDING_PREFIX}:{user_id_str}")
     await redis.delete(*redis_keys)
+    # Remove user from the check-in scheduler sorted set.
+    await redis.zrem("checkin:schedule", user_id_str)
 
     # Also clear snapshot store Redis pointers.
     await snapshot_store.delete_for_user(db_user.id)

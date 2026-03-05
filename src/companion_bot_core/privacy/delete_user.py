@@ -47,6 +47,16 @@ _REDIS_KEY_PREFIXES = (
     "prompt:active",
     "prompt:version",
     "profile:write",
+    "feedback:session_count",
+    "feedback:pending",
+    "feedback:last_asked",
+    "topic",
+    "topic:prev",
+    "session:messages",
+    "session:prev_count",
+    "checkin:last",
+    "last_active",
+    "suggestion:last",
 )
 
 # Redis key prefixes scoped to the Telegram user ID (not internal UUID).
@@ -110,3 +120,5 @@ async def hard_delete_user(
                 f"{prefix}:{telegram_user_id}" for prefix in _REDIS_TELEGRAM_KEY_PREFIXES
             ]
         await redis.delete(*keys)
+        # Remove user from the check-in scheduler sorted set.
+        await redis.zrem("checkin:schedule", user_id_str)

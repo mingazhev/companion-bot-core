@@ -119,9 +119,9 @@ async def search_bookmarks(
         .where(
             Bookmark.user_id == user_id,
             or_(
-                Bookmark.user_message.ilike(pattern),
-                Bookmark.bot_response.ilike(pattern),
-                Bookmark.tag.ilike(pattern),
+                Bookmark.user_message.ilike(pattern, escape="\\"),
+                Bookmark.bot_response.ilike(pattern, escape="\\"),
+                Bookmark.tag.ilike(pattern, escape="\\"),
             ),
         )
         .order_by(Bookmark.created_at.desc())
