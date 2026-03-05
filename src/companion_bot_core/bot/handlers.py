@@ -26,7 +26,7 @@ import html
 import json
 import secrets
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime, timezone
 from datetime import time as dt_time
 from typing import TYPE_CHECKING, Any
@@ -952,7 +952,6 @@ async def cb_reset_yes(
     redis_keys += [
         f"{p}:{db_user.telegram_user_id}" for p in _REDIS_TELEGRAM_KEY_PREFIXES
     ]
-    redis_keys.append(f"{_ONBOARDING_PREFIX}:{user_id_str}")
     await redis.delete(*redis_keys)
     # Remove user from the check-in scheduler sorted set.
     await redis.zrem("checkin:schedule", user_id_str)
@@ -1227,6 +1226,10 @@ async def handle_message(
             raise
         finally:
             _typing_task.cancel()
+            if _pending_edit is not None and not _pending_edit.done():
+                _pending_edit.cancel()
+                with suppress(asyncio.CancelledError, Exception):  # noqa: S110
+                    await _pending_edit
 
         # Silently consume the refinement notice — profile updates are
         # applied without user-facing notifications.  The user can always

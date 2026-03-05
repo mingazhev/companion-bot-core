@@ -57,6 +57,7 @@ _REDIS_KEY_PREFIXES = (
     "checkin:last",
     "last_active",
     "suggestion:last",
+    "onboarding",
 )
 
 # Redis key prefixes scoped to the Telegram user ID (not internal UUID).
