@@ -52,12 +52,14 @@ from companion_bot_core.metrics import (
     DETECTOR_CLASSIFICATIONS,
     EMOTION_DETECTED,
     FAREWELL_DETECTED,
+    FEEDBACK_ASKED,
     GUARDRAIL_BLOCKS,
     REPETITION_GUARD_TRIGGERED,
     RESPONSE_LENGTH_SENTENCES,
     SESSION_MESSAGES,
     TOKENS_USED,
     TOPIC_SWITCH,
+    USER_FEEDBACK_SCORE,
 )
 from companion_bot_core.orchestrator.context_loader import load_user_context
 from companion_bot_core.orchestrator.dialogue_state import (
@@ -65,6 +67,15 @@ from companion_bot_core.orchestrator.dialogue_state import (
     clear_pending_change,
     get_pending_change,
     set_pending_change,
+)
+from companion_bot_core.orchestrator.feedback import (
+    classify_sentiment,
+    clear_feedback_pending,
+    increment_session_counter,
+    is_feedback_pending,
+    mark_feedback_asked,
+    save_feedback,
+    should_ask_feedback,
 )
 from companion_bot_core.orchestrator.response_filter import (
     build_anti_repetition_instruction,
@@ -559,6 +570,8 @@ async def process_message(
     locale: str | None = None,
     on_stream_chunk: Callable[[str], Awaitable[None]] | None = None,
     context_message_limit: int = 50,
+    feedback_session_interval: int = 10,
+    feedback_cooldown_days: int = 7,
 ) -> str:
     """Orchestrate a single user message through the full processing pipeline.
 
@@ -627,6 +640,25 @@ async def process_message(
                     "risky_capability": "orchestrator.guardrail.risky_capability",
                 }.get(result.violation or "", "orchestrator.refuse")
                 return tr(reason_key, ui_locale)
+
+        # ------------------------------------------------------------------
+        # Step 0c — Process pending feedback response
+        # ------------------------------------------------------------------
+        feedback_thanks: str | None = None
+        try:
+            if await is_feedback_pending(redis, user_id_str):
+                score = classify_sentiment(message_text)
+                await save_feedback(session, user_id, message_text, score)
+                USER_FEEDBACK_SCORE.observe(score)
+                await clear_feedback_pending(redis, user_id_str)
+                feedback_thanks = tr("feedback.thanks", ui_locale)
+                log.info(
+                    "feedback_collected",
+                    user_id=user_id_str,
+                    sentiment_score=score,
+                )
+        except Exception:  # noqa: BLE001
+            log.warning("feedback_processing_failed", user_id=user_id_str)
 
         # ------------------------------------------------------------------
         # Step 1 — Check for a pending medium-risk confirmation dialogue
@@ -1014,6 +1046,34 @@ async def process_message(
                 )
             except Exception:  # noqa: BLE001
                 log.warning("session_tracker_failed", user_id=user_id_str)
+
+            # ------------------------------------------------------------------
+            # Step 5d — Feedback collection: trigger on farewell, prepend thanks
+            # ------------------------------------------------------------------
+            if detected_farewell:
+                try:
+                    await increment_session_counter(redis, user_id_str)
+                    if await should_ask_feedback(
+                        redis,
+                        user_id_str,
+                        session_interval=feedback_session_interval,
+                        cooldown_days=feedback_cooldown_days,
+                    ):
+                        feedback_ask = tr("feedback.ask", ui_locale)
+                        reply_text = f"{reply_text}\n\n{feedback_ask}"
+                        await mark_feedback_asked(
+                            redis,
+                            user_id_str,
+                            cooldown_days=feedback_cooldown_days,
+                        )
+                        FEEDBACK_ASKED.inc()
+                        log.info("feedback_asked", user_id=user_id_str)
+                except Exception:  # noqa: BLE001
+                    log.warning("feedback_trigger_failed", user_id=user_id_str)
+
+            # Prepend feedback thanks notice if a feedback response was collected.
+            if feedback_thanks is not None:
+                reply_text = f"{feedback_thanks}\n\n---\n\n{reply_text}"
 
             # ------------------------------------------------------------------
             # Step 6 — Persist conversation messages

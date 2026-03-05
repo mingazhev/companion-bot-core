@@ -1200,6 +1200,8 @@ async def handle_message(
                 locale=locale,
                 on_stream_chunk=_on_chunk,
                 context_message_limit=settings.context_message_limit,
+                feedback_session_interval=settings.feedback_session_interval,
+                feedback_cooldown_days=settings.feedback_cooldown_days,
             )
         except Exception:
             _typing_task.cancel()

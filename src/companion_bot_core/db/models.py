@@ -83,6 +83,9 @@ class User(Base):
     conversation_sessions: Mapped[list[ConversationSession]] = relationship(
         "ConversationSession", back_populates="user", lazy="raise"
     )
+    feedback_entries: Mapped[list[FeedbackEntry]] = relationship(
+        "FeedbackEntry", back_populates="user", lazy="raise"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -442,3 +445,48 @@ class ConversationSession(Base):
 
     # --- relationships ---
     user: Mapped[User] = relationship("User", back_populates="conversation_sessions")
+
+
+# ---------------------------------------------------------------------------
+# feedback_entries
+# ---------------------------------------------------------------------------
+
+
+class FeedbackEntry(Base):
+    """User satisfaction feedback collected naturally within conversation.
+
+    Triggered after every N-th session at farewell, with a once-per-week
+    per-user cooldown.
+    """
+
+    __tablename__ = "feedback_entries"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversation_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Session during which feedback was collected",
+    )
+    raw_text: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="Original user response to the feedback prompt",
+    )
+    sentiment_score: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="Classified sentiment 1 (negative) to 5 (positive)",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    # --- relationships ---
+    user: Mapped[User] = relationship("User", back_populates="feedback_entries")

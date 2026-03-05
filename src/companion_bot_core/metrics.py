@@ -52,6 +52,12 @@ Metric catalogue
 ``companion_bot_core_farewell_detected_total``
     Counter.  Farewell emotion mode detections.
 
+``companion_bot_core_user_feedback_score``
+    Histogram.  User satisfaction scores from in-bot feedback (1-5).
+
+``companion_bot_core_feedback_asked_total``
+    Counter.  Times the bot asked for user feedback.
+
 ``companion_bot_core_internal_requests_total``
     Counter.  HTTP requests to ``/internal/*`` endpoints.
     Labels: ``endpoint``, ``status`` (``success`` | ``error``).
@@ -182,6 +188,21 @@ SESSION_MESSAGES: Histogram = Histogram(
 FAREWELL_DETECTED: Counter = Counter(
     "companion_bot_core_farewell_detected_total",
     "Farewell emotion mode detections.",
+)
+
+# ---------------------------------------------------------------------------
+# User feedback
+# ---------------------------------------------------------------------------
+
+USER_FEEDBACK_SCORE: Histogram = Histogram(
+    "companion_bot_core_user_feedback_score",
+    "User satisfaction scores from in-bot feedback (1-5).",
+    buckets=[1, 2, 3, 4, 5],
+)
+
+FEEDBACK_ASKED: Counter = Counter(
+    "companion_bot_core_feedback_asked_total",
+    "Times the bot asked for user feedback.",
 )
 
 # ---------------------------------------------------------------------------

@@ -273,12 +273,18 @@
 - New: `tests/unit/test_feedback.py`
 
 **Implementation:**
-1. `feedback_entries` table: id, user_id, session_id, raw_text, sentiment_score (1-5), created_at
-2. Trigger: every 10th session (configurable), at natural pause point (after farewell)
-3. Bot asks: "Кстати, как тебе наше общение? Можешь одним словом или оценкой"
-4. Next user response classified by model into 1-5 sentiment
-5. Metric: `user_feedback_score` histogram
-6. Never ask more than once per week per user
+- [x] `feedback_entries` table: id, user_id, session_id, raw_text, sentiment_score (1-5), created_at
+- [x] Trigger: every 10th session (configurable), at natural pause point (after farewell)
+- [x] Bot asks: "Кстати, как тебе наше общение? Можешь одним словом или оценкой"
+- [x] Next user response classified by regex-based sentiment classifier into 1-5 sentiment
+- [x] Metric: `user_feedback_score` histogram + `feedback_asked_total` counter
+- [x] Never ask more than once per week per user (configurable cooldown via `feedback_cooldown_days`)
+
+**Tests:**
+- [x] Unit: sentiment classifier (22 tests: numeric, positive/negative RU+EN, neutral, edge cases, case insensitivity)
+- [x] Unit: Redis trigger logic (should_ask_feedback, increment, mark, pending, clear — 12 tests)
+- [x] Unit: DB persistence (save_feedback with/without session_id — 2 tests)
+- [x] Unit: metric objects accept observations
 
 **Dependencies:** 3.2 (session tracking for trigger cadence).
 

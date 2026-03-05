@@ -121,6 +121,18 @@ class Settings(BaseSettings):
         description="TCP port for the internal HTTP service",
     )
 
+    # --- Feedback ---
+    feedback_session_interval: int = Field(
+        default=10,
+        ge=1,
+        description="Ask for feedback every N-th session (at farewell)",
+    )
+    feedback_cooldown_days: int = Field(
+        default=7,
+        ge=1,
+        description="Minimum days between feedback requests per user",
+    )
+
     # --- Security ---
     encrypt_sensitive_fields: bool = Field(
         default=False,

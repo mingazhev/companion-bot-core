@@ -279,6 +279,14 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "Please wait a few minutes before sending more messages."
         ),
     },
+    "feedback.ask": {
+        "ru": "Кстати, как тебе наше общение? Можешь одним словом или оценкой от 1 до 5.",
+        "en": "By the way, how are you finding our chats? A single word or a 1-5 rating works.",
+    },
+    "feedback.thanks": {
+        "ru": "Спасибо за обратную связь!",
+        "en": "Thanks for the feedback!",
+    },
     "prompt.language_instruction": {
         "ru": "Отвечай на русском языке, если пользователь явно не попросит другой язык.",
         "en": "Reply in English unless the user explicitly asks for another language.",

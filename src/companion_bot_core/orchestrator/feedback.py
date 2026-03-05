@@ -1,0 +1,256 @@
+"""In-bot user satisfaction feedback collection.
+
+Collects feedback naturally within conversation flow:
+- Triggers every N-th session (configurable) at farewell.
+- Never asks more than once per ``cooldown_days`` per user.
+- Classifies the user's response into a 1-5 sentiment score.
+- Saves the result to the ``feedback_entries`` table.
+
+Redis key schema
+----------------
+``feedback:session_count:{user_uuid}``
+    Integer counter of sessions since last feedback ask.  No TTL
+    (reset on ask).
+
+``feedback:pending:{user_uuid}``
+    Set when the bot has asked for feedback and the next message
+    should be classified as a feedback response.  TTL = 5 minutes.
+
+``feedback:last_asked:{user_uuid}``
+    Timestamp (ISO) of the last feedback request.  TTL = cooldown
+    period (default 7 days).
+"""
+
+from __future__ import annotations
+
+import re
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+from companion_bot_core.db.models import FeedbackEntry
+from companion_bot_core.logging_config import get_logger
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from redis.asyncio import Redis
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+log = get_logger(__name__)
+
+_SESSION_COUNT_PREFIX = "feedback:session_count"
+_PENDING_PREFIX = "feedback:pending"
+_LAST_ASKED_PREFIX = "feedback:last_asked"
+_PENDING_TTL = 300  # 5 minutes
+
+
+# ---------------------------------------------------------------------------
+# Trigger logic
+# ---------------------------------------------------------------------------
+
+
+async def should_ask_feedback(
+    redis: Redis,
+    user_id: str,
+    *,
+    session_interval: int = 10,
+    cooldown_days: int = 7,
+) -> bool:
+    """Return True if the bot should ask for feedback from this user.
+
+    Conditions (all must be met):
+    1. The session counter has reached ``session_interval``.
+    2. No feedback was asked within the last ``cooldown_days``.
+    3. No feedback request is already pending.
+    """
+    # Check cooldown first (cheapest).
+    last_asked = await redis.get(f"{_LAST_ASKED_PREFIX}:{user_id}")
+    if last_asked is not None:
+        return False
+
+    # Check pending.
+    pending = await redis.get(f"{_PENDING_PREFIX}:{user_id}")
+    if pending is not None:
+        return False
+
+    # Check session counter.
+    count_raw = await redis.get(f"{_SESSION_COUNT_PREFIX}:{user_id}")
+    count = int(count_raw) if count_raw is not None else 0
+    return count >= session_interval
+
+
+async def increment_session_counter(redis: Redis, user_id: str) -> None:
+    """Increment the session counter for *user_id*.
+
+    Called when a session ends with a farewell.
+    """
+    await redis.incr(f"{_SESSION_COUNT_PREFIX}:{user_id}")
+
+
+async def mark_feedback_asked(
+    redis: Redis,
+    user_id: str,
+    *,
+    cooldown_days: int = 7,
+) -> None:
+    """Record that feedback was just asked.
+
+    Sets the pending flag (5-min TTL) and the cooldown key.
+    Resets the session counter.
+    """
+    cooldown_seconds = cooldown_days * 86400
+    pipe = redis.pipeline(transaction=False)
+    pipe.set(f"{_PENDING_PREFIX}:{user_id}", "1", ex=_PENDING_TTL)
+    pipe.set(
+        f"{_LAST_ASKED_PREFIX}:{user_id}",
+        datetime.now(tz=UTC).isoformat(),
+        ex=cooldown_seconds,
+    )
+    pipe.delete(f"{_SESSION_COUNT_PREFIX}:{user_id}")
+    await pipe.execute()
+
+
+async def is_feedback_pending(redis: Redis, user_id: str) -> bool:
+    """Return True if the user has a pending feedback request."""
+    val = await redis.get(f"{_PENDING_PREFIX}:{user_id}")
+    return val is not None
+
+
+async def clear_feedback_pending(redis: Redis, user_id: str) -> None:
+    """Clear the pending feedback flag."""
+    await redis.delete(f"{_PENDING_PREFIX}:{user_id}")
+
+
+# ---------------------------------------------------------------------------
+# Sentiment classification (regex-based, no LLM call)
+# ---------------------------------------------------------------------------
+
+# Explicit numeric scores (1-5).
+_NUMERIC_RE = re.compile(r"\b([1-5])\b")
+
+# Positive signal patterns (RU + EN).
+_POSITIVE_PATTERNS = [
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"\bотлично\b",
+        r"\bсупер\b",
+        r"\bкласс\b",
+        r"\bкруто\b",
+        r"\bздорово\b",
+        r"\bнрав\w*\b",  # нравится, нравилось
+        r"\bхорош\w*\b",  # хорошо, хороший
+        r"\bлюблю\b",
+        r"\bкайф\b",
+        r"\bfire\b",
+        r"\bgreat\b",
+        r"\bawesome\b",
+        r"\blove\b",
+        r"\bgood\b",
+        r"\bnice\b",
+        r"\bexcellent\b",
+        r"\bamazing\b",
+        r"\bwonderful\b",
+    ]
+]
+
+# Negative signal patterns (RU + EN).
+_NEGATIVE_PATTERNS = [
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"\bплохо\b",
+        r"\bужас\b",
+        r"\bотстой\b",
+        r"\bскучно\b",
+        r"\bне\s*нрав\w*\b",
+        r"\bнадоел\w*\b",
+        r"\bбесит\b",
+        r"\bтупо\b",
+        r"\bфигня\b",
+        r"\bbad\b",
+        r"\bterrible\b",
+        r"\bawful\b",
+        r"\bhate\b",
+        r"\bboring\b",
+        r"\bworse?\b",
+        r"\bhorrible\b",
+    ]
+]
+
+# Neutral/moderate patterns.
+_NEUTRAL_PATTERNS = [
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"\bнорм\w*\b",  # нормально, норм
+        r"\bсойдёт\b",
+        r"\bок\b",
+        r"\bokay\b",
+        r"\bfine\b",
+        r"\balright\b",
+        r"\bso[\-\s]*so\b",
+    ]
+]
+
+
+def classify_sentiment(text: str) -> int:
+    """Classify user text into a 1-5 sentiment score.
+
+    Strategy:
+    1. If text contains an explicit digit 1-5, use it.
+    2. Count positive and negative signal matches.
+    3. Fall back to neutral (3) for ambiguous input.
+    """
+    text = text.strip()
+    if not text:
+        return 3
+
+    # 1. Explicit numeric score.
+    m = _NUMERIC_RE.search(text)
+    if m:
+        return int(m.group(1))
+
+    # 2. Signal-based scoring.
+    pos = sum(1 for p in _POSITIVE_PATTERNS if p.search(text))
+    neg = sum(1 for p in _NEGATIVE_PATTERNS if p.search(text))
+    neu = sum(1 for p in _NEUTRAL_PATTERNS if p.search(text))
+
+    if pos > 0 and neg == 0:
+        return 5 if pos >= 2 else 4
+    if neg > 0 and pos == 0:
+        return 1 if neg >= 2 else 2
+    if pos > 0 and neg > 0:
+        return 3
+    if neu > 0:
+        return 3
+
+    # 3. Default: neutral.
+    return 3
+
+
+# ---------------------------------------------------------------------------
+# Persistence
+# ---------------------------------------------------------------------------
+
+
+async def save_feedback(
+    db_session: AsyncSession,
+    user_id: UUID,
+    raw_text: str,
+    sentiment_score: int,
+    *,
+    session_id: UUID | None = None,
+) -> FeedbackEntry:
+    """Persist a feedback entry to the database."""
+    entry = FeedbackEntry(
+        user_id=user_id,
+        session_id=session_id,
+        raw_text=raw_text,
+        sentiment_score=sentiment_score,
+    )
+    db_session.add(entry)
+    await db_session.flush()
+    log.info(
+        "feedback_saved",
+        user_id=str(user_id),
+        sentiment_score=sentiment_score,
+    )
+    return entry
