@@ -214,12 +214,17 @@
 - Edit: `src/companion_bot_core/orchestrator/orchestrator.py` — emit metrics
 
 **Implementation:**
-1. `response_length_sentences` histogram (buckets: 1, 2, 3, 5, 7, 10, 15)
-2. `emotion_detected_total` counter (labels: mode) — from 1.1
-3. `repetition_guard_triggered_total` counter — from 1.2
-4. `topic_switch_total` counter — from 1.3
-5. `session_messages_total` histogram (buckets: 1, 3, 5, 7, 10, 15, 20)
-6. `farewell_detected_total` counter
+- [x] `response_length_sentences` histogram (buckets: 1, 2, 3, 5, 7, 10, 15)
+- [x] `emotion_detected_total` counter (labels: mode) — from 1.1
+- [x] `repetition_guard_triggered_total` counter — from 1.2
+- [x] `topic_switch_total` counter — from 1.3
+- [x] `session_messages_total` histogram (buckets: 1, 3, 5, 7, 10, 15, 20)
+- [x] `farewell_detected_total` counter
+
+**Tests:**
+- [x] Unit: metric objects accept declared labels/observations (test_metrics.py)
+- [x] Unit: session tracking helper — counter creation, increment, session boundary, farewell (test_quality_metrics.py)
+- [x] Unit: quality metrics emission in process_message — response length, farewell counter, session tracking (test_quality_metrics.py)
 
 **Dependencies:** 1.1, 1.2, 1.3 (metrics come from those components).
 

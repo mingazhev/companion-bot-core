@@ -42,6 +42,16 @@ Metric catalogue
 ``companion_bot_core_topic_switch_total``
     Counter.  Conversation topic switches detected by the topic tracker.
 
+``companion_bot_core_response_length_sentences``
+    Histogram.  Number of sentences in bot responses.
+
+``companion_bot_core_session_messages_total``
+    Histogram.  Number of messages per conversation session.
+    Observed when a session ends (farewell or 30-minute inactivity gap).
+
+``companion_bot_core_farewell_detected_total``
+    Counter.  Farewell emotion mode detections.
+
 ``companion_bot_core_internal_requests_total``
     Counter.  HTTP requests to ``/internal/*`` endpoints.
     Labels: ``endpoint``, ``status`` (``success`` | ``error``).
@@ -151,6 +161,27 @@ REPETITION_GUARD_TRIGGERED: Counter = Counter(
 TOPIC_SWITCH: Counter = Counter(
     "companion_bot_core_topic_switch_total",
     "Conversation topic switches detected by the topic tracker.",
+)
+
+# ---------------------------------------------------------------------------
+# Conversation quality metrics
+# ---------------------------------------------------------------------------
+
+RESPONSE_LENGTH_SENTENCES: Histogram = Histogram(
+    "companion_bot_core_response_length_sentences",
+    "Number of sentences in bot responses.",
+    buckets=[1, 2, 3, 5, 7, 10, 15],
+)
+
+SESSION_MESSAGES: Histogram = Histogram(
+    "companion_bot_core_session_messages_total",
+    "Number of messages per conversation session.",
+    buckets=[1, 3, 5, 7, 10, 15, 20],
+)
+
+FAREWELL_DETECTED: Counter = Counter(
+    "companion_bot_core_farewell_detected_total",
+    "Farewell emotion mode detections.",
 )
 
 # ---------------------------------------------------------------------------

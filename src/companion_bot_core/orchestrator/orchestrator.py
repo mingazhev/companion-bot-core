@@ -51,8 +51,11 @@ from companion_bot_core.metrics import (
     CHAT_LATENCY,
     DETECTOR_CLASSIFICATIONS,
     EMOTION_DETECTED,
+    FAREWELL_DETECTED,
     GUARDRAIL_BLOCKS,
     REPETITION_GUARD_TRIGGERED,
+    RESPONSE_LENGTH_SENTENCES,
+    SESSION_MESSAGES,
     TOKENS_USED,
     TOPIC_SWITCH,
 )
@@ -94,6 +97,7 @@ from companion_bot_core.prompt.schemas import (
     PromptComponents,
     SnapshotRecord,
 )
+from companion_bot_core.quality.checks import count_sentences
 from companion_bot_core.redis.queues import enqueue_refinement_job
 from companion_bot_core.refinement.scheduler import enqueue_if_cadence_due
 from companion_bot_core.tracing import span
@@ -133,6 +137,13 @@ _ACTIVITY_KEY_TTL = 86400  # 1 day
 # SET-NX guard key preventing duplicate refinement enqueues per user.
 _REFINEMENT_GUARD_PREFIX = "refinement:pending"
 _REFINEMENT_GUARD_TTL = 600  # 10 minutes
+
+# Session message counter — auto-expires after 30 min of inactivity.
+_SESSION_COUNT_PREFIX = "session:messages"
+_SESSION_COUNT_TTL = 1800  # 30 minutes
+# Stores the message count of the previous (completed) session.
+_SESSION_PREV_COUNT_PREFIX = "session:prev_count"
+_SESSION_PREV_COUNT_TTL = 86400  # 1 day
 
 # User-facing messages (used only by tests; production code uses tr())
 _CIRCUIT_OPEN_MSG = tr("orchestrator.circuit_open", "en")
@@ -491,6 +502,41 @@ async def _maybe_enqueue_refinement(
             )
 
 
+async def _track_session_message(
+    redis: Redis,
+    user_id_str: str,
+    *,
+    is_farewell: bool = False,
+) -> None:
+    """Increment the per-user session message counter and observe session length.
+
+    Uses a Redis key with a 30-minute TTL as a lightweight session boundary.
+    When the key doesn't exist (INCR returns 1), the previous session ended
+    via inactivity — observe the previous session's length from a companion key.
+    On farewell, observe the current session's length.
+    """
+    key = f"{_SESSION_COUNT_PREFIX}:{user_id_str}"
+    prev_key = f"{_SESSION_PREV_COUNT_PREFIX}:{user_id_str}"
+
+    try:
+        count = await redis.incr(key)
+        await redis.expire(key, _SESSION_COUNT_TTL)
+
+        if count == 1:
+            # New session — check if there's a previous session count to observe.
+            raw = await redis.get(prev_key)
+            if raw is not None:
+                SESSION_MESSAGES.observe(int(raw))
+
+        # Always keep prev_count updated so it reflects the latest count.
+        await redis.set(prev_key, str(count), ex=_SESSION_PREV_COUNT_TTL)
+
+        if is_farewell:
+            SESSION_MESSAGES.observe(count)
+    except Exception:  # noqa: BLE001
+        log.warning("session_message_tracking_failed", user_id=user_id_str)
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -729,9 +775,13 @@ async def process_message(
             # Step 4b — Emotion detection: inject mode-specific instruction.
             # Skip for auto_apply — the message is a behavior-change request,
             # and emotion instructions would conflict with the change intent.
+            detected_farewell = False
             if action != "auto_apply":
                 emotion = detect_emotion(message_text)
                 EMOTION_DETECTED.labels(mode=emotion.mode).inc()
+                if emotion.mode == "farewell":
+                    FAREWELL_DETECTED.inc()
+                    detected_farewell = True
                 emotion_instruction = EMOTION_INSTRUCTIONS[emotion.mode]
             else:
                 emotion_instruction = ""
@@ -940,6 +990,14 @@ async def process_message(
             # a nonzero but below-threshold confidence score.
             if detection.clarification_question is not None:
                 reply_text = f"{reply_text}\n\n{tr('orchestrator.clarification', ui_locale)}"
+
+            # ------------------------------------------------------------------
+            # Step 5b — Quality metrics on final reply text
+            # ------------------------------------------------------------------
+            RESPONSE_LENGTH_SENTENCES.observe(count_sentences(reply_text))
+            await _track_session_message(
+                redis, user_id_str, is_farewell=detected_farewell,
+            )
 
             # ------------------------------------------------------------------
             # Step 6 — Persist conversation messages

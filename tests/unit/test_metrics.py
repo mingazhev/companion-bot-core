@@ -20,10 +20,13 @@ from companion_bot_core.metrics import (
     BEHAVIOR_CHANGE_REVERSALS,
     CHAT_LATENCY,
     DETECTOR_CLASSIFICATIONS,
+    FAREWELL_DETECTED,
     INTERNAL_REQUEST_LATENCY,
     INTERNAL_REQUESTS,
     PROMPT_ROLLBACKS,
     REFINEMENT_JOBS,
+    RESPONSE_LENGTH_SENTENCES,
+    SESSION_MESSAGES,
     TOKENS_USED,
 )
 
@@ -102,6 +105,29 @@ class TestTokensUsed:
             TOKENS_USED.labels(
                 provider="openai", model=model, token_type="total"
             ).inc(10)
+
+
+class TestResponseLengthSentences:
+    def test_observe_single_sentence(self) -> None:
+        RESPONSE_LENGTH_SENTENCES.observe(1)
+
+    def test_observe_multiple_sentences(self) -> None:
+        for n in [1, 2, 3, 5, 7, 10, 15]:
+            RESPONSE_LENGTH_SENTENCES.observe(n)
+
+
+class TestSessionMessages:
+    def test_observe_short_session(self) -> None:
+        SESSION_MESSAGES.observe(1)
+
+    def test_observe_multiple_values(self) -> None:
+        for n in [1, 3, 5, 7, 10, 15, 20]:
+            SESSION_MESSAGES.observe(n)
+
+
+class TestFarewellDetected:
+    def test_increment_does_not_raise(self) -> None:
+        FAREWELL_DETECTED.inc()
 
 
 class TestInternalRequestMetrics:
