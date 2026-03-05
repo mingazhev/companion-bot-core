@@ -65,18 +65,20 @@
 - New: `tests/unit/test_topic_tracker.py`
 
 **Implementation:**
-1. Topic detection via keyword extraction from user messages (TF-IDF or simple keyword matching)
-2. Store current topic in Redis: `topic:{user_uuid}` (TTL: session duration, ~30 min)
-3. Detect topic switch signals: "кстати", "а вот ещё", "забей", "ладно, другое", "сменим тему"
-4. On switch: inject "Пользователь перешёл к новой теме. Не возвращайся к предыдущей." into system prompt
-5. Store previous topic briefly for "warm return" feature (2b)
+- [x] Topic detection via keyword extraction from user messages (simple keyword matching)
+- [x] Store current topic in Redis: `topic:{user_uuid}` (TTL: session duration, ~30 min)
+- [x] Detect topic switch signals: "кстати", "а вот ещё", "забей", "ладно, другое", "сменим тему"
+- [x] On switch: inject "Пользователь перешёл к новой теме. Не возвращайся к предыдущей." into system prompt
+- [x] Store previous topic briefly for "warm return" feature (2b)
+- [x] Add metric: `topic_switch_total`
 
 **Dependencies:** 1.1 (shares injection mechanism into system prompt).
 
 **Tests:**
-- Unit: topic switch detection on signal phrases
-- Unit: Redis state management
-- Integration: topic switch + no-return behavior
+- [x] Unit: topic switch detection on signal phrases
+- [x] Unit: keyword extraction and divergence detection
+- [x] Unit: Redis state management (store/retrieve/previous topic)
+- [x] Unit: edge cases (empty strings, case insensitivity, mixed signals)
 
 **Acceptance:** Bot stops prefacing sериалы recommendations with "это нормально хотеть сбежать" (Round 6.5 Katya msg 4).
 

@@ -39,6 +39,9 @@ Metric catalogue
     Counter.  Emotion mode classifications by the pre-inference detector.
     Labels: ``mode``.
 
+``companion_bot_core_topic_switch_total``
+    Counter.  Conversation topic switches detected by the topic tracker.
+
 ``companion_bot_core_internal_requests_total``
     Counter.  HTTP requests to ``/internal/*`` endpoints.
     Labels: ``endpoint``, ``status`` (``success`` | ``error``).
@@ -139,6 +142,15 @@ REPETITION_GUARD_TRIGGERED: Counter = Counter(
     "companion_bot_core_repetition_guard_triggered_total",
     "Times the post-inference repetition guard stripped or re-called.",
     labelnames=["action"],
+)
+
+# ---------------------------------------------------------------------------
+# Topic tracker
+# ---------------------------------------------------------------------------
+
+TOPIC_SWITCH: Counter = Counter(
+    "companion_bot_core_topic_switch_total",
+    "Conversation topic switches detected by the topic tracker.",
 )
 
 # ---------------------------------------------------------------------------

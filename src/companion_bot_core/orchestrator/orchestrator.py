@@ -54,6 +54,7 @@ from companion_bot_core.metrics import (
     GUARDRAIL_BLOCKS,
     REPETITION_GUARD_TRIGGERED,
     TOKENS_USED,
+    TOPIC_SWITCH,
 )
 from companion_bot_core.orchestrator.context_loader import load_user_context
 from companion_bot_core.orchestrator.dialogue_state import (
@@ -65,6 +66,12 @@ from companion_bot_core.orchestrator.dialogue_state import (
 from companion_bot_core.orchestrator.response_filter import (
     build_anti_repetition_instruction,
     check_repetition,
+)
+from companion_bot_core.orchestrator.topic_tracker import (
+    TOPIC_SWITCH_INSTRUCTION,
+    detect_topic_switch,
+    get_stored_keywords,
+    store_topic,
 )
 from companion_bot_core.policy.abuse_throttle import (
     is_user_abuse_blocked,
@@ -742,6 +749,35 @@ async def process_message(
                     confidence=emotion.confidence,
                 )
 
+            # Step 4c — Topic tracking: detect switches and inject instruction.
+            # Skip for auto_apply — the message is a behavior-change request.
+            if action != "auto_apply":
+                try:
+                    prev_keywords = await get_stored_keywords(redis, user_id_str)
+                    topic_result = detect_topic_switch(message_text, prev_keywords)
+                    if topic_result.switched:
+                        user_context = user_context.model_copy(update={
+                            "system_prompt": (
+                                f"{user_context.system_prompt}\n\n"
+                                f"[TopicSwitch]\n{TOPIC_SWITCH_INSTRUCTION}"
+                            ),
+                        })
+                        TOPIC_SWITCH.inc()
+                        log.info(
+                            "topic_switch_detected",
+                            user_id=user_id_str,
+                            signal_score=topic_result.signal_score,
+                            keyword_overlap=topic_result.keyword_overlap,
+                        )
+                    # Always update stored topic keywords.
+                    if topic_result.new_keywords:
+                        await store_topic(
+                            redis, user_id_str, topic_result.new_keywords,
+                            save_previous=topic_result.switched,
+                        )
+                except Exception:  # noqa: BLE001
+                    log.warning("topic_tracker_failed", user_id=user_id_str)
+
             try:
                 async with span("model_adapter.generate_reply", user_id=user_id_str):
                     if on_stream_chunk is not None:
@@ -784,7 +820,7 @@ async def process_message(
                 reply_text = tr("orchestrator.safety_fallback", ui_locale)
 
             # ------------------------------------------------------------------
-            # Step 4c — Repetition guard: strip repeated phrases from response
+            # Step 4d — Repetition guard: strip repeated phrases from response
             # ------------------------------------------------------------------
             recent_assistant = [
                 m.content
