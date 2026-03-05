@@ -132,6 +132,16 @@ EMOTION_DETECTED: Counter = Counter(
 )
 
 # ---------------------------------------------------------------------------
+# Repetition guard
+# ---------------------------------------------------------------------------
+
+REPETITION_GUARD_TRIGGERED: Counter = Counter(
+    "companion_bot_core_repetition_guard_triggered_total",
+    "Times the post-inference repetition guard stripped or re-called.",
+    labelnames=["action"],
+)
+
+# ---------------------------------------------------------------------------
 # Internal HTTP service
 # ---------------------------------------------------------------------------
 

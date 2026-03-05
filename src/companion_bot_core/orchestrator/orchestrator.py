@@ -52,6 +52,7 @@ from companion_bot_core.metrics import (
     DETECTOR_CLASSIFICATIONS,
     EMOTION_DETECTED,
     GUARDRAIL_BLOCKS,
+    REPETITION_GUARD_TRIGGERED,
     TOKENS_USED,
 )
 from companion_bot_core.orchestrator.context_loader import load_user_context
@@ -60,6 +61,10 @@ from companion_bot_core.orchestrator.dialogue_state import (
     clear_pending_change,
     get_pending_change,
     set_pending_change,
+)
+from companion_bot_core.orchestrator.response_filter import (
+    build_anti_repetition_instruction,
+    check_repetition,
 )
 from companion_bot_core.policy.abuse_throttle import (
     is_user_abuse_blocked,
@@ -777,6 +782,54 @@ async def process_message(
                     finish_reason=sf.finish_reason,
                 )
                 reply_text = tr("orchestrator.safety_fallback", ui_locale)
+
+            # ------------------------------------------------------------------
+            # Step 4c — Repetition guard: strip repeated phrases from response
+            # ------------------------------------------------------------------
+            recent_assistant = [
+                m.content
+                for m in user_context.conversation_history
+                if m.role == "assistant"
+            ][-5:]
+            if recent_assistant:
+                rep_result = check_repetition(reply_text, recent_assistant)
+                if rep_result.repeated_phrases:
+                    if len(rep_result.cleaned_text.split()) >= 3:  # noqa: PLR2004
+                        # Option B: stripped text is still coherent
+                        REPETITION_GUARD_TRIGGERED.labels(action="strip").inc()
+                        log.info(
+                            "repetition_guard_stripped",
+                            user_id=user_id_str,
+                            removed=len(rep_result.repeated_phrases),
+                        )
+                        reply_text = rep_result.cleaned_text
+                    elif not sf.content_filtered and not sf.refusal:
+                        # Option A: re-call with anti-repetition instruction (max 1)
+                        anti_rep = build_anti_repetition_instruction(
+                            rep_result.repeated_phrases
+                        )
+                        patched_ctx = user_context.model_copy(update={
+                            "system_prompt": (
+                                f"{user_context.system_prompt}\n\n"
+                                f"[RepetitionGuard]\n{anti_rep}"
+                            ),
+                        })
+                        try:
+                            retry_reply = await generate_reply(
+                                chat_client, patched_ctx, message_text,
+                            )
+                            reply_text = retry_reply.reply
+                            REPETITION_GUARD_TRIGGERED.labels(action="recall").inc()
+                            log.info(
+                                "repetition_guard_recall",
+                                user_id=user_id_str,
+                            )
+                        except CircuitBreakerOpen:
+                            REPETITION_GUARD_TRIGGERED.labels(action="recall_failed").inc()
+                            log.warning(
+                                "repetition_guard_recall_circuit_open",
+                                user_id=user_id_str,
+                            )
 
             # Notify user that their previous pending change was auto-cancelled
             # because they sent an unrelated message instead of yes/no.

@@ -38,21 +38,18 @@
 - New: `tests/unit/test_response_filter.py`
 
 **Implementation:**
-1. Extract key phrases from new response (sentences or clauses)
-2. Compare against last 3-5 bot messages using n-gram overlap (trigrams, threshold ~0.6)
-3. If overlap detected:
-   - Option A (simple): re-call inference with appended instruction "Ты уже говорил: '{repeated_phrase}'. Не повторяй."
-   - Option B (fast): strip the repeated sentence from response, if response still coherent
-4. Start with Option B, fall back to Option A if result is too short/broken
-5. Max 1 re-call to avoid latency spiral
-6. Add metric: `repetition_guard_triggered_total`
+- [x] Extract key phrases from new response (sentences or clauses)
+- [x] Compare against last 3-5 bot messages using n-gram overlap (trigrams, threshold ~0.6)
+- [x] If overlap detected: Option B (strip repeated sentence) with fallback to Option A (re-call with anti-repetition instruction)
+- [x] Max 1 re-call to avoid latency spiral
+- [x] Add metric: `repetition_guard_triggered_total`
 
 **Dependencies:** None, can be built independently.
 
 **Tests:**
-- Unit: overlap detection correctly identifies repeated phrases
-- Unit: stripping preserves coherent response
-- Unit: edge cases — short responses, single sentence, greeting-only
+- [x] Unit: overlap detection correctly identifies repeated phrases
+- [x] Unit: stripping preserves coherent response
+- [x] Unit: edge cases — short responses, single sentence, greeting-only
 
 **Acceptance:** Bot does not repeat "нормально/сбежать" when user switches topic (Round 6.5 Katya msg 4 scenario).
 
