@@ -308,17 +308,11 @@
 - New: `tests/unit/fixtures/response_pairs.json` — saved (input, response) pairs from persona tests
 
 **Implementation:**
-1. Check functions:
-   - `has_ai_markers(text) -> list[str]` — returns found markers
-   - `count_bullet_points(text) -> int`
-   - `count_sentences(text) -> int`
-   - `has_menu_pattern(text) -> bool` — detects "1) ... 2) ..." or "- X\n- Y\n- Z" with 3+ items
-   - `is_short_farewell(text, max_sentences=3) -> bool`
-   - `contains_name(text, name) -> bool`
-   - `ngram_overlap(text_a, text_b, n=3) -> float` — reused by 1.2
-2. Fixtures: collect (input, response) pairs from persona tests, commit as JSON
-3. Parametrized pytest: each fixture pair validated against relevant checks
-4. CI: runs on every PR, fast (no network, no LLM)
+- [x] Check functions: `has_ai_markers`, `count_bullet_points`, `count_sentences`, `has_menu_pattern`, `is_short_farewell`, `contains_name`, `ngram_overlap`
+- [x] Fixtures: collect (input, response) pairs from persona tests, commit as JSON (12 pairs across katya/artem personas)
+- [x] Parametrized pytest: each fixture pair validated against relevant checks (66 tests)
+- [x] Refactored `response_filter.py` to reuse canonical `ngram_overlap` from `quality/checks.py`
+- [x] CI: runs on every PR, fast (no network, no LLM)
 
 **Dependencies:** None.
 

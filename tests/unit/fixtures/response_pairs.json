@@ -1,0 +1,131 @@
+[
+  {
+    "id": "empathy_venting_01",
+    "persona": "katya",
+    "input": "Я так устала от этого всего, сил нет",
+    "response": "Слышу тебя. Звучит как очень тяжёлый день. Хочешь рассказать подробнее?",
+    "checks": {
+      "no_ai_markers": true,
+      "no_menu": true,
+      "max_sentences": 5
+    }
+  },
+  {
+    "id": "empathy_venting_02",
+    "persona": "katya",
+    "input": "Меня бесит моя работа, начальник опять наорал",
+    "response": "Это больно, когда так обращаются. Ты не заслуживаешь такого отношения.",
+    "checks": {
+      "no_ai_markers": true,
+      "no_menu": true,
+      "max_sentences": 5
+    }
+  },
+  {
+    "id": "recommendation_01",
+    "persona": "katya",
+    "input": "Посоветуй мне сериал какой-нибудь",
+    "response": "Если хочешь что-то лёгкое — попробуй «Тед Лассо», он очень тёплый и смешной. А если хочется подумать — «Чёрное зеркало».",
+    "checks": {
+      "no_ai_markers": true,
+      "max_sentences": 7
+    }
+  },
+  {
+    "id": "farewell_01",
+    "persona": "katya",
+    "input": "Ладно, пойду спать, пока!",
+    "response": "Спокойной ночи! Отдыхай.",
+    "checks": {
+      "no_ai_markers": true,
+      "no_menu": true,
+      "is_short_farewell": true
+    }
+  },
+  {
+    "id": "farewell_02",
+    "persona": "artem",
+    "input": "Всё, до завтра",
+    "response": "До завтра! Удачи.",
+    "checks": {
+      "no_ai_markers": true,
+      "no_menu": true,
+      "is_short_farewell": true
+    }
+  },
+  {
+    "id": "selfdoubt_01",
+    "persona": "artem",
+    "input": "Я чувствую что я ничего не умею и все вокруг лучше меня",
+    "response": "Понимаю это ощущение. Это синдром самозванца, и он бывает у всех, кто серьёзно относится к делу.",
+    "checks": {
+      "no_ai_markers": true,
+      "no_menu": true,
+      "max_sentences": 5
+    }
+  },
+  {
+    "id": "selfdoubt_02",
+    "persona": "artem",
+    "input": "Может я не для этой профессии создан",
+    "response": "Такие мысли — часть пути. Вспомни, что ты уже сделал. Ты дошёл до сюда не случайно.",
+    "checks": {
+      "no_ai_markers": true,
+      "no_menu": true,
+      "max_sentences": 5
+    }
+  },
+  {
+    "id": "technical_01",
+    "persona": "artem",
+    "input": "Как работают транзакции в PostgreSQL?",
+    "response": "В PostgreSQL транзакция — блок операций, который либо выполняется целиком, либо не выполняется вовсе. Начинается с BEGIN, завершается COMMIT или ROLLBACK. Каждая транзакция изолирована от других по уровню изоляции.",
+    "checks": {
+      "no_ai_markers": true,
+      "max_sentences": 10
+    }
+  },
+  {
+    "id": "validation_01",
+    "persona": "katya",
+    "input": "Я правильно сделала что ушла оттуда?",
+    "response": "Если ты чувствовала что так будет лучше — ты сделала правильно. Доверяй себе.",
+    "checks": {
+      "no_ai_markers": true,
+      "no_menu": true,
+      "max_sentences": 5
+    }
+  },
+  {
+    "id": "menu_negative_01",
+    "persona": "katya",
+    "input": "Что ты думаешь об этом?",
+    "response": "Мне кажется это интересная ситуация. С одной стороны, ты рискуешь. С другой — можешь получить опыт, который больше нигде не найдёшь.",
+    "checks": {
+      "no_ai_markers": true,
+      "no_menu": true,
+      "max_sentences": 7
+    }
+  },
+  {
+    "id": "name_usage_01",
+    "persona": "katya",
+    "input": "Привет, меня зовут Маша",
+    "response": "Привет, Маша! Рада знакомству. Расскажи о себе.",
+    "checks": {
+      "no_ai_markers": true,
+      "contains_name": "Маша"
+    }
+  },
+  {
+    "id": "short_response_01",
+    "persona": "artem",
+    "input": "Угу",
+    "response": "Понял. Продолжай, когда будешь готов.",
+    "checks": {
+      "no_ai_markers": true,
+      "no_menu": true,
+      "max_sentences": 3
+    }
+  }
+]

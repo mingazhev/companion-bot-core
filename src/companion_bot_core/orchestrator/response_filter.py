@@ -7,7 +7,7 @@ incoherent, the caller should re-invoke inference with an anti-repetition
 instruction (Option A).
 
 Public surface:
-    ngram_overlap      — compute trigram overlap ratio between two texts
+    ngram_overlap      — re-exported from quality.checks
     check_repetition   — identify repeated sentences in a response
     strip_repeated     — remove repeated sentences, return cleaned text
     RepetitionResult   — result of a repetition check
@@ -16,41 +16,10 @@ Public surface:
 from __future__ import annotations
 
 import re
-from collections import Counter
 from typing import NamedTuple
 
-
-def _tokenize(text: str) -> list[str]:
-    """Lowercase and split text into word tokens."""
-    return re.findall(r"[a-zа-яёA-ZА-ЯЁ0-9]+", text.lower())
-
-
-def ngram_overlap(text_a: str, text_b: str, n: int = 3) -> float:
-    """Compute n-gram overlap ratio between *text_a* and *text_b*.
-
-    Returns a float in [0.0, 1.0] representing the fraction of overlapping
-    n-grams relative to the smaller set.  Returns 0.0 if either text has
-    fewer than *n* tokens.
-    """
-    tokens_a = _tokenize(text_a)
-    tokens_b = _tokenize(text_b)
-
-    if len(tokens_a) < n or len(tokens_b) < n:
-        return 0.0
-
-    grams_a: Counter[tuple[str, ...]] = Counter(
-        tuple(tokens_a[i : i + n]) for i in range(len(tokens_a) - n + 1)
-    )
-    grams_b: Counter[tuple[str, ...]] = Counter(
-        tuple(tokens_b[i : i + n]) for i in range(len(tokens_b) - n + 1)
-    )
-
-    if not grams_a or not grams_b:
-        return 0.0
-
-    intersection = sum((grams_a & grams_b).values())
-    smaller = min(sum(grams_a.values()), sum(grams_b.values()))
-    return intersection / smaller if smaller > 0 else 0.0
+from companion_bot_core.quality.checks import ngram_overlap as ngram_overlap  # noqa: PLC0414
+from companion_bot_core.quality.checks import tokenize
 
 
 def _split_sentences(text: str) -> list[str]:
@@ -92,7 +61,7 @@ def check_repetition(
     kept: list[str] = []
 
     for sentence in sentences:
-        tokens = _tokenize(sentence)
+        tokens = tokenize(sentence)
         if len(tokens) < min_sentence_tokens:
             kept.append(sentence)
             continue
