@@ -35,6 +35,10 @@ Metric catalogue
     Labels: ``provider``, ``model``, ``token_type``
     (``prompt`` | ``completion`` | ``total``).
 
+``companion_bot_core_emotion_detected_total``
+    Counter.  Emotion mode classifications by the pre-inference detector.
+    Labels: ``mode``.
+
 ``companion_bot_core_internal_requests_total``
     Counter.  HTTP requests to ``/internal/*`` endpoints.
     Labels: ``endpoint``, ``status`` (``success`` | ``error``).
@@ -115,6 +119,16 @@ GUARDRAIL_BLOCKS: Counter = Counter(
     "companion_bot_core_guardrail_blocks_total",
     "Messages blocked by the policy guardrail layer.",
     labelnames=["violation"],
+)
+
+# ---------------------------------------------------------------------------
+# Emotion detector
+# ---------------------------------------------------------------------------
+
+EMOTION_DETECTED: Counter = Counter(
+    "companion_bot_core_emotion_detected_total",
+    "Emotion mode classifications by the pre-inference detector.",
+    labelnames=["mode"],
 )
 
 # ---------------------------------------------------------------------------

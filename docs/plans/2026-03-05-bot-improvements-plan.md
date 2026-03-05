@@ -13,26 +13,16 @@
 - New: `tests/unit/test_emotion_detector.py`
 
 **Implementation:**
-1. Create `EmotionMode` enum: `venting`, `validation`, `task`, `farewell`, `neutral`
-2. Build regex-based classifier using signal patterns (similar to `signals.py`):
-   - `venting`: грустные/злые маркеры ("устал", "бесит", "достало", "тяжело", "обидно", "расстроен")
-   - `validation`: вопросы-валидации ("нормально ли", "это ок", "я не тупой", "так бывает")
-   - `farewell`: ("пока", "до завтра", "спокойной ночи", "спасибо, всё")
-   - `task`: вопросительные конструкции с конкретикой ("что такое", "как сделать", "объясни", "посоветуй")
-   - `neutral`: default fallback
-3. Create mode-to-instruction map:
-   - `venting` → "Пользователь делится эмоциями. Только эмпатия. НЕ предлагай решения, планы, варианты."
-   - `validation` → "Это вопрос-валидация. Ответь коротко и тепло, 2-3 предложения макс."
-   - `farewell` → "Пользователь прощается. Кратко и тепло. Не повторяй информацию из разговора."
-   - `task` → no injection
-   - `neutral` → no injection
-4. Inject instruction as last paragraph of system prompt before inference call
-5. Add metric: `emotion_detected_total` (labels: mode)
+- [x] Create `EmotionMode` enum: `venting`, `validation`, `task`, `farewell`, `neutral`
+- [x] Build regex-based classifier using signal patterns (similar to `signals.py`)
+- [x] Create mode-to-instruction map
+- [x] Inject instruction as last paragraph of system prompt before inference call
+- [x] Add metric: `emotion_detected_total` (labels: mode)
 
 **Tests:**
-- Unit: classifier returns correct mode for 10+ example messages per mode
-- Unit: merge builder includes/excludes injection correctly
-- Integration: full pipeline с emotion injection
+- [x] Unit: classifier returns correct mode for 10+ example messages per mode
+- [x] Unit: instruction mapping includes/excludes injection correctly
+- [x] Unit: edge cases (empty strings, case insensitivity, mixed signals)
 
 **Acceptance:** Round 6 test scenarios (Katya venting, Artem self-doubt) pass without advice/menu in response.
 

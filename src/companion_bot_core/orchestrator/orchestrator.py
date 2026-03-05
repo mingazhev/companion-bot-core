@@ -33,6 +33,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from companion_bot_core.behavior import classify
+from companion_bot_core.behavior.emotion import EMOTION_INSTRUCTIONS, detect_emotion
 from companion_bot_core.behavior.extractor import (
     VALID_TONES,
     extract_persona_name,
@@ -49,6 +50,7 @@ from companion_bot_core.metrics import (
     BEHAVIOR_CHANGE_REVERSALS,
     CHAT_LATENCY,
     DETECTOR_CLASSIFICATIONS,
+    EMOTION_DETECTED,
     GUARDRAIL_BLOCKS,
     TOKENS_USED,
 )
@@ -710,6 +712,24 @@ async def process_message(
                     session, snapshot_store, user_id, max_tokens,
                     encryptor=encryptor, locale=locale, redis=redis,
                     context_message_limit=context_message_limit,
+                )
+
+            # Step 4b — Emotion detection: inject mode-specific instruction
+            emotion = detect_emotion(message_text)
+            EMOTION_DETECTED.labels(mode=emotion.mode).inc()
+            emotion_instruction = EMOTION_INSTRUCTIONS.get(emotion.mode, "")
+            if emotion_instruction:
+                user_context = user_context.model_copy(update={
+                    "system_prompt": (
+                        f"{user_context.system_prompt}\n\n"
+                        f"[EmotionMode]\n{emotion_instruction}"
+                    ),
+                })
+                log.info(
+                    "emotion_detected",
+                    user_id=user_id_str,
+                    mode=emotion.mode,
+                    confidence=emotion.confidence,
                 )
 
             try:
