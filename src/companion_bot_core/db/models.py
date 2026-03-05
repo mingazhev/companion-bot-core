@@ -86,6 +86,9 @@ class User(Base):
     feedback_entries: Mapped[list[FeedbackEntry]] = relationship(
         "FeedbackEntry", back_populates="user", lazy="raise"
     )
+    bookmarks: Mapped[list[Bookmark]] = relationship(
+        "Bookmark", back_populates="user", lazy="raise"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -490,3 +493,55 @@ class FeedbackEntry(Base):
 
     # --- relationships ---
     user: Mapped[User] = relationship("User", back_populates="feedback_entries")
+
+
+# ---------------------------------------------------------------------------
+# bookmarks
+# ---------------------------------------------------------------------------
+
+
+class Bookmark(Base):
+    """A saved conversation moment (user message + bot response pair).
+
+    Users trigger bookmarks via natural language ("запомни это", "сохрани")
+    or browse them with the /bookmarks command.
+    """
+
+    __tablename__ = "bookmarks"
+    __table_args__ = (
+        Index(
+            "ix_bookmarks_user_id_created_at",
+            "user_id",
+            "created_at",
+            postgresql_using="btree",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_message: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="The user message that was bookmarked",
+    )
+    bot_response: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="The bot response paired with the user message",
+    )
+    tag: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="Optional user-specified tag for categorisation",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    # --- relationships ---
+    user: Mapped[User] = relationship("User", back_populates="bookmarks")

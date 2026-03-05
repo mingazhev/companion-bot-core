@@ -187,19 +187,20 @@
 - New: `tests/unit/test_bookmarks.py`
 
 **Implementation:**
-1. `bookmarks` table: id, user_id, user_message (text), bot_response (text), tag (optional), created_at
-2. Intent triggers: "запомни это", "это важно", "сохрани"
-3. On trigger: save previous user message + bot response pair
-4. `/bookmarks` — list saved moments (last 20, with dates)
-5. `/bookmarks search <query>` — simple text search
-6. Context injection: refinement worker can reference bookmarks in long_term_profile
+- [x] `bookmarks` table: id, user_id, user_message (text), bot_response (text), tag (optional), created_at
+- [x] Intent triggers: "запомни это", "это важно", "сохрани" (+ EN equivalents via signal-based detector in `orchestrator/bookmarks.py`)
+- [x] On trigger: save previous user message + bot response pair (orchestrator step 4d)
+- [x] `/bookmarks` — list saved moments (last 20, with dates)
+- [x] `/bookmarks search <query>` — simple text search
+- [ ] Context injection: refinement worker can reference bookmarks in long_term_profile (deferred to Phase 4 refinement integration)
 
 **Dependencies:** None.
 
 **Tests:**
-- Unit: intent detection
-- Unit: bookmark save/retrieve
-- Unit: `/bookmarks` formatting and search
+- [x] Unit: intent detection (20 tests: RU/EN triggers, case insensitivity, negative cases)
+- [x] Unit: bookmark save/retrieve (4 tests: save with/without tag, get bookmarks, empty state)
+- [x] Unit: `/bookmarks` formatting and search (7 tests: formatting, truncation, multiple bookmarks, search)
+- [x] Unit: metric object sanity check (1 test)
 
 ---
 

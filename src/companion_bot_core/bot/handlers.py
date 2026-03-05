@@ -1315,6 +1315,72 @@ async def handle_message(
 
 
 # --------------------------------------------------------------------------- #
+# /bookmarks — saved conversation moments
+# --------------------------------------------------------------------------- #
+
+
+@router.message(Command("bookmarks"))
+async def cmd_bookmarks(
+    message: Message,
+    db_user: User,
+    db_session: AsyncSession,
+    command: CommandObject | None = None,
+) -> None:
+    """List or search saved conversation bookmarks."""
+    if await _guard_private_only(message, db_user):
+        return
+    locale = _user_locale(db_user)
+
+    # Parse subcommand: /bookmarks search <query>
+    args = (command.args or "").strip() if command else ""
+    if args.lower().startswith("search "):
+        query = args[7:].strip()
+        if not query:
+            await message.answer(tr("bookmark.search_help", locale), parse_mode=None)
+            return
+        from companion_bot_core.orchestrator.bookmarks import search_bookmarks
+
+        results = await search_bookmarks(db_session, db_user.id, query)
+        if not results:
+            await message.answer(
+                tr("bookmark.search_empty", locale, query=query),
+                parse_mode=None,
+            )
+            return
+        text = _format_bookmark_list(results, locale)
+        await message.answer(text, parse_mode=None)
+        return
+
+    from companion_bot_core.orchestrator.bookmarks import get_bookmarks
+
+    bookmarks = await get_bookmarks(db_session, db_user.id)
+    if not bookmarks:
+        await message.answer(tr("bookmark.empty", locale), parse_mode=None)
+        return
+
+    text = _format_bookmark_list(bookmarks, locale)
+    await message.answer(text, parse_mode=None)
+    log.info("cmd_bookmarks", internal_user_id=str(db_user.id), count=len(bookmarks))
+
+
+def _format_bookmark_list(bookmarks: list[Any], locale: str) -> str:
+    """Format a list of bookmarks into a human-readable string."""
+    header = tr("bookmark.list_header", locale)
+    lines: list[str] = [header]
+    for i, bk in enumerate(bookmarks, start=1):
+        date_str = bk.created_at.strftime("%d.%m.%Y")
+        user_msg = (bk.user_message[:80] + "...") if len(bk.user_message) > 80 else bk.user_message  # noqa: PLR2004
+        bot_msg = (bk.bot_response[:80] + "...") if len(bk.bot_response) > 80 else bk.bot_response  # noqa: PLR2004
+        tag_str = f" [{bk.tag}]" if bk.tag else ""
+        lines.append(
+            f"{i}. {date_str}{tag_str}\n"
+            f"   > {user_msg}\n"
+            f"   < {bot_msg}"
+        )
+    return "\n\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
 # /settings — inline keyboard menu
 # --------------------------------------------------------------------------- #
 

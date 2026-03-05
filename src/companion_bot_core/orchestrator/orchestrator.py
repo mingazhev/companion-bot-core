@@ -48,6 +48,7 @@ from companion_bot_core.logging_config import get_logger
 from companion_bot_core.metrics import (
     BEHAVIOR_CHANGE_CONFIRMATIONS,
     BEHAVIOR_CHANGE_REVERSALS,
+    BOOKMARK_SAVED,
     CHAT_LATENCY,
     DETECTOR_CLASSIFICATIONS,
     EMOTION_DETECTED,
@@ -61,6 +62,7 @@ from companion_bot_core.metrics import (
     TOPIC_SWITCH,
     USER_FEEDBACK_SCORE,
 )
+from companion_bot_core.orchestrator.bookmarks import is_bookmark_request, save_bookmark
 from companion_bot_core.orchestrator.context_loader import load_user_context
 from companion_bot_core.orchestrator.dialogue_state import (
     PendingChange,
@@ -863,6 +865,33 @@ async def process_message(
                 except Exception:  # noqa: BLE001
                     log.warning("topic_tracker_failed", user_id=user_id_str)
 
+            # Step 4d — Bookmark detection: save previous message pair.
+            bookmark_notice: str | None = None
+            if action != "auto_apply" and is_bookmark_request(message_text):
+                try:
+                    history = user_context.conversation_history
+                    # Find the last user+assistant pair (excluding current msg)
+                    last_user_msg: str | None = None
+                    last_bot_msg: str | None = None
+                    for msg in reversed(history):
+                        if msg.role == "assistant" and last_bot_msg is None:
+                            last_bot_msg = msg.content or ""
+                        elif msg.role == "user" and last_bot_msg is not None:
+                            last_user_msg = msg.content or ""
+                            break
+                    if last_user_msg is not None and last_bot_msg is not None:
+                        await save_bookmark(
+                            session, user_id,
+                            last_user_msg, last_bot_msg,
+                        )
+                        BOOKMARK_SAVED.inc()
+                        bookmark_notice = tr("bookmark.saved", ui_locale)
+                        log.info("bookmark_saved", user_id=user_id_str)
+                    else:
+                        bookmark_notice = tr("bookmark.no_history", ui_locale)
+                except Exception:  # noqa: BLE001
+                    log.warning("bookmark_save_failed", user_id=user_id_str)
+
             try:
                 async with span("model_adapter.generate_reply", user_id=user_id_str):
                     if on_stream_chunk is not None:
@@ -905,7 +934,7 @@ async def process_message(
                 reply_text = tr("orchestrator.safety_fallback", ui_locale)
 
             # ------------------------------------------------------------------
-            # Step 4d — Repetition guard: strip repeated phrases from response
+            # Step 4e — Repetition guard: strip repeated phrases from response
             # ------------------------------------------------------------------
             recent_assistant = [
                 m.content
@@ -1074,6 +1103,10 @@ async def process_message(
             # Prepend feedback thanks notice if a feedback response was collected.
             if feedback_thanks is not None:
                 reply_text = f"{feedback_thanks}\n\n---\n\n{reply_text}"
+
+            # Prepend bookmark notice if a bookmark was saved.
+            if bookmark_notice is not None:
+                reply_text = f"{bookmark_notice}\n\n{reply_text}"
 
             # ------------------------------------------------------------------
             # Step 6 — Persist conversation messages

@@ -287,6 +287,39 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
         "ru": "Спасибо за обратную связь!",
         "en": "Thanks for the feedback!",
     },
+    # --- Bookmarks ---
+    "bookmark.saved": {
+        "ru": "🔖 Сохранила этот момент! Посмотри все закладки через /bookmarks.",
+        "en": "🔖 Saved this moment! View all bookmarks with /bookmarks.",
+    },
+    "bookmark.no_history": {
+        "ru": "Нет предыдущих сообщений для сохранения.",
+        "en": "No previous messages to save.",
+    },
+    "bookmark.list_header": {
+        "ru": "🔖 Твои закладки:\n",
+        "en": "🔖 Your bookmarks:\n",
+    },
+    "bookmark.empty": {
+        "ru": (
+            "У тебя пока нет закладок. "
+            "Напиши «запомни это» или «save this» после важного сообщения, "
+            "чтобы сохранить момент."
+        ),
+        "en": (
+            "You don't have any bookmarks yet. "
+            "Say 'remember this' or 'save this' after an important message "
+            "to save the moment."
+        ),
+    },
+    "bookmark.search_empty": {
+        "ru": "Ничего не найдено по запросу «{query}».",
+        "en": "Nothing found for '{query}'.",
+    },
+    "bookmark.search_help": {
+        "ru": "Используй /bookmarks search <запрос> для поиска.",
+        "en": "Use /bookmarks search <query> to search.",
+    },
     "prompt.language_instruction": {
         "ru": "Отвечай на русском языке, если пользователь явно не попросит другой язык.",
         "en": "Reply in English unless the user explicitly asks for another language.",
@@ -371,6 +404,7 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "/memory — что я о тебе помню\n"
             "/remember <факт> — рассказать мне что-то о себе\n"
             "/forget <факт> — попросить забыть что-то\n"
+            "/bookmarks — сохранённые моменты из разговоров\n"
             "/settings — настройки (тон, персона, навыки, язык)\n"
             "/personas — выбрать персону\n"
             "/skills — каталог навыков\n"
@@ -392,6 +426,7 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "/memory — what I remember about you\n"
             "/remember <fact> — tell me something about yourself\n"
             "/forget <fact> — ask me to forget something\n"
+            "/bookmarks — saved conversation moments\n"
             "/settings — settings (tone, persona, skills, language)\n"
             "/personas — choose a persona\n"
             "/skills — skill catalog\n"
