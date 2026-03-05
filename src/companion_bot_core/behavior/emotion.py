@@ -65,7 +65,9 @@ _VALIDATION_SIGNALS = compile_signals([
 ])
 
 _FAREWELL_SIGNALS = compile_signals([
-    (r"\bпока\b", 0.5),
+    (r"^пока[!.\s]*$", 0.7),
+    (r"\bну\s+пока\b", 0.6),
+    (r"\bладно,?\s+пока\b", 0.6),
     (r"\bдо\s+завтра\b", 0.7),
     (r"\bспокойной\s+ночи\b", 0.7),
     (r"\bспасибо,?\s*(всё|все)\b", 0.6),

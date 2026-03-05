@@ -9,7 +9,7 @@
 **Files:**
 - New: `src/companion_bot_core/behavior/emotion.py`
 - Edit: `src/companion_bot_core/orchestrator/orchestrator.py` — add step between context assembly and inference
-- Edit: `src/companion_bot_core/prompt/merge_builder.py` — accept optional emotion_mode parameter
+- ~~Edit: `src/companion_bot_core/prompt/merge_builder.py`~~ — not needed; injection done via `model_copy()` in orchestrator
 - New: `tests/unit/test_emotion_detector.py`
 
 **Implementation:**

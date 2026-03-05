@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from companion_bot_core.behavior.emotion import (
     EMOTION_INSTRUCTIONS,
@@ -182,9 +183,63 @@ class TestEmotionResult:
         assert result.mode == "venting"
         assert result.confidence == 0.8  # noqa: PLR2004
 
-    def test_confidence_clamped_at_one(self) -> None:
-        result = EmotionResult(mode="neutral", confidence=1.0)
-        assert result.confidence == 1.0
+    def test_rejects_confidence_above_one(self) -> None:
+        with pytest.raises(ValidationError):
+            EmotionResult(mode="neutral", confidence=1.5)
+
+    def test_rejects_confidence_below_zero(self) -> None:
+        with pytest.raises(ValidationError):
+            EmotionResult(mode="neutral", confidence=-0.1)
+
+    def test_rejects_invalid_mode(self) -> None:
+        with pytest.raises(ValidationError):
+            EmotionResult(mode="unknown_mode", confidence=0.5)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# False positive prevention
+# ---------------------------------------------------------------------------
+
+
+class TestFalsePositives:
+    """Messages that should NOT trigger a wrong emotion mode."""
+
+    @pytest.mark.parametrize(
+        "text,forbidden_mode",
+        [
+            ("Пока не знаю что делать", "farewell"),
+            ("Пока я думаю, подскажи рецепт", "farewell"),
+            ("Пока что всё хорошо", "farewell"),
+            ("А пока расскажи про книги", "farewell"),
+        ],
+    )
+    def test_no_false_positive(self, text: str, forbidden_mode: str) -> None:
+        result = detect_emotion(text)
+        assert result.mode != forbidden_mode, (
+            f"{text!r} should not be {forbidden_mode}, got {result.mode}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Threshold boundary
+# ---------------------------------------------------------------------------
+
+
+class TestThresholdBoundary:
+    """Messages matching low-weight signals that stay below threshold."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Мне плохо видно экран",  # плохо = 0.3, below 0.35 threshold
+            "Пойду в магазин",  # пойду = 0.3, below 0.35 threshold
+        ],
+    )
+    def test_below_threshold_is_neutral(self, text: str) -> None:
+        result = detect_emotion(text)
+        assert result.mode == "neutral", (
+            f"{text!r} should be neutral (below threshold), got {result.mode}"
+        )
 
 
 # ---------------------------------------------------------------------------

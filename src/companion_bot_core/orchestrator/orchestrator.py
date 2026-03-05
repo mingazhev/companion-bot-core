@@ -714,10 +714,15 @@ async def process_message(
                     context_message_limit=context_message_limit,
                 )
 
-            # Step 4b — Emotion detection: inject mode-specific instruction
-            emotion = detect_emotion(message_text)
-            EMOTION_DETECTED.labels(mode=emotion.mode).inc()
-            emotion_instruction = EMOTION_INSTRUCTIONS.get(emotion.mode, "")
+            # Step 4b — Emotion detection: inject mode-specific instruction.
+            # Skip for auto_apply — the message is a behavior-change request,
+            # and emotion instructions would conflict with the change intent.
+            if action != "auto_apply":
+                emotion = detect_emotion(message_text)
+                EMOTION_DETECTED.labels(mode=emotion.mode).inc()
+                emotion_instruction = EMOTION_INSTRUCTIONS[emotion.mode]
+            else:
+                emotion_instruction = ""
             if emotion_instruction:
                 user_context = user_context.model_copy(update={
                     "system_prompt": (
