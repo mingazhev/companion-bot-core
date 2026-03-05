@@ -1,0 +1,45 @@
+scenario:
+  name: artem_selfdoubt
+  description: >
+    Artem expresses self-doubt about his career and abilities.  Bot
+    should validate feelings without dismissing them, avoid cliches,
+    and not produce menu-style motivational lists.
+  persona: friendly
+  skill_pack: null
+
+messages:
+  - user: "Я чувствую что я ничего не умею и все вокруг лучше меня"
+    checks:
+      no_ai_markers: true
+      no_menu: true
+      max_sentences: 5
+
+  - user: "Может я не для этой профессии создан"
+    checks:
+      no_ai_markers: true
+      no_menu: true
+      max_sentences: 5
+
+  - user: "На работе все быстрее схватывают, а я торможу"
+    checks:
+      no_ai_markers: true
+      no_menu: true
+      max_sentences: 5
+
+  - user: "Иногда думаю может стоит сменить профессию"
+    checks:
+      no_ai_markers: true
+      no_menu: true
+      max_sentences: 5
+
+  - user: "Угу"
+    checks:
+      no_ai_markers: true
+      no_menu: true
+      max_sentences: 3
+
+  - user: "Ладно, пойду подумаю"
+    checks:
+      no_ai_markers: true
+      no_menu: true
+      max_sentences: 3

@@ -288,13 +288,14 @@
 - New: `tests/persona/checks.py` — deterministic checks (shared with 4.2)
 
 **Implementation:**
-1. YAML schema: persona metadata + message list + per-message checks
-2. Runner: reset bot data → onboard persona → send messages → collect responses → apply checks
-3. Judge: send full dialogue to LLM with scoring prompt → parse JSON scores
-4. Output: markdown report to `docs/reports/auto/`
-5. Invoked via: "Run persona test katya_empathy" in Claude Code
+- [x] YAML schema: persona metadata + message list + per-message checks (4 scenarios: katya_empathy, katya_recommendations, artem_selfdoubt, artem_technical)
+- [x] Runner: reset bot data → onboard persona → send messages → collect responses → apply checks (`tests/persona/runner.py`)
+- [x] Judge: send full dialogue to LLM with scoring prompt → parse JSON scores (`tests/persona/judge.py`)
+- [x] Deterministic checks wrapper shared with 4.2 (`tests/persona/checks.py`)
+- [x] Output: markdown report to `docs/reports/auto/`
+- [x] Unit tests: 36 tests covering checks, runner, judge, and YAML validation
 
-**Dependencies:** None (uses existing chat.py infrastructure).
+**Dependencies:** None (uses existing orchestrator infrastructure).
 
 ---
 

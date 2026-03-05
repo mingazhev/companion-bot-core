@@ -1,0 +1,45 @@
+scenario:
+  name: katya_empathy
+  description: >
+    Empathy-heavy scenarios for the Katya persona — venting, emotional
+    support, validation seeking.  Responses must avoid advice, menus,
+    and AI self-reference.
+  persona: friendly
+  skill_pack: null
+
+messages:
+  - user: "Я так устала от этого всего, сил нет"
+    checks:
+      no_ai_markers: true
+      no_menu: true
+      max_sentences: 5
+
+  - user: "Меня бесит моя работа, начальник опять наорал"
+    checks:
+      no_ai_markers: true
+      no_menu: true
+      max_sentences: 5
+
+  - user: "Я чувствую что никто меня не понимает"
+    checks:
+      no_ai_markers: true
+      no_menu: true
+      max_sentences: 5
+
+  - user: "Иногда хочется просто всё бросить и уехать"
+    checks:
+      no_ai_markers: true
+      no_menu: true
+      max_sentences: 5
+
+  - user: "Я правильно сделала что ушла оттуда?"
+    checks:
+      no_ai_markers: true
+      no_menu: true
+      max_sentences: 5
+
+  - user: "Спасибо что выслушал"
+    checks:
+      no_ai_markers: true
+      no_menu: true
+      max_sentences: 3

@@ -1,0 +1,35 @@
+scenario:
+  name: katya_recommendations
+  description: >
+    Katya asks for recommendations (shows, books, music) and switches
+    topics.  Bot should give concrete suggestions without falling into
+    menu mode or repeating previous emotional context.
+  persona: friendly
+  skill_pack: null
+
+messages:
+  - user: "Посоветуй мне сериал какой-нибудь"
+    checks:
+      no_ai_markers: true
+      max_sentences: 7
+
+  - user: "А что-нибудь лёгкое, комедийное?"
+    checks:
+      no_ai_markers: true
+      max_sentences: 7
+
+  - user: "О, а книгу какую-нибудь посоветуешь?"
+    checks:
+      no_ai_markers: true
+      max_sentences: 7
+
+  - user: "Кстати, а ты музыку какую слушаешь?"
+    checks:
+      no_ai_markers: true
+      max_sentences: 7
+
+  - user: "Ладно, пойду спать, пока!"
+    checks:
+      no_ai_markers: true
+      no_menu: true
+      is_short_farewell: true

@@ -1,0 +1,35 @@
+scenario:
+  name: artem_technical
+  description: >
+    Artem asks technical questions about programming and databases.
+    Bot should give informative, accurate answers without AI
+    self-reference or excessive bullet-point menus.
+  persona: friendly
+  skill_pack: coding_help
+
+messages:
+  - user: "Как работают транзакции в PostgreSQL?"
+    checks:
+      no_ai_markers: true
+      max_sentences: 10
+
+  - user: "А что такое уровни изоляции?"
+    checks:
+      no_ai_markers: true
+      max_sentences: 10
+
+  - user: "Какой уровень лучше для веб-приложения?"
+    checks:
+      no_ai_markers: true
+      max_sentences: 10
+
+  - user: "А как работает MVCC?"
+    checks:
+      no_ai_markers: true
+      max_sentences: 10
+
+  - user: "Всё, до завтра"
+    checks:
+      no_ai_markers: true
+      no_menu: true
+      is_short_farewell: true
