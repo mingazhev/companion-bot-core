@@ -129,20 +129,21 @@
 - New: `tests/unit/test_proactive.py`
 
 **Implementation:**
-1. Add to `user_profiles`: `proactive_enabled` (bool, default false), `checkin_time` (time, nullable), `quiet_hours_start`/`quiet_hours_end`
-2. Warm return (always on): if last message > 48h ago, on next user message inject context "Давно не общались. Вспомни последнюю тему и отреагируй."
-3. Daily check-in (opt-in via `/checkin on 09:00`): scheduled Redis job sends short message
-4. Scheduler: background asyncio task polling Redis sorted set of scheduled events
-5. Respect quiet hours, timezone from user profile
-6. `/checkin off` — disable
+- [x] Add to `user_profiles`: `proactive_enabled` (bool, default false), `checkin_time` (time, nullable), `quiet_hours_start`/`quiet_hours_end`
+- [x] Warm return (always on): if last message > 48h ago, on next user message inject context "Давно не общались. Вспомни последнюю тему и отреагируй."
+- [x] Daily check-in (opt-in via `/checkin on 09:00`): scheduled Redis job sends short message
+- [x] Scheduler: background asyncio task polling Redis sorted set of scheduled events
+- [x] Respect quiet hours, timezone from user profile
+- [x] `/checkin off` — disable
 
 **Dependencies:** 2.1 (mood journal for check-in context).
 
 **Tests:**
-- Unit: scheduler timing logic
-- Unit: warm return detection (last message age)
-- Unit: quiet hours filtering
-- Integration: check-in delivery
+- [x] Unit: scheduler timing logic (compute_next_fire, reschedule, timezone parsing — 13 tests)
+- [x] Unit: warm return detection (last message age — 8 tests)
+- [x] Unit: quiet hours filtering (same-day, midnight wrap, boundaries — 10 tests)
+- [x] Unit: /checkin command handler (on/off/quiet/status/help — 12 tests)
+- [x] Unit: time parsing and Redis operations (10 tests)
 
 ---
 

@@ -31,6 +31,7 @@ from companion_bot_core.internal.server import build_internal_app
 from companion_bot_core.logging_config import configure_logging, get_logger
 from companion_bot_core.privacy.field_encryption import FieldEncryptor
 from companion_bot_core.privacy.ttl_sweeper import sweep_expired_messages
+from companion_bot_core.proactive.scheduler import run_checkin_scheduler
 from companion_bot_core.prompt.postgres_store import PostgresSnapshotStore
 from companion_bot_core.prompt.snapshot_store import InMemorySnapshotStore, SnapshotStore
 from companion_bot_core.redis.client import close_redis_pool, create_redis_pool
@@ -64,6 +65,7 @@ async def _run() -> None:
     runner: web.AppRunner | None = None
     worker_task: asyncio.Task[None] | None = None
     sweeper_task: asyncio.Task[None] | None = None
+    checkin_task: asyncio.Task[None] | None = None
 
     async def _run_ttl_sweeper() -> None:
         """Periodically delete expired conversation_messages rows."""
@@ -149,6 +151,10 @@ async def _run() -> None:
             _run_ttl_sweeper(),
             name="ttl_sweeper",
         )
+        checkin_task = asyncio.create_task(
+            run_checkin_scheduler(bot=bot, redis=redis, engine=engine),
+            name="checkin_scheduler",
+        )
 
         if not settings.telegram_webhook_host:
             log.info("starting_polling")
@@ -172,6 +178,9 @@ async def _run() -> None:
         if sweeper_task is not None:
             sweeper_task.cancel()
             await asyncio.gather(sweeper_task, return_exceptions=True)
+        if checkin_task is not None:
+            checkin_task.cancel()
+            await asyncio.gather(checkin_task, return_exceptions=True)
         if runner is not None:
             await runner.cleanup()
         if chat_client is not None:

@@ -8,7 +8,7 @@ horizontal scaling and avoid ID leakage.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, time
 from typing import Any
 
 from sqlalchemy import (
@@ -21,6 +21,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Time,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -130,6 +131,29 @@ class UserProfile(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+
+    # --- proactive messaging preferences ---
+    proactive_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Whether the user opted in to proactive check-in messages",
+    )
+    checkin_time: Mapped[time | None] = mapped_column(
+        Time,
+        nullable=True,
+        comment="Daily check-in time in user's local timezone (HH:MM)",
+    )
+    quiet_hours_start: Mapped[time | None] = mapped_column(
+        Time,
+        nullable=True,
+        comment="Start of quiet hours (no proactive messages sent)",
+    )
+    quiet_hours_end: Mapped[time | None] = mapped_column(
+        Time,
+        nullable=True,
+        comment="End of quiet hours",
     )
 
     # --- relationships ---

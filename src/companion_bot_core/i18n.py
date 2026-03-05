@@ -425,6 +425,7 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "/forget <факт> — попросить забыть что-то\n"
             "/mood — дневник настроения\n"
             "/bookmarks — сохранённые моменты из разговоров\n"
+            "/checkin — ежедневные чекины\n"
             "/settings — настройки (тон, персона, навыки, язык)\n"
             "/personas — выбрать персону\n"
             "/skills — каталог навыков\n"
@@ -448,6 +449,7 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "/forget <fact> — ask me to forget something\n"
             "/mood — mood journal\n"
             "/bookmarks — saved conversation moments\n"
+            "/checkin — daily check-ins\n"
             "/settings — settings (tone, persona, skills, language)\n"
             "/personas — choose a persona\n"
             "/skills — skill catalog\n"
@@ -807,6 +809,69 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "instead of asking 'how can I help?'. "
             "If no interest is specified, just keep the conversation going."
         ),
+    },
+    # --- Proactive messaging ---
+    "proactive.warm_return_instruction": {
+        "ru": (
+            "Давно не общались. Вспомни последнюю тему и отреагируй тепло, "
+            "как будто встретил знакомого после долгого перерыва. "
+            "Не перечисляй темы списком, будь естественным."
+        ),
+        "en": (
+            "It's been a while since the last conversation. Recall the last topic "
+            "and respond warmly, as if meeting an acquaintance after a long break. "
+            "Don't list topics, be natural."
+        ),
+    },
+    "checkin.enabled": {
+        "ru": "✅ Ежедневные чекины включены на {time}. Я напишу тебе в это время.",
+        "en": "✅ Daily check-ins enabled at {time}. I'll message you then.",
+    },
+    "checkin.disabled": {
+        "ru": "❌ Ежедневные чекины отключены.",
+        "en": "❌ Daily check-ins disabled.",
+    },
+    "checkin.status_on": {
+        "ru": "📬 Чекины включены. Время: {time}. Используй /checkin off для отключения.",
+        "en": "📬 Check-ins are on. Time: {time}. Use /checkin off to disable.",
+    },
+    "checkin.status_off": {
+        "ru": "📭 Чекины выключены. Используй /checkin on HH:MM для включения.",
+        "en": "📭 Check-ins are off. Use /checkin on HH:MM to enable.",
+    },
+    "checkin.help": {
+        "ru": (
+            "Управление ежедневными чекинами:\n"
+            "/checkin on HH:MM — включить (например, /checkin on 09:00)\n"
+            "/checkin off — отключить\n"
+            "/checkin — текущий статус"
+        ),
+        "en": (
+            "Manage daily check-ins:\n"
+            "/checkin on HH:MM — enable (e.g., /checkin on 09:00)\n"
+            "/checkin off — disable\n"
+            "/checkin — current status"
+        ),
+    },
+    "checkin.invalid_time": {
+        "ru": "Неверный формат времени. Используй HH:MM, например: /checkin on 09:00",
+        "en": "Invalid time format. Use HH:MM, for example: /checkin on 09:00",
+    },
+    "checkin.message": {
+        "ru": "👋 Привет! Как ты сегодня?",
+        "en": "👋 Hey! How are you today?",
+    },
+    "checkin.quiet_set": {
+        "ru": "🔇 Тихие часы установлены: {start} — {end}.",
+        "en": "🔇 Quiet hours set: {start} — {end}.",
+    },
+    "checkin.quiet_cleared": {
+        "ru": "🔊 Тихие часы сброшены.",
+        "en": "🔊 Quiet hours cleared.",
+    },
+    "checkin.quiet_invalid": {
+        "ru": "Неверный формат. Используй HH:MM-HH:MM, например: /checkin quiet 22:00-08:00",
+        "en": "Invalid format. Use HH:MM-HH:MM, for example: /checkin quiet 22:00-08:00",
     },
     # --- Suggestions ---
     "prompt.suggestion_instruction": {

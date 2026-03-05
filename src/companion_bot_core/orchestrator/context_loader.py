@@ -17,6 +17,7 @@ from companion_bot_core.i18n import normalize_locale, tr
 from companion_bot_core.inference.schemas import ChatMessage, UserContext
 from companion_bot_core.logging_config import get_logger
 from companion_bot_core.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
+from companion_bot_core.proactive.warm_return import build_warm_return_hint
 from companion_bot_core.prompt.merge_builder import build_system_prompt, extract_section
 from companion_bot_core.prompt.schemas import (
     DEFAULT_SYSTEM_TEMPLATE,
@@ -348,7 +349,7 @@ async def load_user_context(
         )
         system_prompt = f"{system_prompt}\n\n[FirstContact]\n{first_contact}"
 
-    # Inject continuity hints and proactive suggestions when Redis is available
+    # Inject continuity hints, warm return, and proactive suggestions
     activity_gap = 0
     if redis is not None:
         try:
@@ -359,6 +360,14 @@ async def load_user_context(
                 system_prompt = f"{system_prompt}\n\n[Continuity]\n{continuity}"
         except Exception:  # noqa: BLE001
             log.warning("continuity_hint_failed", user_id=user_id_str)
+
+        # Warm return: inject a stronger welcome-back hint for 48h+ gaps
+        try:
+            warm_hint = build_warm_return_hint(activity_gap, locale)
+            if warm_hint:
+                system_prompt = f"{system_prompt}\n\n[WarmReturn]\n{warm_hint}"
+        except Exception:  # noqa: BLE001
+            log.warning("warm_return_hint_failed", user_id=user_id_str)
 
         try:
             suggestion = await build_suggestion_hint(

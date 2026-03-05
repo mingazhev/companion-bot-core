@@ -27,7 +27,8 @@ import json
 import secrets
 import time
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timezone
+from datetime import time as dt_time
 from typing import TYPE_CHECKING, Any
 
 from aiogram import F, Router
@@ -1430,6 +1431,130 @@ def _format_bookmark_list(bookmarks: list[Any], locale: str) -> str:
             break
         lines.append(entry)
     return "\n\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
+# /checkin — daily proactive check-in management
+# --------------------------------------------------------------------------- #
+
+
+@router.message(Command("checkin"))
+async def cmd_checkin(
+    message: Message,
+    db_user: User,
+    db_session: AsyncSession,
+    redis: Redis,
+    command: CommandObject | None = None,
+) -> None:
+    """Manage daily proactive check-in messages."""
+    if await _guard_private_only(message, db_user):
+        return
+    locale = _user_locale(db_user)
+
+    args = (command.args or "").strip().lower() if command else ""
+
+    profile = await get_or_create_profile(db_session, db_user.id)
+
+    if args.startswith("on"):
+        # Parse time: /checkin on 09:00
+        time_str = args[2:].strip()
+        parsed = _parse_checkin_time(time_str)
+        if parsed is None:
+            await message.answer(tr("checkin.invalid_time", locale), parse_mode=None)
+            return
+
+        profile.proactive_enabled = True
+        profile.checkin_time = parsed
+        await db_session.flush()
+
+        from companion_bot_core.proactive.checkin import schedule_checkin
+
+        user_tz = _get_user_timezone(db_user)
+        await schedule_checkin(redis, str(db_user.id), parsed, user_tz)
+        await message.answer(
+            tr("checkin.enabled", locale, time=time_str or parsed.strftime("%H:%M")),
+            parse_mode=None,
+        )
+        log.info("cmd_checkin_on", internal_user_id=str(db_user.id), time=str(parsed))
+        return
+
+    if args == "off":
+        profile.proactive_enabled = False
+        profile.checkin_time = None
+        await db_session.flush()
+
+        from companion_bot_core.proactive.checkin import unschedule_checkin
+
+        await unschedule_checkin(redis, str(db_user.id))
+        await message.answer(tr("checkin.disabled", locale), parse_mode=None)
+        log.info("cmd_checkin_off", internal_user_id=str(db_user.id))
+        return
+
+    if args.startswith("quiet"):
+        rest = args[5:].strip()
+        if not rest or rest == "off":
+            profile.quiet_hours_start = None
+            profile.quiet_hours_end = None
+            await db_session.flush()
+            await message.answer(tr("checkin.quiet_cleared", locale), parse_mode=None)
+            return
+        parts = rest.split("-", 1)
+        if len(parts) != 2:  # noqa: PLR2004
+            await message.answer(tr("checkin.quiet_invalid", locale), parse_mode=None)
+            return
+        start = _parse_checkin_time(parts[0].strip())
+        end = _parse_checkin_time(parts[1].strip())
+        if start is None or end is None:
+            await message.answer(tr("checkin.quiet_invalid", locale), parse_mode=None)
+            return
+        profile.quiet_hours_start = start
+        profile.quiet_hours_end = end
+        await db_session.flush()
+        await message.answer(
+            tr("checkin.quiet_set", locale,
+               start=start.strftime("%H:%M"), end=end.strftime("%H:%M")),
+            parse_mode=None,
+        )
+        log.info(
+            "cmd_checkin_quiet_set", internal_user_id=str(db_user.id),
+            start=str(start), end=str(end),
+        )
+        return
+
+    # No args or unrecognized — show status
+    if args and args not in ("", "status"):
+        await message.answer(tr("checkin.help", locale), parse_mode=None)
+        return
+
+    if profile.proactive_enabled and profile.checkin_time is not None:
+        await message.answer(
+            tr("checkin.status_on", locale, time=profile.checkin_time.strftime("%H:%M")),
+            parse_mode=None,
+        )
+    else:
+        await message.answer(tr("checkin.status_off", locale), parse_mode=None)
+
+
+def _parse_checkin_time(time_str: str) -> dt_time | None:
+    """Parse HH:MM time string, returns None on invalid input."""
+    time_str = time_str.strip()
+    if not time_str:
+        return None
+    parts = time_str.split(":")
+    if len(parts) != 2:  # noqa: PLR2004
+        return None
+    try:
+        h, m = int(parts[0]), int(parts[1])
+        return dt_time(h, m)
+    except (ValueError, TypeError):
+        return None
+
+
+def _get_user_timezone(user: User) -> timezone | None:
+    """Extract timezone from user profile."""
+    from companion_bot_core.proactive.scheduler import _parse_timezone
+
+    return _parse_timezone(user.timezone)
 
 
 # --------------------------------------------------------------------------- #
