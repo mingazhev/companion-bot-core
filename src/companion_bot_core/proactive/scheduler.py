@@ -202,8 +202,8 @@ async def _send_habit_reminders(
 
             # Dedup: only remind once per day per habit
             guard_key = f"{_HABIT_REMINDER_PREFIX}:{user_id_str}:{habit.id}"
-            already_sent = await redis.set(guard_key, "1", nx=True, ex=_HABIT_REMINDER_TTL)
-            if not already_sent:
+            guard_set = await redis.set(guard_key, "1", nx=True, ex=_HABIT_REMINDER_TTL)
+            if not guard_set:
                 continue
 
             text = tr("habit.reminder", resolved, title=habit.title)

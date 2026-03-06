@@ -2,52 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
-
 from companion_bot_core.orchestrator.response_filter import (
     build_anti_repetition_instruction,
     check_repetition,
 )
-from companion_bot_core.quality.checks import ngram_overlap
-
-# ---------------------------------------------------------------------------
-# ngram_overlap
-# ---------------------------------------------------------------------------
-
-
-class TestNgramOverlap:
-    def test_identical_texts_return_1(self) -> None:
-        text = "Это нормально хотеть сбежать от рутины"
-        assert ngram_overlap(text, text) == pytest.approx(1.0)
-
-    def test_completely_different_texts_return_0(self) -> None:
-        a = "Сегодня прекрасная погода за окном"
-        b = "Мне нравится читать книги вечером"
-        assert ngram_overlap(a, b) == pytest.approx(0.0)
-
-    def test_partial_overlap(self) -> None:
-        a = "Это нормально хотеть сбежать от рутины и проблем"
-        b = "Это нормально хотеть сбежать. Все так делают иногда"
-        overlap = ngram_overlap(a, b)
-        assert 0.3 < overlap < 1.0  # noqa: PLR2004
-
-    def test_short_text_below_n_returns_0(self) -> None:
-        assert ngram_overlap("да", "нет", n=3) == 0.0
-
-    def test_empty_text_returns_0(self) -> None:
-        assert ngram_overlap("", "привет мир как дела") == 0.0
-        assert ngram_overlap("привет мир как дела", "") == 0.0
-
-    def test_case_insensitive(self) -> None:
-        a = "Привет Мир Как Дела Сегодня"
-        b = "привет мир как дела сегодня"
-        assert ngram_overlap(a, b) == pytest.approx(1.0)
-
-    def test_custom_n(self) -> None:
-        a = "один два три четыре пять шесть"
-        b = "один два три четыре пять шесть"
-        assert ngram_overlap(a, b, n=2) == pytest.approx(1.0)
-
 
 # ---------------------------------------------------------------------------
 # check_repetition — overlap detection

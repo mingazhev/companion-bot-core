@@ -1488,11 +1488,7 @@ async def cmd_habits(
         log.info("cmd_habits_archive", internal_user_id=str(db_user.id), title=habit.title)
         return
 
-    if args and args.lower() != "help":
-        await message.answer(tr("habit.help", locale), parse_mode=None)
-        return
-
-    if args.lower() == "help":
+    if args:
         await message.answer(tr("habit.help", locale), parse_mode=None)
         return
 

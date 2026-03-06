@@ -961,20 +961,26 @@ async def process_message(
                         if habits:
                             matched = check_habit_match(message_text, habits)
                             if matched is not None:
-                                streak, is_new_best = await checkin_habit(
+                                streak, is_new_best, is_dup = await checkin_habit(
                                     session, matched,
                                 )
-                                HABIT_CHECKIN.inc()
-                                if is_new_best:
+                                if is_dup:
                                     habit_notice = tr(
-                                        "habit.checkin_new_best", ui_locale,
-                                        title=matched.title, streak=streak,
+                                        "habit.already_checked", ui_locale,
+                                        title=matched.title,
                                     )
                                 else:
-                                    habit_notice = tr(
-                                        "habit.checkin", ui_locale,
-                                        title=matched.title, streak=streak,
-                                    )
+                                    HABIT_CHECKIN.inc()
+                                    if is_new_best:
+                                        habit_notice = tr(
+                                            "habit.checkin_new_best", ui_locale,
+                                            title=matched.title, streak=streak,
+                                        )
+                                    else:
+                                        habit_notice = tr(
+                                            "habit.checkin", ui_locale,
+                                            title=matched.title, streak=streak,
+                                        )
                 except Exception:  # noqa: BLE001
                     log.warning("habit_detection_failed", user_id=user_id_str)
 
@@ -1133,7 +1139,7 @@ async def process_message(
             ):
                 reply_text = (
                     f"{reply_text}\n\n"
-                    "(I couldn't find a skill matching that topic to remove.)"
+                    f"{tr('orchestrator.skill_remove_not_found', ui_locale)}"
                 )
 
             # Surface clarification question when behavior detection had

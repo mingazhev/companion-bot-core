@@ -117,7 +117,7 @@ def _stem(word: str, min_len: int = 3) -> str:
     """Return a crude stem by truncating to the first *min_len* characters.
 
     For Russian, this approximates prefix-based stemming well enough for
-    habit matching (e.g., "читать" → "чит", "читала" → "чит").
+    habit matching (e.g., "читать" → "чита", "читала" → "чита").
     """
     return word[:max(min_len, len(word) * 2 // 3)]
 
@@ -194,9 +194,11 @@ async def checkin_habit(
     session: AsyncSession,
     habit: Habit,
     now: datetime | None = None,
-) -> tuple[int, bool]:
-    """Mark a habit as done. Returns (new_streak, is_new_best).
+) -> tuple[int, bool, bool]:
+    """Mark a habit as done. Returns (new_streak, is_new_best, is_duplicate).
 
+    When the habit was already checked in for the current period,
+    ``is_duplicate`` is ``True`` and no DB changes are made.
     Streak resets silently if the gap since last check-in exceeds the
     frequency threshold.
     """
@@ -205,11 +207,14 @@ async def checkin_habit(
     # Check if already checked in today (or this week for weekly)
     if habit.last_checked_at is not None:
         if habit.frequency == "weekly":
-            same_period = (current - habit.last_checked_at) < timedelta(days=1)
+            same_period = (
+                habit.last_checked_at.isocalendar()[1] == current.isocalendar()[1]
+                and habit.last_checked_at.year == current.year
+            )
         else:
             same_period = habit.last_checked_at.date() == current.date()
         if same_period:
-            return habit.current_streak, False
+            return habit.current_streak, False, True
 
     # Calculate effective streak considering gaps
     effective = calculate_streak(habit, current)
@@ -229,7 +234,7 @@ async def checkin_habit(
         streak=new_streak,
         is_new_best=is_new_best,
     )
-    return new_streak, is_new_best
+    return new_streak, is_new_best, False
 
 
 async def get_active_habits(

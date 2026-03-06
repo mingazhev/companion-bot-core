@@ -244,6 +244,10 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
     "orchestrator.intent.tone_change": {"ru": "твой тон", "en": "your tone"},
     "orchestrator.intent.skill_add_prompt": {"ru": "твои навыки", "en": "your skills"},
     "orchestrator.intent.skill_remove": {"ru": "твои навыки", "en": "your skills"},
+    "orchestrator.skill_remove_not_found": {
+        "ru": "(Не нашлось навыка, подходящего под эту тему, чтобы убрать.)",
+        "en": "(I couldn't find a skill matching that topic to remove.)",
+    },
     "orchestrator.confirm_template": {
         "ru": (
             "Ты хочешь изменить {label}. Это изменение средней критичности. "

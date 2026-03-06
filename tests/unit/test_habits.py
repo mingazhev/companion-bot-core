@@ -295,10 +295,11 @@ class TestCheckinHabit:
         habit.best_streak = 0
         habit.last_checked_at = None
 
-        streak, is_new_best = await checkin_habit(session, habit, now)
+        streak, is_new_best, is_dup = await checkin_habit(session, habit, now)
 
         assert streak == 1
         assert is_new_best is True
+        assert is_dup is False
         assert habit.current_streak == 1
         assert habit.best_streak == 1
         assert habit.last_checked_at == now
@@ -315,10 +316,11 @@ class TestCheckinHabit:
         habit.best_streak = 5
         habit.last_checked_at = now - timedelta(hours=20)
 
-        streak, is_new_best = await checkin_habit(session, habit, now)
+        streak, is_new_best, is_dup = await checkin_habit(session, habit, now)
 
         assert streak == 4
         assert is_new_best is False
+        assert is_dup is False
 
     @pytest.mark.asyncio
     async def test_gap_resets_streak(self) -> None:
@@ -332,11 +334,12 @@ class TestCheckinHabit:
         habit.best_streak = 15
         habit.last_checked_at = now - timedelta(days=5)
 
-        streak, is_new_best = await checkin_habit(session, habit, now)
+        streak, is_new_best, is_dup = await checkin_habit(session, habit, now)
 
         # Streak reset to 0 due to gap, then +1
         assert streak == 1
         assert is_new_best is False
+        assert is_dup is False
 
     @pytest.mark.asyncio
     async def test_same_day_no_double_checkin(self) -> None:
@@ -350,11 +353,12 @@ class TestCheckinHabit:
         habit.best_streak = 5
         habit.last_checked_at = now.replace(hour=8, minute=0, second=0)
 
-        streak, is_new_best = await checkin_habit(session, habit, now)
+        streak, is_new_best, is_dup = await checkin_habit(session, habit, now)
 
         # Should return existing streak without incrementing
         assert streak == 5
         assert is_new_best is False
+        assert is_dup is True
         session.flush.assert_not_awaited()
 
 
