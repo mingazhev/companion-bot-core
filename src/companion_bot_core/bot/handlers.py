@@ -1525,8 +1525,6 @@ async def cmd_checkin(
 
     args = (command.args or "").strip().lower() if command else ""
 
-    profile = await get_or_create_profile(db_session, db_user.id)
-
     if args.startswith("on"):
         # Parse time: /checkin on 09:00
         time_str = args[2:].strip()
@@ -1535,40 +1533,58 @@ async def cmd_checkin(
             await message.answer(tr("checkin.invalid_time", locale), parse_mode=None)
             return
 
-        profile.proactive_enabled = True
-        profile.checkin_time = parsed
-        await db_session.flush()
+        try:
+            async with _profile_write_lock(redis, db_session, db_user.id):
+                await acquire_profile_advisory_lock(db_session, db_user.id)
+                profile = await get_or_create_profile(db_session, db_user.id)
+                profile.proactive_enabled = True
+                profile.checkin_time = parsed
+                await db_session.flush()
 
-        from companion_bot_core.proactive.checkin import schedule_checkin
+                from companion_bot_core.proactive.checkin import schedule_checkin
 
-        user_tz = _get_user_timezone(db_user)
-        await schedule_checkin(redis, str(db_user.id), parsed, user_tz)
-        await message.answer(
-            tr("checkin.enabled", locale, time=time_str or parsed.strftime("%H:%M")),
-            parse_mode=None,
-        )
-        log.info("cmd_checkin_on", internal_user_id=str(db_user.id), time=str(parsed))
+                user_tz = _get_user_timezone(db_user)
+                await schedule_checkin(redis, str(db_user.id), parsed, user_tz)
+                await message.answer(
+                    tr("checkin.enabled", locale, time=time_str or parsed.strftime("%H:%M")),
+                    parse_mode=None,
+                )
+                log.info("cmd_checkin_on", internal_user_id=str(db_user.id), time=str(parsed))
+        except _ProfileLockBusyError:
+            await message.answer(tr("profile.lock_busy", locale), parse_mode=None)
         return
 
     if args == "off":
-        profile.proactive_enabled = False
-        profile.checkin_time = None
-        await db_session.flush()
+        try:
+            async with _profile_write_lock(redis, db_session, db_user.id):
+                await acquire_profile_advisory_lock(db_session, db_user.id)
+                profile = await get_or_create_profile(db_session, db_user.id)
+                profile.proactive_enabled = False
+                profile.checkin_time = None
+                await db_session.flush()
 
-        from companion_bot_core.proactive.checkin import unschedule_checkin
+                from companion_bot_core.proactive.checkin import unschedule_checkin
 
-        await unschedule_checkin(redis, str(db_user.id))
-        await message.answer(tr("checkin.disabled", locale), parse_mode=None)
-        log.info("cmd_checkin_off", internal_user_id=str(db_user.id))
+                await unschedule_checkin(redis, str(db_user.id))
+                await message.answer(tr("checkin.disabled", locale), parse_mode=None)
+                log.info("cmd_checkin_off", internal_user_id=str(db_user.id))
+        except _ProfileLockBusyError:
+            await message.answer(tr("profile.lock_busy", locale), parse_mode=None)
         return
 
     if args.startswith("quiet"):
         rest = args[5:].strip()
         if not rest or rest == "off":
-            profile.quiet_hours_start = None
-            profile.quiet_hours_end = None
-            await db_session.flush()
-            await message.answer(tr("checkin.quiet_cleared", locale), parse_mode=None)
+            try:
+                async with _profile_write_lock(redis, db_session, db_user.id):
+                    await acquire_profile_advisory_lock(db_session, db_user.id)
+                    profile = await get_or_create_profile(db_session, db_user.id)
+                    profile.quiet_hours_start = None
+                    profile.quiet_hours_end = None
+                    await db_session.flush()
+                    await message.answer(tr("checkin.quiet_cleared", locale), parse_mode=None)
+            except _ProfileLockBusyError:
+                await message.answer(tr("profile.lock_busy", locale), parse_mode=None)
             return
         parts = rest.split("-", 1)
         if len(parts) != 2:  # noqa: PLR2004
@@ -1579,18 +1595,24 @@ async def cmd_checkin(
         if start is None or end is None:
             await message.answer(tr("checkin.quiet_invalid", locale), parse_mode=None)
             return
-        profile.quiet_hours_start = start
-        profile.quiet_hours_end = end
-        await db_session.flush()
-        await message.answer(
-            tr("checkin.quiet_set", locale,
-               start=start.strftime("%H:%M"), end=end.strftime("%H:%M")),
-            parse_mode=None,
-        )
-        log.info(
-            "cmd_checkin_quiet_set", internal_user_id=str(db_user.id),
-            start=str(start), end=str(end),
-        )
+        try:
+            async with _profile_write_lock(redis, db_session, db_user.id):
+                await acquire_profile_advisory_lock(db_session, db_user.id)
+                profile = await get_or_create_profile(db_session, db_user.id)
+                profile.quiet_hours_start = start
+                profile.quiet_hours_end = end
+                await db_session.flush()
+                await message.answer(
+                    tr("checkin.quiet_set", locale,
+                       start=start.strftime("%H:%M"), end=end.strftime("%H:%M")),
+                    parse_mode=None,
+                )
+                log.info(
+                    "cmd_checkin_quiet_set", internal_user_id=str(db_user.id),
+                    start=str(start), end=str(end),
+                )
+        except _ProfileLockBusyError:
+            await message.answer(tr("profile.lock_busy", locale), parse_mode=None)
         return
 
     # No args or unrecognized — show status
@@ -1598,6 +1620,7 @@ async def cmd_checkin(
         await message.answer(tr("checkin.help", locale), parse_mode=None)
         return
 
+    profile = await get_or_create_profile(db_session, db_user.id)
     if profile.proactive_enabled and profile.checkin_time is not None:
         await message.answer(
             tr("checkin.status_on", locale, time=profile.checkin_time.strftime("%H:%M")),

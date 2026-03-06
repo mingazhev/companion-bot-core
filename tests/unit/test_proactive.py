@@ -361,6 +361,7 @@ class TestCmdCheckin:
         msg = self._make_message()
         user = self._make_user()
         session = AsyncMock()
+        session.info = {}
         redis = AsyncMock()
         redis.zadd = AsyncMock()
         profile = self._make_profile()
@@ -386,6 +387,7 @@ class TestCmdCheckin:
         msg = self._make_message()
         user = self._make_user()
         session = AsyncMock()
+        session.info = {}
         redis = AsyncMock()
         redis.zrem = AsyncMock()
         profile = self._make_profile(proactive_enabled=True, checkin_time=time(9, 0))
@@ -430,6 +432,7 @@ class TestCmdCheckin:
         msg = self._make_message()
         user = self._make_user()
         session = AsyncMock()
+        session.info = {}
         redis = AsyncMock()
         profile = self._make_profile()
 
@@ -451,6 +454,7 @@ class TestCmdCheckin:
         msg = self._make_message()
         user = self._make_user()
         session = AsyncMock()
+        session.info = {}
         redis = AsyncMock()
         profile = self._make_profile()
         profile.quiet_hours_start = time(22, 0)
