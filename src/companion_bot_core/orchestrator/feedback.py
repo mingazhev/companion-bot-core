@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING
 
 from companion_bot_core.db.models import FeedbackEntry
 from companion_bot_core.logging_config import get_logger
+from companion_bot_core.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -125,8 +126,12 @@ async def clear_feedback_pending(redis: Redis, user_id: str) -> None:
 # Sentiment classification (regex-based, no LLM call)
 # ---------------------------------------------------------------------------
 
-# Explicit numeric scores (1-5).
-_NUMERIC_RE = re.compile(r"\b([1-5])\b")
+# Explicit numeric scores (1-5) — match at the start of the message
+# (followed by punctuation or end) or at the end of the message.  This avoids
+# misclassifying "3 слова - ты крутой!" as score 3, while still handling
+# "2, но вообще отлично" and "ставлю 5" correctly.
+_NUMERIC_START_RE = re.compile(r"^\s*([1-5])(?=\s*(?:$|[,;.!?\-—:]))")
+_NUMERIC_END_RE = re.compile(r"\b([1-5])\s*[.!?]*\s*$")
 
 # Positive signal patterns (RU + EN).
 _POSITIVE_PATTERNS = [
@@ -203,8 +208,8 @@ def classify_sentiment(text: str) -> int:
     if not text:
         return 3
 
-    # 1. Explicit numeric score.
-    m = _NUMERIC_RE.search(text)
+    # 1. Explicit numeric score (at start or end of message only).
+    m = _NUMERIC_START_RE.search(text) or _NUMERIC_END_RE.search(text)
     if m:
         return int(m.group(1))
 
@@ -238,12 +243,14 @@ async def save_feedback(
     sentiment_score: int,
     *,
     session_id: UUID | None = None,
+    encryptor: FieldEncryptor | None = None,
 ) -> FeedbackEntry:
     """Persist a feedback entry to the database."""
+    enc = encryptor or NOOP_ENCRYPTOR
     entry = FeedbackEntry(
         user_id=user_id,
         session_id=session_id,
-        raw_text=raw_text,
+        raw_text=enc.encrypt(raw_text),
         sentiment_score=sentiment_score,
     )
     db_session.add(entry)

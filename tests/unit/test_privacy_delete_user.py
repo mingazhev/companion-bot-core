@@ -149,6 +149,7 @@ class TestHardDeleteUser:
         user_id = uuid.uuid4()
         session = _make_session(user_exists=False)
         redis = AsyncMock()
+        redis.keys = AsyncMock(return_value=[])
 
         await hard_delete_user(user_id, session, redis=redis, telegram_user_id=12345)
 

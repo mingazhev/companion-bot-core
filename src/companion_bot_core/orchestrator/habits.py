@@ -128,25 +128,30 @@ def check_habit_match(
 ) -> Habit | None:
     """Check if *text* mentions any of the user's active habits.
 
-    Uses stem-based matching: truncates words to a prefix (min 3 chars) and
-    checks if any stem from the habit title appears in the message text.
+    Uses word-boundary matching for the full title and prefix-based stem
+    matching for individual words (handles conjugation like read/reading).
     Returns the first matched habit, or None.
     """
     lower = text.lower()
-    text_words = lower.split()
-    text_stems = {_stem(w) for w in text_words if len(w) >= 3}  # noqa: PLR2004
+    text_words = [w for w in lower.split() if len(w) >= 3]  # noqa: PLR2004
     for habit in habits:
         title_lower = habit.title.lower()
         title_words = [w for w in title_lower.split() if len(w) >= 3]  # noqa: PLR2004
         if not title_words:
             title_words = title_lower.split()
-        # Check if any title word stem matches any message word stem,
-        # or if the title appears as a substring in the message
-        if title_lower in lower:
+        # Word-boundary check for the full title to avoid matching substrings
+        # (e.g., habit "run" should not match "returned").
+        if re.search(rf"\b{re.escape(title_lower)}\b", lower):
             return habit
-        title_stems = {_stem(w) for w in title_words}
-        if title_stems & text_stems:
-            return habit
+        # Prefix-based stem matching: check if any title word stem is a
+        # prefix of a message word stem or vice versa.  This handles
+        # conjugation (read→reading, читать→читала).
+        for tw in title_words:
+            ts = _stem(tw)
+            for mw in text_words:
+                ms = _stem(mw)
+                if ms.startswith(ts) or ts.startswith(ms):
+                    return habit
     return None
 
 

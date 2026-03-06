@@ -88,17 +88,19 @@ def count_sentences(text: str) -> int:
     return len(split_sentences(text))
 
 
+_FAREWELL_RE = re.compile(
+    r"(?:пока|до\s+свидания|до\s+встречи|удачи|спокойной\s+ночи"
+    r"|хорошего\s+(?:дня|вечера)|bye|goodbye|see\s+you|good\s+night)",
+    re.IGNORECASE,
+)
+
+
 def is_short_farewell(text: str, max_sentences: int = 3) -> bool:
     """Return ``True`` if *text* looks like a short farewell (<=*max_sentences*).
 
     Checks both sentence count and the presence of farewell keywords.
     """
-    farewell_re = re.compile(
-        r"(?:пока|до\s+свидания|до\s+встречи|удачи|спокойной\s+ночи"
-        r"|хорошего\s+(?:дня|вечера)|bye|goodbye|see\s+you|good\s+night)",
-        re.IGNORECASE,
-    )
-    return count_sentences(text) <= max_sentences and bool(farewell_re.search(text))
+    return count_sentences(text) <= max_sentences and bool(_FAREWELL_RE.search(text))
 
 
 # ---------------------------------------------------------------------------

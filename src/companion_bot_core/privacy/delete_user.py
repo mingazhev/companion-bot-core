@@ -123,3 +123,9 @@ async def hard_delete_user(
         await redis.delete(*keys)
         # Remove user from the check-in scheduler sorted set.
         await redis.zrem("checkin:schedule", user_id_str)
+        # Habit reminder keys include a habit_id suffix and cannot be
+        # cleaned with simple prefix concatenation.  User deletion is rare
+        # and the pattern is specific, so KEYS is acceptable here.
+        habit_keys = await redis.keys(f"habit:reminder:{user_id_str}:*")
+        if habit_keys:
+            await redis.delete(*habit_keys)

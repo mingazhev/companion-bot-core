@@ -20,9 +20,11 @@ from companion_bot_core.i18n import normalize_locale, tr
 from companion_bot_core.logging_config import get_logger
 from companion_bot_core.orchestrator.habits import get_active_habits
 from companion_bot_core.proactive.checkin import (
+    claim_checkin,
     get_due_checkins,
     is_in_quiet_hours,
     mark_sent,
+    requeue_checkin,
     reschedule_tomorrow,
     unschedule_checkin,
 )
@@ -99,6 +101,11 @@ async def run_checkin_scheduler(
         try:
             due_user_ids = await get_due_checkins(redis)
             for user_id_str in due_user_ids:
+                # Atomically claim the item via ZREM to prevent
+                # duplicate processing across multiple instances.
+                claimed = await claim_checkin(redis, user_id_str)
+                if not claimed:
+                    continue
                 try:
                     await _process_one_checkin(
                         bot, redis, engine, user_id_str,
@@ -107,6 +114,13 @@ async def run_checkin_scheduler(
                     log.exception(
                         "checkin_process_error", user_id=user_id_str,
                     )
+                    try:
+                        await requeue_checkin(redis, user_id_str)
+                    except Exception:  # noqa: BLE001
+                        log.warning(
+                            "checkin_requeue_failed",
+                            user_id=user_id_str,
+                        )
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
@@ -167,8 +181,9 @@ async def _process_one_checkin(
         await mark_sent(redis, user_id_str)
         log.info("checkin_sent", user_id=user_id_str)
 
-    # Send habit reminders for unchecked habits (once per day per habit)
-    await _send_habit_reminders(bot, redis, engine, user_id_str, telegram_user_id, locale)
+        # Send habit reminders only when check-in succeeded — if the user
+        # blocked the bot, habit sends would also fail.
+        await _send_habit_reminders(bot, redis, engine, user_id_str, telegram_user_id, locale)
 
     # Reschedule for tomorrow regardless of success/failure
     if checkin_time is not None:
@@ -200,9 +215,10 @@ async def _send_habit_reminders(
             # Skip if already checked today
             if habit.last_checked_at is not None and habit.last_checked_at.date() == now.date():
                 continue
-            # Skip weekly habits that aren't due
-            if habit.frequency == "weekly" and habit.last_checked_at is not None:
-                days_since = (now - habit.last_checked_at).days
+            # Skip weekly habits that aren't due yet
+            if habit.frequency == "weekly":
+                reference = habit.last_checked_at or habit.created_at
+                days_since = (now - reference).days
                 if days_since < 7:  # noqa: PLR2004
                     continue
 
@@ -221,6 +237,8 @@ async def _send_habit_reminders(
                     habit_title=habit.title,
                 )
             except Exception:  # noqa: BLE001
+                # Remove guard so retry is possible on next scheduler poll
+                await redis.delete(guard_key)
                 log.warning(
                     "habit_reminder_send_failed",
                     user_id=user_id_str,
