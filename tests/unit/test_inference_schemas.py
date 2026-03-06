@@ -59,7 +59,7 @@ def test_user_context_max_tokens_bounds() -> None:
     with pytest.raises(ValidationError):
         UserContext(user_id="u1", system_prompt="s", max_tokens=0)
     with pytest.raises(ValidationError):
-        UserContext(user_id="u1", system_prompt="s", max_tokens=5000)
+        UserContext(user_id="u1", system_prompt="s", max_tokens=20000)
 
 
 # ---------------------------------------------------------------------------
