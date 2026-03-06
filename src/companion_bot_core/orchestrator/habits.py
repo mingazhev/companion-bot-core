@@ -208,8 +208,7 @@ async def checkin_habit(
     if habit.last_checked_at is not None:
         if habit.frequency == "weekly":
             same_period = (
-                habit.last_checked_at.isocalendar()[1] == current.isocalendar()[1]
-                and habit.last_checked_at.year == current.year
+                habit.last_checked_at.isocalendar()[:2] == current.isocalendar()[:2]
             )
         else:
             same_period = habit.last_checked_at.date() == current.date()
@@ -289,8 +288,7 @@ def format_habits_list(
         if habit.last_checked_at is not None:
             if habit.frequency == "weekly":
                 done_today = (
-                    habit.last_checked_at.isocalendar()[1] == now.isocalendar()[1]
-                    and habit.last_checked_at.year == now.year
+                    habit.last_checked_at.isocalendar()[:2] == now.isocalendar()[:2]
                 )
             else:
                 done_today = habit.last_checked_at.date() == now.date()

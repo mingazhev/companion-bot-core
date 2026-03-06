@@ -51,9 +51,15 @@ def parse_timezone(tz_str: str | None) -> timezone:
         if tz_str.startswith(prefix):
             offset_str = tz_str[len(prefix):]
             try:
+                if ":" in offset_str:
+                    sign = -1 if offset_str.startswith("-") else 1
+                    parts = offset_str.lstrip("+-").split(":")
+                    hours = int(parts[0])
+                    minutes = int(parts[1]) if len(parts) > 1 else 0
+                    return timezone(timedelta(hours=sign * hours, minutes=sign * minutes))
                 hours = int(offset_str)
                 return timezone(timedelta(hours=hours))
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, IndexError):
                 return UTC
     return UTC
 
