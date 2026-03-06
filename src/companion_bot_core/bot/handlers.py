@@ -1551,7 +1551,7 @@ async def cmd_checkin(
                 )
                 log.info("cmd_checkin_on", internal_user_id=str(db_user.id), time=str(parsed))
         except _ProfileLockBusyError:
-            await message.answer(tr("profile.lock_busy", locale), parse_mode=None)
+            await message.answer(tr("profile.lock_in_progress", locale), parse_mode=None)
         return
 
     if args == "off":
@@ -1569,7 +1569,7 @@ async def cmd_checkin(
                 await message.answer(tr("checkin.disabled", locale), parse_mode=None)
                 log.info("cmd_checkin_off", internal_user_id=str(db_user.id))
         except _ProfileLockBusyError:
-            await message.answer(tr("profile.lock_busy", locale), parse_mode=None)
+            await message.answer(tr("profile.lock_in_progress", locale), parse_mode=None)
         return
 
     if args.startswith("quiet"):
@@ -1584,7 +1584,7 @@ async def cmd_checkin(
                     await db_session.flush()
                     await message.answer(tr("checkin.quiet_cleared", locale), parse_mode=None)
             except _ProfileLockBusyError:
-                await message.answer(tr("profile.lock_busy", locale), parse_mode=None)
+                await message.answer(tr("profile.lock_in_progress", locale), parse_mode=None)
             return
         parts = rest.split("-", 1)
         if len(parts) != 2:  # noqa: PLR2004
@@ -1612,7 +1612,7 @@ async def cmd_checkin(
                     start=str(start), end=str(end),
                 )
         except _ProfileLockBusyError:
-            await message.answer(tr("profile.lock_busy", locale), parse_mode=None)
+            await message.answer(tr("profile.lock_in_progress", locale), parse_mode=None)
         return
 
     # No args or unrecognized — show status

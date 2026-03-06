@@ -288,7 +288,10 @@ def format_habits_list(
         # Check if done today
         if habit.last_checked_at is not None:
             if habit.frequency == "weekly":
-                done_today = (now - habit.last_checked_at) < timedelta(days=1)
+                done_today = (
+                    habit.last_checked_at.isocalendar()[1] == now.isocalendar()[1]
+                    and habit.last_checked_at.year == now.year
+                )
             else:
                 done_today = habit.last_checked_at.date() == now.date()
         else:

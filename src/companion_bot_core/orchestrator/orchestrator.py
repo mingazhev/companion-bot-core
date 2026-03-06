@@ -663,21 +663,19 @@ async def process_message(
         # ------------------------------------------------------------------
         try:
             if await is_feedback_pending(redis, user_id_str):
-                try:
-                    score = classify_sentiment(message_text)
-                    await save_feedback(session, user_id, message_text, score)
-                    USER_FEEDBACK_SCORE.observe(score)
-                    log.info(
-                        "feedback_collected",
-                        user_id=user_id_str,
-                        sentiment_score=score,
-                    )
-                    CHAT_LATENCY.labels(model=model).observe(
-                        time.perf_counter() - pipeline_start
-                    )
-                    return tr("feedback.thanks", ui_locale)
-                finally:
-                    await clear_feedback_pending(redis, user_id_str)
+                score = classify_sentiment(message_text)
+                await save_feedback(session, user_id, message_text, score)
+                await clear_feedback_pending(redis, user_id_str)
+                USER_FEEDBACK_SCORE.observe(score)
+                log.info(
+                    "feedback_collected",
+                    user_id=user_id_str,
+                    sentiment_score=score,
+                )
+                CHAT_LATENCY.labels(model=model).observe(
+                    time.perf_counter() - pipeline_start
+                )
+                return tr("feedback.thanks", ui_locale)
         except Exception:  # noqa: BLE001
             log.warning("feedback_processing_failed", user_id=user_id_str)
 
