@@ -18,6 +18,7 @@ from companion_bot_core.db.engine import get_async_session
 from companion_bot_core.db.models import User, UserProfile
 from companion_bot_core.i18n import normalize_locale, tr
 from companion_bot_core.logging_config import get_logger
+from companion_bot_core.orchestrator.habits import get_active_habits
 from companion_bot_core.proactive.checkin import (
     get_due_checkins,
     is_in_quiet_hours,
@@ -160,6 +161,64 @@ async def _process_one_checkin(
         await mark_sent(redis, user_id_str)
         log.info("checkin_sent", user_id=user_id_str)
 
+    # Send habit reminders for unchecked habits (once per day per habit)
+    await _send_habit_reminders(bot, redis, engine, user_id_str, telegram_user_id, locale)
+
     # Reschedule for tomorrow regardless of success/failure
     if checkin_time is not None:
         await reschedule_tomorrow(redis, user_id_str, checkin_time, user_tz)
+
+
+_HABIT_REMINDER_PREFIX = "habit:reminder"
+_HABIT_REMINDER_TTL = 86400  # 1 day
+
+
+async def _send_habit_reminders(
+    bot: Bot,
+    redis: Redis,
+    engine: AsyncEngine,
+    user_id_str: str,
+    telegram_user_id: int,
+    locale: str | None,
+) -> None:
+    """Send reminders for habits not yet checked today (once per day per habit)."""
+    user_uuid = _uuid.UUID(user_id_str)
+    resolved = normalize_locale(locale)
+    now = datetime.now(tz=UTC)
+
+    try:
+        async with get_async_session(engine) as session:
+            habits = await get_active_habits(session, user_uuid)
+
+        for habit in habits:
+            # Skip if already checked today
+            if habit.last_checked_at is not None and habit.last_checked_at.date() == now.date():
+                continue
+            # Skip weekly habits that aren't due
+            if habit.frequency == "weekly" and habit.last_checked_at is not None:
+                days_since = (now - habit.last_checked_at).days
+                if days_since < 7:  # noqa: PLR2004
+                    continue
+
+            # Dedup: only remind once per day per habit
+            guard_key = f"{_HABIT_REMINDER_PREFIX}:{user_id_str}:{habit.id}"
+            already_sent = await redis.set(guard_key, "1", nx=True, ex=_HABIT_REMINDER_TTL)
+            if not already_sent:
+                continue
+
+            text = tr("habit.reminder", resolved, title=habit.title)
+            try:
+                await bot.send_message(chat_id=telegram_user_id, text=text)
+                log.info(
+                    "habit_reminder_sent",
+                    user_id=user_id_str,
+                    habit_title=habit.title,
+                )
+            except Exception:  # noqa: BLE001
+                log.warning(
+                    "habit_reminder_send_failed",
+                    user_id=user_id_str,
+                    habit_title=habit.title,
+                )
+    except Exception:  # noqa: BLE001
+        log.warning("habit_reminders_failed", user_id=user_id_str)

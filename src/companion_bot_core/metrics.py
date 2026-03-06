@@ -215,6 +215,20 @@ BOOKMARK_SAVED: Counter = Counter(
 )
 
 # ---------------------------------------------------------------------------
+# Habits
+# ---------------------------------------------------------------------------
+
+HABIT_CREATED: Counter = Counter(
+    "companion_bot_core_habit_created_total",
+    "Habits created by users.",
+)
+
+HABIT_CHECKIN: Counter = Counter(
+    "companion_bot_core_habit_checkin_total",
+    "Habit check-ins completed by users.",
+)
+
+# ---------------------------------------------------------------------------
 # Internal HTTP service
 # ---------------------------------------------------------------------------
 

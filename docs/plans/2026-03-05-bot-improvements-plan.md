@@ -152,27 +152,30 @@
 **Goal:** Lightweight habit tracker embedded in dialogue.
 
 **Files:**
-- New: `src/companion_bot_core/db/models.py` — add `Habit` model
-- New: `alembic/versions/xxx_add_habits.py`
-- Edit: `src/companion_bot_core/behavior/detector.py` — add `habit_create` and `habit_check` intents
-- Edit: `src/companion_bot_core/orchestrator/orchestrator.py` — handle habit intents
+- Edit: `src/companion_bot_core/db/models.py` — add `Habit` model
+- New: `alembic/versions/0008_add_habits.py`
+- New: `src/companion_bot_core/orchestrator/habits.py` — habit detection, streak logic, formatting
+- Edit: `src/companion_bot_core/orchestrator/orchestrator.py` — handle habit create/check-in in pipeline
 - Edit: `src/companion_bot_core/bot/handlers.py` — add `/habits` command
-- New: `tests/unit/test_habits.py`
+- Edit: `src/companion_bot_core/proactive/scheduler.py` — habit reminder integration
+- Edit: `src/companion_bot_core/metrics.py` — add HABIT_CREATED, HABIT_CHECKIN counters
+- Edit: `src/companion_bot_core/i18n.py` — habit-related translations (RU/EN)
+- New: `tests/unit/test_habits.py` — 58 unit tests
 
 **Implementation:**
-1. `habits` table: id, user_id, title, frequency (daily/weekly), current_streak, best_streak, last_checked_at, created_at, archived_at
-2. New intents in detector: "хочу привычку", "хочу каждый день X" → `habit_create`
-3. Check-in via natural language: "сегодня читала" → `habit_check` (match against existing habits)
-4. `/habits` — list active habits with streaks
-5. Proactive reminder (if 2.2 enabled): "Кстати, сегодня читала?" — only once per day per habit
-6. No gamification, no guilt. Missed → streak resets silently
+- [x] `habits` table: id, user_id, title, frequency (daily/weekly), current_streak, best_streak, last_checked_at, created_at, archived_at
+- [x] New intents via signal-based detection in `orchestrator/habits.py`: "хочу привычку", "хочу каждый день X" → `habit_create`
+- [x] Check-in via natural language: "сегодня читала" → `habit_check` (stem-based match against existing habits)
+- [x] `/habits` — list active habits with streaks; `/habits archive <N>` to soft-delete
+- [x] Proactive reminder (if 2.2 enabled): "Кстати, сегодня читала?" — only once per day per habit via scheduler
+- [x] No gamification, no guilt. Missed → streak resets silently
 
 **Dependencies:** 2.2 (proactive scheduler for reminders).
 
 **Tests:**
-- Unit: streak calculation
-- Unit: intent detection for habit create/check
-- Unit: `/habits` formatting
+- [x] Unit: streak calculation (9 tests: gap detection, daily/weekly thresholds, boundary conditions)
+- [x] Unit: intent detection for habit create/check (17 tests: RU/EN triggers, title extraction, stem matching)
+- [x] Unit: `/habits` formatting (8 tests: empty state, locale, streak bars, checkmarks, multiple habits)
 
 ---
 

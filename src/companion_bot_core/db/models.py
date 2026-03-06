@@ -93,6 +93,9 @@ class User(Base):
     mood_entries: Mapped[list[MoodEntry]] = relationship(
         "MoodEntry", back_populates="user", lazy="raise"
     )
+    habits: Mapped[list[Habit]] = relationship(
+        "Habit", back_populates="user", lazy="raise"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -624,3 +627,73 @@ class MoodEntry(Base):
 
     # --- relationships ---
     user: Mapped[User] = relationship("User", back_populates="mood_entries")
+
+
+# ---------------------------------------------------------------------------
+# habits
+# ---------------------------------------------------------------------------
+
+
+class Habit(Base):
+    """A user-defined habit with streak tracking.
+
+    Users create habits via natural language ("хочу каждый день читать")
+    or browse them with the /habits command.  Streak resets silently on miss.
+    """
+
+    __tablename__ = "habits"
+    __table_args__ = (
+        Index(
+            "ix_habits_user_id_created_at",
+            "user_id",
+            "created_at",
+            postgresql_using="btree",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(
+        String(256),
+        nullable=False,
+        comment="Human-readable habit title",
+    )
+    frequency: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="daily",
+        comment="daily | weekly",
+    )
+    current_streak: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="Current consecutive completion streak",
+    )
+    best_streak: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="All-time best streak",
+    )
+    last_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Timestamp of last check-in for this habit",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Set when the user archives (soft-deletes) the habit",
+    )
+
+    # --- relationships ---
+    user: Mapped[User] = relationship("User", back_populates="habits")

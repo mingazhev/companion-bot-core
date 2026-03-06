@@ -799,8 +799,8 @@ async def test_reset_yes_deletes_child_data_and_starts_onboarding() -> None:
 
     await cb_reset_yes(callback, user, db_session, redis, snapshot_store)
 
-    # 10 child-table DELETEs (original 6 + ConversationSession, FeedbackEntry, Bookmark, MoodEntry)
-    assert db_session.execute.await_count == 10
+    # 11 child-table DELETEs (6 + Session, Feedback, Bookmark, Mood, Habit)
+    assert db_session.execute.await_count == 11
     db_session.flush.assert_awaited_once()
     # Snapshot store Redis pointers cleaned.
     snapshot_store.delete_for_user.assert_awaited_once_with(user.id)

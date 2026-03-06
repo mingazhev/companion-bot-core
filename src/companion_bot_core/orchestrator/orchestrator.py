@@ -55,6 +55,8 @@ from companion_bot_core.metrics import (
     FAREWELL_DETECTED,
     FEEDBACK_ASKED,
     GUARDRAIL_BLOCKS,
+    HABIT_CHECKIN,
+    HABIT_CREATED,
     REPETITION_GUARD_TRIGGERED,
     RESPONSE_LENGTH_SENTENCES,
     SESSION_MESSAGES,
@@ -78,6 +80,15 @@ from companion_bot_core.orchestrator.feedback import (
     mark_feedback_asked,
     save_feedback,
     should_ask_feedback,
+)
+from companion_bot_core.orchestrator.habits import (
+    MAX_ACTIVE_HABITS,
+    check_habit_match,
+    checkin_habit,
+    create_habit,
+    extract_habit_title,
+    get_active_habits,
+    is_habit_create_request,
 )
 from companion_bot_core.orchestrator.mood_journal import emotion_to_mood, save_mood_entry
 from companion_bot_core.orchestrator.response_filter import (
@@ -915,6 +926,58 @@ async def process_message(
                 except Exception:  # noqa: BLE001
                     log.warning("bookmark_save_failed", user_id=user_id_str)
 
+            # Step 4e-habit — Habit detection: create or check-in.
+            habit_notice: str | None = None
+            if action != "auto_apply":
+                try:
+                    if is_habit_create_request(message_text):
+                        title = extract_habit_title(message_text)
+                        if title:
+                            existing = await get_active_habits(session, user_id)
+                            if len(existing) >= MAX_ACTIVE_HABITS:
+                                habit_notice = tr(
+                                    "habit.limit_reached", ui_locale,
+                                    count=len(existing),
+                                )
+                            else:
+                                lower_msg = message_text.lower()
+                                freq = (
+                                    "weekly"
+                                    if "недел" in lower_msg or "week" in lower_msg
+                                    else "daily"
+                                )
+                                freq_label = tr(f"habit.frequency.{freq}", ui_locale)
+                                await create_habit(session, user_id, title, freq)
+                                HABIT_CREATED.inc()
+                                habit_notice = tr(
+                                    "habit.created", ui_locale,
+                                    title=title, frequency=freq_label,
+                                )
+                        else:
+                            habit_notice = tr("habit.title_missing", ui_locale)
+                    else:
+                        # Check if message matches any existing habits
+                        habits = await get_active_habits(session, user_id)
+                        if habits:
+                            matched = check_habit_match(message_text, habits)
+                            if matched is not None:
+                                streak, is_new_best = await checkin_habit(
+                                    session, matched,
+                                )
+                                HABIT_CHECKIN.inc()
+                                if is_new_best:
+                                    habit_notice = tr(
+                                        "habit.checkin_new_best", ui_locale,
+                                        title=matched.title, streak=streak,
+                                    )
+                                else:
+                                    habit_notice = tr(
+                                        "habit.checkin", ui_locale,
+                                        title=matched.title, streak=streak,
+                                    )
+                except Exception:  # noqa: BLE001
+                    log.warning("habit_detection_failed", user_id=user_id_str)
+
             try:
                 async with span("model_adapter.generate_reply", user_id=user_id_str):
                     if on_stream_chunk is not None:
@@ -1126,6 +1189,10 @@ async def process_message(
             # Prepend bookmark notice if a bookmark was saved.
             if bookmark_notice is not None:
                 reply_text = f"{bookmark_notice}\n\n{reply_text}"
+
+            # Prepend habit notice if a habit was created or checked in.
+            if habit_notice is not None:
+                reply_text = f"{habit_notice}\n\n{reply_text}"
 
             # ------------------------------------------------------------------
             # Step 6 — Persist conversation messages

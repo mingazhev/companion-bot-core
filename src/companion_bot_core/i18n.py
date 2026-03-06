@@ -425,6 +425,7 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "/forget <факт> — попросить забыть что-то\n"
             "/mood — дневник настроения\n"
             "/bookmarks — сохранённые моменты из разговоров\n"
+            "/habits — привычки и серии\n"
             "/checkin — ежедневные чекины\n"
             "/settings — настройки (тон, персона, навыки, язык)\n"
             "/personas — выбрать персону\n"
@@ -449,6 +450,7 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
             "/forget <fact> — ask me to forget something\n"
             "/mood — mood journal\n"
             "/bookmarks — saved conversation moments\n"
+            "/habits — habits and streaks\n"
             "/checkin — daily check-ins\n"
             "/settings — settings (tone, persona, skills, language)\n"
             "/personas — choose a persona\n"
@@ -872,6 +874,87 @@ _MESSAGES: dict[str, dict[Locale, str]] = {
     "checkin.quiet_invalid": {
         "ru": "Неверный формат. Используй HH:MM-HH:MM, например: /checkin quiet 22:00-08:00",
         "en": "Invalid format. Use HH:MM-HH:MM, for example: /checkin quiet 22:00-08:00",
+    },
+    # --- Habits ---
+    "habit.created": {
+        "ru": "✅ Привычка создана: {title} ({frequency}). Отслеживай через /habits.",
+        "en": "✅ Habit created: {title} ({frequency}). Track with /habits.",
+    },
+    "habit.checkin": {
+        "ru": "✅ Отлично! {title} — серия: {streak} дн.",
+        "en": "✅ Great! {title} — streak: {streak} days.",
+    },
+    "habit.checkin_new_best": {
+        "ru": "🎉 Новый рекорд! {title} — серия: {streak} дн.!",
+        "en": "🎉 New record! {title} — streak: {streak} days!",
+    },
+    "habit.already_checked": {
+        "ru": "Уже отмечено сегодня: {title}.",
+        "en": "Already checked today: {title}.",
+    },
+    "habit.list_header": {
+        "ru": "🎯 Твои привычки:\n",
+        "en": "🎯 Your habits:\n",
+    },
+    "habit.empty": {
+        "ru": (
+            "У тебя пока нет привычек. "
+            "Напиши «хочу привычку читать» или «new habit read», "
+            "чтобы начать отслеживать."
+        ),
+        "en": (
+            "You don't have any habits yet. "
+            "Say 'new habit read' or 'I want a habit to read' "
+            "to start tracking."
+        ),
+    },
+    "habit.help": {
+        "ru": (
+            "Управление привычками:\n"
+            "/habits — список привычек\n"
+            "/habits archive <номер> — архивировать привычку\n"
+            "Создать: «хочу привычку читать» или «new habit read»\n"
+            "Отметить: просто напиши что ты сделал (например, «сегодня читала»)"
+        ),
+        "en": (
+            "Habit management:\n"
+            "/habits — list habits\n"
+            "/habits archive <number> — archive a habit\n"
+            "Create: 'new habit read' or 'I want a habit to read'\n"
+            "Check in: just say what you did (e.g., 'read today')"
+        ),
+    },
+    "habit.title_missing": {
+        "ru": "Я не понял, какую привычку создать. Попробуй: «хочу привычку читать».",
+        "en": "I couldn't understand the habit title. Try: 'new habit read'.",
+    },
+    "habit.limit_reached": {
+        "ru": "У тебя уже {count} активных привычек. Архивируй ненужные через /habits archive.",
+        "en": "You already have {count} active habits. Archive unused ones with /habits archive.",
+    },
+    "habit.archived": {
+        "ru": "🗂️ Привычка «{title}» архивирована.",
+        "en": "🗂️ Habit '{title}' archived.",
+    },
+    "habit.archive_invalid": {
+        "ru": "Укажи номер привычки для архивации. Пример: /habits archive 1",
+        "en": "Specify the habit number to archive. Example: /habits archive 1",
+    },
+    "habit.archive_not_found": {
+        "ru": "Привычка с таким номером не найдена.",
+        "en": "Habit with that number not found.",
+    },
+    "habit.reminder": {
+        "ru": "Кстати, сегодня {title}?",
+        "en": "By the way, did you {title} today?",
+    },
+    "habit.frequency.daily": {
+        "ru": "ежедневно",
+        "en": "daily",
+    },
+    "habit.frequency.weekly": {
+        "ru": "еженедельно",
+        "en": "weekly",
     },
     # --- Suggestions ---
     "prompt.suggestion_instruction": {

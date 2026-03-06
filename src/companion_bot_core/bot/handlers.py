@@ -44,6 +44,7 @@ from companion_bot_core.db.models import (
     ConversationMessage,
     ConversationSession,
     FeedbackEntry,
+    Habit,
     Job,
     MemoryCompaction,
     MoodEntry,
@@ -932,6 +933,7 @@ async def cb_reset_yes(
         FeedbackEntry,
         MoodEntry,
         Bookmark,
+        Habit,
         ConversationSession,
         ConversationMessage,
         PromptSnapshot,
@@ -1437,6 +1439,74 @@ def _format_bookmark_list(bookmarks: list[Bookmark], locale: str) -> str:
             break
         lines.append(entry)
     return "\n\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
+# /habits — habit tracker
+# --------------------------------------------------------------------------- #
+
+
+@router.message(Command("habits"))
+async def cmd_habits(
+    message: Message,
+    db_user: User,
+    db_session: AsyncSession,
+    command: CommandObject | None = None,
+) -> None:
+    """List active habits or archive one."""
+    if await _guard_private_only(message, db_user):
+        return
+    locale = _user_locale(db_user)
+
+    args = (command.args or "").strip() if command else ""
+
+    # /habits archive <number>
+    if args.lower().startswith("archive"):
+        rest = args[7:].strip()
+        if not rest:
+            await message.answer(tr("habit.archive_invalid", locale), parse_mode=None)
+            return
+        try:
+            idx = int(rest) - 1
+        except ValueError:
+            await message.answer(tr("habit.archive_invalid", locale), parse_mode=None)
+            return
+
+        from companion_bot_core.orchestrator.habits import archive_habit, get_active_habits
+
+        habits = await get_active_habits(db_session, db_user.id)
+        if idx < 0 or idx >= len(habits):
+            await message.answer(tr("habit.archive_not_found", locale), parse_mode=None)
+            return
+
+        habit = habits[idx]
+        await archive_habit(db_session, habit)
+        await message.answer(
+            tr("habit.archived", locale, title=habit.title),
+            parse_mode=None,
+        )
+        log.info("cmd_habits_archive", internal_user_id=str(db_user.id), title=habit.title)
+        return
+
+    if args and args.lower() != "help":
+        await message.answer(tr("habit.help", locale), parse_mode=None)
+        return
+
+    if args.lower() == "help":
+        await message.answer(tr("habit.help", locale), parse_mode=None)
+        return
+
+    from companion_bot_core.orchestrator.habits import format_habits_list, get_active_habits
+
+    habits = await get_active_habits(db_session, db_user.id)
+    if not habits:
+        await message.answer(tr("habit.empty", locale), parse_mode=None)
+        return
+
+    header = tr("habit.list_header", locale)
+    body = format_habits_list(habits, locale=locale)
+    await message.answer(f"{header}{body}", parse_mode=None)
+    log.info("cmd_habits", internal_user_id=str(db_user.id), count=len(habits))
 
 
 # --------------------------------------------------------------------------- #
