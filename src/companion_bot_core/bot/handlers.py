@@ -957,6 +957,10 @@ async def cb_reset_yes(
     await redis.delete(*redis_keys)
     # Remove user from the check-in scheduler sorted set.
     await redis.zrem("checkin:schedule", user_id_str)
+    # Clean up habit reminder dedup keys (include habit_id suffix).
+    habit_keys = await redis.keys(f"habit:reminder:{user_id_str}:*")
+    if habit_keys:
+        await redis.delete(*habit_keys)
 
     # Also clear snapshot store Redis pointers.
     await snapshot_store.delete_for_user(db_user.id)
@@ -1377,6 +1381,7 @@ async def cmd_bookmarks(
     db_user: User,
     db_session: AsyncSession,
     command: CommandObject | None = None,
+    encryptor: FieldEncryptor | None = None,
 ) -> None:
     """List or search saved conversation bookmarks."""
     if await _guard_private_only(message, db_user):
@@ -1392,7 +1397,9 @@ async def cmd_bookmarks(
             return
         from companion_bot_core.orchestrator.bookmarks import search_bookmarks
 
-        results = await search_bookmarks(db_session, db_user.id, query)
+        results = await search_bookmarks(
+            db_session, db_user.id, query, encryptor=encryptor,
+        )
         if not results:
             await message.answer(
                 tr("bookmark.search_empty", locale, query=query),
@@ -1405,7 +1412,7 @@ async def cmd_bookmarks(
 
     from companion_bot_core.orchestrator.bookmarks import get_bookmarks
 
-    bookmarks = await get_bookmarks(db_session, db_user.id)
+    bookmarks = await get_bookmarks(db_session, db_user.id, encryptor=encryptor)
     if not bookmarks:
         await message.answer(tr("bookmark.empty", locale), parse_mode=None)
         return
@@ -2394,6 +2401,7 @@ async def cb_confirm_no(
 
 _ONBOARDING_PREFIX = "onboarding"
 _ONBOARDING_TTL = 600  # 10 minutes
+_VALID_INTERESTS = {"tech", "creative", "learning", "fitness", "skip"}
 
 
 @router.callback_query(F.data.startswith("onboard_interest:"))
@@ -2405,6 +2413,11 @@ async def cb_onboard_interest(
     """Handle interest selection in onboarding step 2."""
     locale = _user_locale(db_user)
     interest = (callback.data or "").split(":", 1)[1]
+
+    if interest not in _VALID_INTERESTS:
+        await callback.answer()
+        return
+
     state_key = f"{_ONBOARDING_PREFIX}:{db_user.id}"
 
     # Store selected interest (skip means no interest)
@@ -2464,6 +2477,11 @@ async def cb_onboard_tone(
     """Handle tone selection in onboarding step 3 — finalize onboarding."""
     locale = _user_locale(db_user)
     tone = (callback.data or "").split(":", 1)[1]
+
+    if tone != "skip" and tone not in VALID_TONES:
+        await callback.answer()
+        return
+
     enc = encryptor or NOOP_ENCRYPTOR
     state_key = f"{_ONBOARDING_PREFIX}:{db_user.id}"
 

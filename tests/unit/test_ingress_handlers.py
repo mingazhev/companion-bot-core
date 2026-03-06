@@ -793,6 +793,7 @@ async def test_reset_yes_deletes_child_data_and_starts_onboarding() -> None:
     redis.getdel = AsyncMock(return_value="1")
     redis.delete = AsyncMock()
     redis.set = AsyncMock()
+    redis.keys = AsyncMock(return_value=[])
     snapshot_store = AsyncMock()
     callback = AsyncMock()
     callback.message = AsyncMock()
