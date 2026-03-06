@@ -1021,7 +1021,7 @@ async def cb_reset_no(
 # --------------------------------------------------------------------------- #
 
 
-@router.message(F.text)
+@router.message(F.text, ~F.text.startswith("/"))
 async def handle_message(
     message: Message,
     db_user: User,
