@@ -307,7 +307,9 @@ class TestCheckinHabit:
     @pytest.mark.asyncio
     async def test_consecutive_checkin_increments_streak(self) -> None:
         session = AsyncMock()
-        now = datetime.now(tz=UTC)
+        # Use a fixed time (noon) so that subtracting 20 hours always
+        # falls on the previous calendar day, avoiding same-period dedup.
+        now = datetime(2026, 3, 7, 12, 0, 0, tzinfo=UTC)
         habit = MagicMock()
         habit.id = uuid.uuid4()
         habit.title = "read"
