@@ -41,6 +41,9 @@ log = get_logger(__name__)
 POLL_INTERVAL_SECONDS = 60
 _RECONCILE_INTERVAL_POLLS = 60  # reconcile every ~60 min
 _SCHEDULE_KEY = "checkin:schedule"
+_SEND_RETRY_PREFIX = "checkin:retries"
+_MAX_SEND_RETRIES = 3
+_SEND_RETRY_TTL = 3600  # 1 hour — auto-cleanup
 
 
 def parse_timezone(tz_str: str | None) -> timezone:
@@ -243,15 +246,39 @@ async def _process_one_checkin(
     sent = await _send_checkin(bot, telegram_user_id, locale)
     if sent:
         await mark_sent(redis, user_id_str)
+        await redis.delete(f"{_SEND_RETRY_PREFIX}:{user_id_str}")
         log.info("checkin_sent", user_id=user_id_str)
 
         # Send habit reminders only when check-in succeeded — if the user
         # blocked the bot, habit sends would also fail.
         await _send_habit_reminders(bot, redis, engine, user_id_str, telegram_user_id, locale)
 
-    # Reschedule for tomorrow regardless of success/failure
-    if checkin_time is not None:
-        await reschedule_tomorrow(redis, user_id_str, checkin_time, user_tz)
+        # Reschedule for tomorrow on success.
+        if checkin_time is not None:
+            await reschedule_tomorrow(redis, user_id_str, checkin_time, user_tz)
+    else:
+        # Transient send failure — retry with short delay up to
+        # _MAX_SEND_RETRIES times before giving up for the day.
+        retry_key = f"{_SEND_RETRY_PREFIX}:{user_id_str}"
+        retries = int(await redis.get(retry_key) or 0)
+        if retries < _MAX_SEND_RETRIES:
+            await redis.set(retry_key, str(retries + 1), ex=_SEND_RETRY_TTL)
+            await requeue_checkin(redis, user_id_str)
+            log.info(
+                "checkin_send_retry",
+                user_id=user_id_str,
+                attempt=retries + 1,
+            )
+        else:
+            await redis.delete(retry_key)
+            log.warning(
+                "checkin_send_retries_exhausted",
+                user_id=user_id_str,
+            )
+            if checkin_time is not None:
+                await reschedule_tomorrow(
+                    redis, user_id_str, checkin_time, user_tz,
+                )
 
 
 _HABIT_REMINDER_PREFIX = "habit:reminder"

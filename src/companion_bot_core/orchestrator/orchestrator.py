@@ -669,21 +669,25 @@ async def process_message(
                 await clear_feedback_pending(redis, user_id_str)
                 score = classify_sentiment(message_text)
                 # Link feedback to the most recent conversation session.
+                # Wrap DB work in a savepoint so a flush failure rolls back
+                # only the savepoint, keeping the outer transaction usable
+                # for the normal message processing fallback path.
                 from sqlalchemy import select  # noqa: PLC0415
 
-                latest_q = (
-                    select(ConversationSession.id)
-                    .where(ConversationSession.user_id == user_id)
-                    .order_by(ConversationSession.ended_at.desc())
-                    .limit(1)
-                )
-                latest_row = await session.execute(latest_q)
-                current_session_id = latest_row.scalar_one_or_none()
-                await save_feedback(
-                    session, user_id, message_text, score,
-                    session_id=current_session_id,
-                    encryptor=encryptor,
-                )
+                async with session.begin_nested():
+                    latest_q = (
+                        select(ConversationSession.id)
+                        .where(ConversationSession.user_id == user_id)
+                        .order_by(ConversationSession.ended_at.desc())
+                        .limit(1)
+                    )
+                    latest_row = await session.execute(latest_q)
+                    current_session_id = latest_row.scalar_one_or_none()
+                    await save_feedback(
+                        session, user_id, message_text, score,
+                        session_id=current_session_id,
+                        encryptor=encryptor,
+                    )
                 USER_FEEDBACK_SCORE.observe(score)
                 log.info(
                     "feedback_collected",
@@ -695,11 +699,9 @@ async def process_message(
                 )
                 return tr("feedback.thanks", ui_locale)
         except Exception:  # noqa: BLE001
+            # Fall through to normal message processing so the user's
+            # message is not silently dropped.
             log.warning("feedback_processing_failed", user_id=user_id_str)
-            CHAT_LATENCY.labels(model=model).observe(
-                time.perf_counter() - pipeline_start
-            )
-            return tr("feedback.thanks", ui_locale)
 
         # ------------------------------------------------------------------
         # Step 1 — Check for a pending medium-risk confirmation dialogue
@@ -956,7 +958,21 @@ async def process_message(
                     if is_habit_create_request(message_text):
                         title = extract_habit_title(message_text)
                         if title:
-                            existing = await get_active_habits(session, user_id)
+                            # Advisory lock serialises habit creation per user,
+                            # preventing phantom-insert races that FOR UPDATE
+                            # alone cannot block.
+                            from sqlalchemy import text as sa_text  # noqa: PLC0415
+
+                            _habit_lock = (
+                                user_id.int & 0x7FFFFFFFFFFFFFFF
+                            ) ^ 0x4841424954  # distinct from session tracker lock
+                            await session.execute(
+                                sa_text("SELECT pg_advisory_xact_lock(:id)"),
+                                {"id": _habit_lock},
+                            )
+                            existing = await get_active_habits(
+                                session, user_id, for_update=True,
+                            )
                             if len(existing) >= MAX_ACTIVE_HABITS:
                                 habit_notice = tr(
                                     "habit.limit_reached", ui_locale,

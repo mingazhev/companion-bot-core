@@ -305,6 +305,12 @@ class TestIdempotency:
         session = _make_session(user_exists=False)
         redis = AsyncMock()
 
+        async def _empty_iter(*_a: Any, **_kw: Any):  # noqa: ANN202
+            return
+            yield  # make this an async generator  # noqa: RET504
+
+        redis.scan_iter = _empty_iter
+
         await hard_delete_user(user_id, session, redis=redis, telegram_user_id=12345)
 
         session.add.assert_not_called()

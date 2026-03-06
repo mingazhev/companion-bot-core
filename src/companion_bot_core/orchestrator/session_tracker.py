@@ -66,7 +66,11 @@ async def track_session(
     result = await db_session.execute(q)
     current = result.scalar_one_or_none()
 
-    if current is not None and current.ended_at >= gap_threshold:
+    if (
+        current is not None
+        and current.ended_at >= gap_threshold
+        and not current.ended_with_farewell
+    ):
         # Continue existing session.
         current.message_count += 1
         current.ended_at = now

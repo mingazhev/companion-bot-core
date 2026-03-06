@@ -55,6 +55,7 @@ _REDIS_KEY_PREFIXES = (
     "session:messages",
     "session:prev_count",
     "checkin:last",
+    "checkin:retries",
     "last_active",
     "suggestion:last",
     "onboarding",

@@ -246,6 +246,7 @@ async def get_active_habits(
     user_id: UUID,
     *,
     limit: int = DEFAULT_LIMIT,
+    for_update: bool = False,
 ) -> list[Habit]:
     """Return active (non-archived) habits for a user, newest first."""
     from sqlalchemy import select
@@ -256,6 +257,8 @@ async def get_active_habits(
         .order_by(Habit.created_at.desc())
         .limit(limit)
     )
+    if for_update:
+        stmt = stmt.with_for_update()
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
