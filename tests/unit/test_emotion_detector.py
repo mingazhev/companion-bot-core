@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 
 from companion_bot_core.behavior.emotion import (
     EMOTION_INSTRUCTIONS,
@@ -182,18 +181,6 @@ class TestEmotionResult:
         result = EmotionResult(mode="venting", confidence=0.8)
         assert result.mode == "venting"
         assert result.confidence == 0.8  # noqa: PLR2004
-
-    def test_rejects_confidence_above_one(self) -> None:
-        with pytest.raises(ValidationError):
-            EmotionResult(mode="neutral", confidence=1.5)
-
-    def test_rejects_confidence_below_zero(self) -> None:
-        with pytest.raises(ValidationError):
-            EmotionResult(mode="neutral", confidence=-0.1)
-
-    def test_rejects_invalid_mode(self) -> None:
-        with pytest.raises(ValidationError):
-            EmotionResult(mode="unknown_mode", confidence=0.5)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------

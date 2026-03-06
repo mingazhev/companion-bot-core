@@ -615,9 +615,9 @@ class MoodEntry(Base):
         comment="Intensity 1 (low) to 5 (high)",
     )
     context_snippet: Mapped[str | None] = mapped_column(
-        String(50),
+        Text,
         nullable=True,
-        comment="First 50 chars of the user message",
+        comment="First 50 chars of the user message (encrypted at rest when enabled)",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

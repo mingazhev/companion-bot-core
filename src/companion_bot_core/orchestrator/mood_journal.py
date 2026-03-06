@@ -20,6 +20,7 @@ from sqlalchemy import select
 
 from companion_bot_core.db.models import MoodEntry
 from companion_bot_core.logging_config import get_logger
+from companion_bot_core.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -63,9 +64,13 @@ async def save_mood_entry(
     mood: Mood,
     intensity: int,
     context_snippet: str | None = None,
+    encryptor: FieldEncryptor | None = None,
 ) -> None:
     """Persist a mood entry to the database."""
+    enc = encryptor or NOOP_ENCRYPTOR
     snippet = context_snippet[:50] if context_snippet else None
+    if snippet is not None:
+        snippet = enc.encrypt(snippet)
     entry = MoodEntry(
         user_id=user_id,
         mood=mood,

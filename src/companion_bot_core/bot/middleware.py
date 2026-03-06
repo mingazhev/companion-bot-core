@@ -27,6 +27,10 @@ from companion_bot_core.bot.users import get_or_create_user
 from companion_bot_core.db.engine import get_async_session
 from companion_bot_core.i18n import tr
 from companion_bot_core.logging_config import bind_correlation_id, get_logger
+from companion_bot_core.proactive.checkin import (
+    extract_deferred_checkin_ops,
+    flush_deferred_checkin_ops,
+)
 from companion_bot_core.prompt.postgres_store import (
     extract_deferred_lock_releases,
     extract_deferred_redis_writes,
@@ -142,6 +146,7 @@ class IngressMiddleware(BaseMiddleware):
         # ------------------------------------------------------------------ #
         deferred_writes: list[tuple[str, str]] = []
         deferred_locks: list[tuple[str, str]] = []
+        deferred_checkin: list[tuple[str, ...]] = []
         try:
             async with get_async_session(self._engine) as session:
                 db_user = await get_or_create_user(session, tg_user.id)
@@ -160,6 +165,7 @@ class IngressMiddleware(BaseMiddleware):
                 # is still open (session.info is inaccessible after close).
                 deferred_writes = extract_deferred_redis_writes(session)
                 deferred_locks = extract_deferred_lock_releases(session)
+                deferred_checkin = extract_deferred_checkin_ops(session)
         except Exception:
             # Handler or DB commit failed — clear the idempotency key so
             # Telegram retries of this update_id are not permanently dropped.
@@ -222,6 +228,24 @@ class IngressMiddleware(BaseMiddleware):
                     "deferred_redis_pointer_cleanup_failed",
                     update_id=update_id,
                 )
+
+        # Flush deferred checkin schedule operations (ZADD/ZREM) after
+        # the DB transaction has committed so that Redis and DB stay in sync.
+        # Retry up to 3 times (matching the snapshot flush pattern) because
+        # the user has already received a success message from the handler.
+        if deferred_checkin:
+            for _checkin_attempt in range(3):
+                try:
+                    await flush_deferred_checkin_ops(deferred_checkin, self._redis)
+                    break
+                except Exception:  # noqa: BLE001
+                    if _checkin_attempt == 2:  # noqa: PLR2004
+                        log.error(
+                            "deferred_checkin_flush_failed",
+                            update_id=update_id,
+                        )
+                    else:
+                        await asyncio.sleep(0.25 * (_checkin_attempt + 1))
 
         # Release profile write locks after the Redis active pointer is in a
         # known-good state: either the pointer was written successfully

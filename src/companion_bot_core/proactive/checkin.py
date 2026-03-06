@@ -19,8 +19,14 @@ from companion_bot_core.logging_config import get_logger
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 log = get_logger(__name__)
+
+# Key used in ``session.info`` to defer Redis checkin schedule writes
+# until after the DB transaction commits — prevents Redis/DB divergence
+# on commit failure.
+_DEFERRED_CHECKIN_OPS_KEY = "_deferred_checkin_ops"
 
 _SCHEDULE_KEY = "checkin:schedule"
 _LAST_SENT_PREFIX = "checkin:last"
@@ -88,6 +94,16 @@ async def unschedule_checkin(redis: Redis, user_id: str) -> None:
     log.info("checkin_unscheduled", user_id=user_id)
 
 
+async def claim_checkin(redis: Redis, user_id: str) -> bool:
+    """Atomically claim a due check-in via ZREM.
+
+    Returns True if the item was removed (claimed), False if another
+    caller already claimed it.  This prevents duplicate processing
+    across concurrent scheduler instances.
+    """
+    return bool(await redis.zrem(_SCHEDULE_KEY, user_id))
+
+
 async def get_due_checkins(redis: Redis) -> list[str]:
     """Return user IDs whose check-in time has arrived.
 
@@ -104,6 +120,15 @@ async def mark_sent(redis: Redis, user_id: str) -> None:
     await redis.set(key, str(int(_time.time())), ex=_LAST_SENT_TTL)
 
 
+async def requeue_checkin(
+    redis: Redis, user_id: str, delay_seconds: int = 300,
+) -> None:
+    """Re-add a user to the schedule with a delay for retry after failure."""
+    retry_at = _time.time() + delay_seconds
+    await redis.zadd(_SCHEDULE_KEY, {user_id: retry_at})
+    log.info("checkin_requeued", user_id=user_id, retry_at=retry_at)
+
+
 async def reschedule_tomorrow(
     redis: Redis,
     user_id: str,
@@ -117,3 +142,62 @@ async def reschedule_tomorrow(
         now.date() + timedelta(days=1), checkin_time, tzinfo=tz,
     )
     await redis.zadd(_SCHEDULE_KEY, {user_id: tomorrow.timestamp()})
+
+
+# ---------------------------------------------------------------------------
+# Deferred checkin schedule operations (for DB-transaction safety)
+# ---------------------------------------------------------------------------
+
+
+def defer_schedule(
+    session: AsyncSession,
+    user_id: str,
+    checkin_time: time,
+    user_tz: timezone | None,
+) -> None:
+    """Queue a schedule_checkin call to execute after the DB transaction commits."""
+    ops: list[tuple[str, ...]] = session.info.setdefault(
+        _DEFERRED_CHECKIN_OPS_KEY, [],
+    )
+    tz_offset = user_tz.utcoffset(None).total_seconds() if user_tz else None
+    ops.append(("schedule", user_id, checkin_time.isoformat(), str(tz_offset)))
+
+
+def defer_unschedule(session: AsyncSession, user_id: str) -> None:
+    """Queue an unschedule_checkin call to execute after the DB transaction commits."""
+    ops: list[tuple[str, ...]] = session.info.setdefault(
+        _DEFERRED_CHECKIN_OPS_KEY, [],
+    )
+    ops.append(("unschedule", user_id))
+
+
+def extract_deferred_checkin_ops(
+    session: AsyncSession,
+) -> list[tuple[str, ...]]:
+    """Pop deferred checkin ops from *session*.info.
+
+    Must be called **inside** the session context manager, before the
+    session is closed.
+    """
+    result: list[tuple[str, ...]] = session.info.pop(
+        _DEFERRED_CHECKIN_OPS_KEY, [],
+    )
+    return result
+
+
+async def flush_deferred_checkin_ops(
+    ops: list[tuple[str, ...]],
+    redis: Redis,
+) -> None:
+    """Execute deferred checkin schedule operations after DB commit."""
+    for op in ops:
+        if op[0] == "schedule":
+            _, user_id, time_iso, tz_offset_str = op
+            checkin_t = time.fromisoformat(time_iso)
+            if tz_offset_str != "None":
+                user_tz = timezone(timedelta(seconds=float(tz_offset_str)))
+            else:
+                user_tz = None
+            await schedule_checkin(redis, user_id, checkin_t, user_tz)
+        elif op[0] == "unschedule":
+            await unschedule_checkin(redis, op[1])

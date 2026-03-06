@@ -21,11 +21,13 @@ from companion_bot_core.logging_config import get_logger
 from companion_bot_core.orchestrator.habits import get_active_habits
 from companion_bot_core.proactive.checkin import (
     claim_checkin,
+    compute_next_fire,
     get_due_checkins,
     is_in_quiet_hours,
     mark_sent,
     requeue_checkin,
     reschedule_tomorrow,
+    schedule_checkin,
     unschedule_checkin,
 )
 
@@ -37,6 +39,8 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 POLL_INTERVAL_SECONDS = 60
+_RECONCILE_INTERVAL_POLLS = 60  # reconcile every ~60 min
+_SCHEDULE_KEY = "checkin:schedule"
 
 
 def parse_timezone(tz_str: str | None) -> timezone:
@@ -85,6 +89,59 @@ async def _send_checkin(
         return False
 
 
+async def reconcile_schedule(redis: Redis, engine: AsyncEngine) -> None:
+    """Re-add or correct DB-enabled check-ins in the Redis sorted set.
+
+    Heals DB/Redis divergence caused by transient Redis failures during
+    deferred check-in flush in the middleware.  Adds missing entries and
+    corrects stale fire times (e.g. when a ``/checkin on`` time change
+    committed to the DB but the deferred Redis ZADD failed).
+    """
+    try:
+        async with get_async_session(engine) as session:
+            q = (
+                select(User.id, UserProfile.checkin_time, User.timezone)
+                .join(UserProfile, User.id == UserProfile.user_id)
+                .where(
+                    UserProfile.proactive_enabled.is_(True),
+                    UserProfile.checkin_time.isnot(None),
+                )
+            )
+            result = await session.execute(q)
+            rows = result.all()
+
+        reconciled = 0
+        for user_id, checkin_time, tz_str in rows:
+            user_id_str = str(user_id)
+            user_tz = parse_timezone(tz_str)
+            score = await redis.zscore(_SCHEDULE_KEY, user_id_str)
+            if score is None:
+                await schedule_checkin(redis, user_id_str, checkin_time, user_tz)
+                reconciled += 1
+            else:
+                # If the score is in the past the check-in is due/overdue.
+                # Leave it for the main polling loop to process — overwriting
+                # it now would push the fire time to tomorrow and skip
+                # today's check-in entirely (e.g. after a scheduler restart).
+                now_ts = datetime.now(tz=UTC).timestamp()
+                if score <= now_ts:
+                    continue
+                # Verify the stored fire time matches the expected next fire.
+                # A mismatch indicates a stale score from a failed deferred
+                # flush after a time change.
+                expected = compute_next_fire(checkin_time, user_tz)
+                # Compare with 120-second tolerance to account for the
+                # scheduler poll interval and execution jitter.
+                if abs(score - expected) > 120:
+                    await schedule_checkin(redis, user_id_str, checkin_time, user_tz)
+                    reconciled += 1
+
+        if reconciled:
+            log.info("checkin_schedule_reconciled", count=reconciled)
+    except Exception:  # noqa: BLE001
+        log.warning("checkin_schedule_reconciliation_failed")
+
+
 async def run_checkin_scheduler(
     bot: Bot,
     redis: Redis,
@@ -97,6 +154,9 @@ async def run_checkin_scheduler(
     """
     log.info("checkin_scheduler_started")
 
+    await reconcile_schedule(redis, engine)
+
+    poll_count = 0
     while True:
         try:
             due_user_ids = await get_due_checkins(redis)
@@ -127,6 +187,10 @@ async def run_checkin_scheduler(
             log.exception("checkin_scheduler_poll_error")
 
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+        poll_count += 1
+        if poll_count % _RECONCILE_INTERVAL_POLLS == 0:
+            await reconcile_schedule(redis, engine)
 
 
 async def _process_one_checkin(
@@ -210,6 +274,8 @@ async def _send_habit_reminders(
     try:
         async with get_async_session(engine) as session:
             habits = await get_active_habits(session, user_uuid)
+            for h in habits:
+                session.expunge(h)
 
         for habit in habits:
             # Skip if already checked today

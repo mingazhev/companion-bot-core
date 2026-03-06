@@ -101,7 +101,7 @@ def _keyword_overlap(a: frozenset[str], b: frozenset[str]) -> float:
         return 0.0
     intersection = len(a & b)
     union = len(a | b)
-    return intersection / union if union > 0 else 0.0
+    return intersection / union
 
 
 # ---------------------------------------------------------------------------

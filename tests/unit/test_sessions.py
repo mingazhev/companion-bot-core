@@ -41,8 +41,17 @@ class FakeAsyncSession:
     def __init__(self) -> None:
         self._store: list[ConversationSession] = []
 
-    async def execute(self, stmt: Any) -> Any:
-        """Simulate SQLAlchemy execute for SELECT ... ORDER BY ended_at DESC LIMIT 1."""
+    async def execute(self, stmt: Any, params: Any = None) -> Any:
+        """Simulate SQLAlchemy execute.
+
+        Handles ``text()`` advisory lock calls (no-op) and
+        ``SELECT ... ORDER BY ended_at DESC LIMIT 1`` for session lookup.
+        """
+        from sqlalchemy import TextClause
+
+        if isinstance(stmt, TextClause):
+            return MagicMock()
+
         user_id = None
         # Extract user_id from the statement's where clause.
         clauses: list[Any] = []

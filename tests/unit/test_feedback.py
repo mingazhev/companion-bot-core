@@ -28,6 +28,7 @@ from companion_bot_core.orchestrator.feedback import (
     mark_feedback_asked,
     save_feedback,
     should_ask_feedback,
+    try_claim_feedback_ask,
 )
 
 # ---------------------------------------------------------------------------
@@ -237,6 +238,42 @@ class TestIsFeedbackPending:
         uid = str(uuid.uuid4())
         await redis.set(f"{_PENDING_PREFIX}:{uid}", "1")
         assert await is_feedback_pending(redis, uid) is True  # type: ignore[arg-type]
+
+
+class TestTryClaimFeedbackAsk:
+    @pytest.mark.asyncio
+    async def test_cleans_up_last_asked_on_pipeline_error(
+        self, redis: fakeredis.FakeRedis,
+    ) -> None:
+        """When the internal Redis pipeline fails after partially executing,
+        both pending and last_asked keys must be cleaned up."""
+        uid = str(uuid.uuid4())
+        # Set counter above threshold so claim proceeds.
+        await redis.set(f"{_SESSION_COUNT_PREFIX}:{uid}", "10")
+
+        # Patch pipeline.execute to simulate partial failure:
+        # The SET for last_asked may have executed before the error.
+        original_pipeline = redis.pipeline
+
+        async def failing_pipeline_execute(self_pipe: object) -> None:
+            # Simulate: last_asked was set before the error
+            await redis.set(f"{_LAST_ASKED_PREFIX}:{uid}", "simulated")
+            msg = "connection lost"
+            raise ConnectionError(msg)
+
+        def patched_pipeline(**kwargs: object) -> object:
+            pipe = original_pipeline(**kwargs)
+            pipe.execute = lambda: failing_pipeline_execute(pipe)
+            return pipe
+
+        redis.pipeline = patched_pipeline  # type: ignore[assignment]
+
+        with pytest.raises(ConnectionError):
+            await try_claim_feedback_ask(redis, uid, session_interval=10)
+
+        # Both keys should be cleaned up.
+        assert await redis.get(f"{_PENDING_PREFIX}:{uid}") is None
+        assert await redis.get(f"{_LAST_ASKED_PREFIX}:{uid}") is None
 
 
 class TestClearFeedbackPending:

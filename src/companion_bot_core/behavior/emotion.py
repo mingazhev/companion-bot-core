@@ -14,9 +14,7 @@ Public surface:
 
 from __future__ import annotations
 
-from typing import Final, Literal
-
-from pydantic import BaseModel, Field
+from typing import Final, Literal, NamedTuple
 
 from companion_bot_core.signals import Signal, compile_signals, score_signals
 
@@ -134,14 +132,11 @@ EMOTION_INSTRUCTIONS: Final[dict[EmotionMode, str]] = {
 # ---------------------------------------------------------------------------
 
 
-class EmotionResult(BaseModel):
+class EmotionResult(NamedTuple):
     """Output of the emotion mode classifier."""
 
-    mode: EmotionMode = Field(description="Detected emotion mode")
-    confidence: float = Field(
-        ge=0.0, le=1.0,
-        description="Confidence score in [0.0, 1.0]",
-    )
+    mode: EmotionMode
+    confidence: float
 
 
 # ---------------------------------------------------------------------------

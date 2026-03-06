@@ -130,24 +130,37 @@ class TestSaveBookmark:
 # ---------------------------------------------------------------------------
 
 
+def _make_mock_bookmark(
+    user_message: str = "msg", bot_response: str = "resp", tag: str | None = None,
+) -> MagicMock:
+    bk = MagicMock()
+    bk.user_message = user_message
+    bk.bot_response = bot_response
+    bk.tag = tag
+    return bk
+
+
 class TestGetBookmarks:
     @pytest.mark.asyncio
     async def test_get_bookmarks_returns_list(self) -> None:
         from companion_bot_core.orchestrator.bookmarks import get_bookmarks
 
         user_id = uuid.uuid4()
+        bk1 = _make_mock_bookmark("msg1", "resp1")
+        bk2 = _make_mock_bookmark("msg2", "resp2")
 
         # Build a mock session that returns bookmarks
         mock_result = MagicMock()
         mock_scalars = MagicMock()
-        mock_scalars.all.return_value = ["bookmark1", "bookmark2"]
+        mock_scalars.all.return_value = [bk1, bk2]
         mock_result.scalars.return_value = mock_scalars
 
         session = AsyncMock()
         session.execute.return_value = mock_result
 
         result = await get_bookmarks(session, user_id)
-        assert result == ["bookmark1", "bookmark2"]
+        assert len(result) == 2
+        assert result[0].user_message == "msg1"
         session.execute.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -178,16 +191,17 @@ class TestSearchBookmarks:
         from companion_bot_core.orchestrator.bookmarks import search_bookmarks
 
         user_id = uuid.uuid4()
+        bk = _make_mock_bookmark("стресс на работе", "Понимаю тебя")
         mock_result = MagicMock()
         mock_scalars = MagicMock()
-        mock_scalars.all.return_value = ["found_bookmark"]
+        mock_scalars.all.return_value = [bk]
         mock_result.scalars.return_value = mock_scalars
 
         session = AsyncMock()
         session.execute.return_value = mock_result
 
         result = await search_bookmarks(session, user_id, "стресс")
-        assert result == ["found_bookmark"]
+        assert len(result) == 1
         session.execute.assert_awaited_once()
 
     @pytest.mark.asyncio

@@ -6,8 +6,9 @@ A production-grade Telegram bot that gives each user a personalized, evolvable A
 
 - aiogram 3.x handles Telegram updates (polling mode)
 - Behavior detector classifies intent on every message (tone change, persona change, safety override)
-- Orchestrator assembles per-user prompt context and calls the model
-- Refinement worker and TTL sweeper run as asyncio background tasks within the same process as the bot (not separate processes). Stopping the bot stops both.
+- Emotion detector classifies user message mood (venting, validation, task, farewell, neutral) and injects mode-specific instructions
+- Orchestrator assembles per-user prompt context and calls the model; includes topic tracking, repetition guard, bookmark detection, habit tracking, session tracking, mood journal, and feedback collection
+- Refinement worker, TTL sweeper, and proactive check-in scheduler run as asyncio background tasks within the same process as the bot (not separate processes). Stopping the bot stops all of them.
 - Refinement worker dequeues jobs, calls a refinement model, and evolves the user's prompt snapshot
 - TTL sweeper runs once at startup (to clear rows that expired while the bot was offline), then every hour
 - Internal aiohttp service exposes `/internal/refine/{user_id}` and `/internal/detect-change` for operator use
@@ -63,6 +64,8 @@ Notable optional variables (see `.env.example` for full list):
 | `LOG_FORMAT` | `json` | Log renderer: `json` for production, `console` for development |
 | `DATABASE_POOL_MIN` | `2` | Minimum connections in the async database pool |
 | `DATABASE_POOL_MAX` | `10` | Maximum connections in the async database pool |
+| `FEEDBACK_SESSION_INTERVAL` | `10` | Ask for feedback every N-th session at farewell |
+| `FEEDBACK_COOLDOWN_DAYS` | `7` | Minimum days between feedback requests per user |
 
 To generate a `FIELD_ENCRYPTION_KEY`:
 
@@ -108,6 +111,14 @@ Seed personas available: `friendly` (default), `professional`, `concise`, and sk
 | `/rollback` | Revert active prompt snapshot to the previous version |
 | `/privacy` | Data retention summary |
 | `/delete_my_data` | Permanently delete all personal data (DB rows + Redis keys including rate limits, pending changes, abuse blocks) |
+| `/mood [week\|month]` | View mood journal timeline (last 7 or 30 days) |
+| `/bookmarks` | List saved conversation moments |
+| `/bookmarks search <query>` | Search bookmarks by text |
+| `/habits` | List active habits with streaks |
+| `/habits archive <N>` | Archive a habit by number |
+| `/checkin on HH:MM` | Enable daily proactive check-in at specified time |
+| `/checkin off` | Disable daily check-in |
+| `/checkin quiet HH:MM-HH:MM` | Set quiet hours for check-ins |
 
 By default, bot communication is in Russian. Users can switch to English with `/set_language en`.
 
@@ -117,6 +128,8 @@ The internal service binds to `127.0.0.1:8080` by default. Do not expose externa
 
 - `POST /internal/refine/{user_id}` — enqueue a refinement job; optional body `{"trigger": "string"}`, returns 202 (or 409 if a refinement is already in progress)
 - `POST /internal/detect-change` — classify intent; required body `{"text": "string"}`, returns DetectionResult JSON
+- `GET /internal/analytics/overview?days=7` — aggregate engagement metrics (active users, session stats, return rate)
+- `GET /internal/analytics/users/{user_id}?days=30` — per-user engagement profile
 - `GET /metrics` — Prometheus metrics
 
 ## Testing
@@ -127,6 +140,7 @@ pytest tests/integration/
 pytest tests/security/
 pytest tests/data/
 pytest tests/load/
+python -m tests.persona.runner  # persona scenario tests (requires LLM)
 ruff check .
 mypy .
 ```

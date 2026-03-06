@@ -324,7 +324,7 @@ async def process_one_job(
                 session, user_id, limit=30, encryptor=enc,
             )
             bookmarks = await get_bookmarks(
-                session, user_id, limit=_MAX_BOOKMARKS,
+                session, user_id, limit=_MAX_BOOKMARKS, encryptor=enc,
             )
         bookmarks_ctx = _format_bookmarks_context(bookmarks)
 

@@ -566,3 +566,135 @@ class TestParseCheckinTime:
         from companion_bot_core.bot.handlers import _parse_checkin_time
 
         assert _parse_checkin_time("23:59") == time(23, 59)
+
+
+# ---------------------------------------------------------------------------
+# reconcile_schedule
+# ---------------------------------------------------------------------------
+
+
+class TestReconcileSchedule:
+    @pytest.mark.asyncio
+    async def test_adds_missing_user_to_schedule(self) -> None:
+        from companion_bot_core.proactive.scheduler import reconcile_schedule
+
+        redis = AsyncMock()
+        redis.zscore = AsyncMock(return_value=None)
+        redis.zadd = AsyncMock()
+
+        user_id = uuid.uuid4()
+        checkin_t = time(9, 0)
+
+        engine = AsyncMock()
+
+        mock_result = MagicMock()
+        mock_result.all.return_value = [(user_id, checkin_t, "UTC+3")]
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        with patch(
+            "companion_bot_core.proactive.scheduler.get_async_session",
+        ) as mock_get_session:
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_session)
+            ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_get_session.return_value = ctx
+
+            await reconcile_schedule(redis, engine)
+
+        redis.zscore.assert_called_once_with("checkin:schedule", str(user_id))
+        redis.zadd.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_skips_user_already_in_schedule_with_correct_time(self) -> None:
+        from companion_bot_core.proactive.scheduler import reconcile_schedule
+
+        redis = AsyncMock()
+        redis.zadd = AsyncMock()
+
+        user_id = uuid.uuid4()
+        engine = AsyncMock()
+
+        # Return a zscore that matches the expected fire time (within tolerance).
+        expected_fire = 1772874000.0
+        redis.zscore = AsyncMock(return_value=expected_fire)
+
+        mock_result = MagicMock()
+        mock_result.all.return_value = [(user_id, time(9, 0), "UTC")]
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        with (
+            patch(
+                "companion_bot_core.proactive.scheduler.get_async_session",
+            ) as mock_get_session,
+            patch(
+                "companion_bot_core.proactive.scheduler.compute_next_fire",
+                return_value=expected_fire,
+            ),
+        ):
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_session)
+            ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_get_session.return_value = ctx
+
+            await reconcile_schedule(redis, engine)
+
+        redis.zscore.assert_called_once()
+        redis.zadd.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_corrects_stale_fire_time(self) -> None:
+        from companion_bot_core.proactive.scheduler import reconcile_schedule
+
+        redis = AsyncMock()
+        redis.zadd = AsyncMock()
+
+        user_id = uuid.uuid4()
+        engine = AsyncMock()
+
+        # Stale score differs from expected by more than 120 seconds.
+        stale_fire = 1772870000.0
+        expected_fire = 1772874000.0
+        redis.zscore = AsyncMock(return_value=stale_fire)
+
+        mock_result = MagicMock()
+        mock_result.all.return_value = [(user_id, time(9, 0), "UTC")]
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        with (
+            patch(
+                "companion_bot_core.proactive.scheduler.get_async_session",
+            ) as mock_get_session,
+            patch(
+                "companion_bot_core.proactive.scheduler.compute_next_fire",
+                return_value=expected_fire,
+            ),
+        ):
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_session)
+            ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_get_session.return_value = ctx
+
+            await reconcile_schedule(redis, engine)
+
+        redis.zscore.assert_called_once()
+        redis.zadd.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_handles_db_error_gracefully(self) -> None:
+        from companion_bot_core.proactive.scheduler import reconcile_schedule
+
+        redis = AsyncMock()
+        engine = AsyncMock()
+
+        with patch(
+            "companion_bot_core.proactive.scheduler.get_async_session",
+            side_effect=RuntimeError("db down"),
+        ):
+            # Should not raise
+            await reconcile_schedule(redis, engine)

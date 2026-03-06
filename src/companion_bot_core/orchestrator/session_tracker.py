@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from companion_bot_core.db.models import ConversationSession
 from companion_bot_core.logging_config import get_logger
@@ -46,12 +46,22 @@ async def track_session(
     now = datetime.now(tz=UTC)
     gap_threshold = now - timedelta(seconds=SESSION_GAP_SECONDS)
 
+    # Transaction-scoped advisory lock on the user_id prevents two
+    # concurrent first messages from both seeing no existing session and
+    # creating duplicate rows.  The lock is released automatically when
+    # the enclosing transaction commits or rolls back.
+    lock_id = user_id.int & 0x7FFFFFFFFFFFFFFF  # fit into bigint
+    await db_session.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": lock_id})
+
     # Find the most recent session for this user.
+    # FOR UPDATE prevents concurrent messages from reading stale
+    # message_count and losing increments.
     q = (
         select(ConversationSession)
         .where(ConversationSession.user_id == user_id)
         .order_by(ConversationSession.ended_at.desc())
         .limit(1)
+        .with_for_update()
     )
     result = await db_session.execute(q)
     current = result.scalar_one_or_none()

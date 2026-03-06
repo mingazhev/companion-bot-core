@@ -13,9 +13,6 @@ so there is no extra Redis read.
 from __future__ import annotations
 
 from companion_bot_core.i18n import normalize_locale, tr
-from companion_bot_core.logging_config import get_logger
-
-log = get_logger(__name__)
 
 # 48 hours in seconds
 WARM_RETURN_GAP_SECONDS = 48 * 3600

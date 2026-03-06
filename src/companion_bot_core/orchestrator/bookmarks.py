@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Final
 
 from companion_bot_core.db.models import Bookmark
 from companion_bot_core.logging_config import get_logger
+from companion_bot_core.privacy.field_encryption import NOOP_ENCRYPTOR, FieldEncryptor
 from companion_bot_core.signals import Signal, compile_signals, score_signals
 
 if TYPE_CHECKING:
@@ -52,6 +53,12 @@ _BOOKMARK_SIGNALS: Final[list[Signal]] = compile_signals(
 # Maximum number of bookmarks returned by get_bookmarks.
 DEFAULT_LIMIT: Final[int] = 20
 
+# Safety cap for encrypted search: maximum rows loaded for client-side filtering.
+_ENCRYPTED_SEARCH_MAX_ROWS: Final[int] = 1000
+
+# Maximum search query length to prevent expensive pattern matching.
+_MAX_SEARCH_QUERY_LEN: Final[int] = 256
+
 
 def is_bookmark_request(text: str) -> bool:
     """Return True if *text* looks like a bookmark request."""
@@ -65,12 +72,14 @@ async def save_bookmark(
     bot_response: str,
     *,
     tag: str | None = None,
+    encryptor: FieldEncryptor | None = None,
 ) -> Bookmark:
     """Persist a new bookmark and return the created row."""
+    enc = encryptor or NOOP_ENCRYPTOR
     bookmark = Bookmark(
         user_id=user_id,
-        user_message=user_message,
-        bot_response=bot_response,
+        user_message=enc.encrypt(user_message),
+        bot_response=enc.encrypt(bot_response),
         tag=tag,
     )
     session.add(bookmark)
@@ -88,10 +97,16 @@ async def get_bookmarks(
     user_id: UUID,
     *,
     limit: int = DEFAULT_LIMIT,
+    encryptor: FieldEncryptor | None = None,
 ) -> list[Bookmark]:
-    """Return the most recent bookmarks for a user, newest first."""
+    """Return the most recent bookmarks for a user, newest first.
+
+    When *encryptor* is provided, ``user_message`` and ``bot_response``
+    are decrypted in-place before returning.
+    """
     from sqlalchemy import select
 
+    enc = encryptor or NOOP_ENCRYPTOR
     stmt = (
         select(Bookmark)
         .where(Bookmark.user_id == user_id)
@@ -99,7 +114,12 @@ async def get_bookmarks(
         .limit(limit)
     )
     result = await session.execute(stmt)
-    return list(result.scalars().all())
+    bookmarks = list(result.scalars().all())
+    for bm in bookmarks:
+        session.expunge(bm)
+        bm.user_message = enc.decrypt_safe(bm.user_message, default=bm.user_message)
+        bm.bot_response = enc.decrypt_safe(bm.bot_response, default=bm.bot_response)
+    return bookmarks
 
 
 async def search_bookmarks(
@@ -108,9 +128,44 @@ async def search_bookmarks(
     query: str,
     *,
     limit: int = DEFAULT_LIMIT,
+    encryptor: FieldEncryptor | None = None,
 ) -> list[Bookmark]:
-    """Search user's bookmarks by text content (case-insensitive LIKE)."""
+    """Search user's bookmarks by text content (case-insensitive).
+
+    When encryption is enabled, content fields are encrypted at rest so
+    DB-level ILIKE cannot match.  In that case we decrypt in-memory and
+    filter.  Tags are never encrypted and always searchable via SQL.
+    """
     from sqlalchemy import or_, select
+
+    enc = encryptor or NOOP_ENCRYPTOR
+    query = query[:_MAX_SEARCH_QUERY_LEN]
+    query_lower = query.lower()
+
+    if enc.is_enabled:
+        # Encrypted content: load user bookmarks (capped), decrypt, filter
+        stmt = (
+            select(Bookmark)
+            .where(Bookmark.user_id == user_id)
+            .order_by(Bookmark.created_at.desc())
+            .limit(_ENCRYPTED_SEARCH_MAX_ROWS)
+        )
+        result = await session.execute(stmt)
+        all_bookmarks = list(result.scalars().all())
+        matches: list[Bookmark] = []
+        for bm in all_bookmarks:
+            session.expunge(bm)
+            bm.user_message = enc.decrypt_safe(bm.user_message, default=bm.user_message)
+            bm.bot_response = enc.decrypt_safe(bm.bot_response, default=bm.bot_response)
+            if (
+                query_lower in bm.user_message.lower()
+                or query_lower in bm.bot_response.lower()
+                or (bm.tag and query_lower in bm.tag.lower())
+            ):
+                matches.append(bm)
+            if len(matches) >= limit:
+                break
+        return matches
 
     escaped = query.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
     pattern = f"%{escaped}%"

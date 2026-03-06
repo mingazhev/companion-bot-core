@@ -958,9 +958,10 @@ async def cb_reset_yes(
     # Remove user from the check-in scheduler sorted set.
     await redis.zrem("checkin:schedule", user_id_str)
     # Clean up habit reminder dedup keys (include habit_id suffix).
-    habit_keys = await redis.keys(f"habit:reminder:{user_id_str}:*")
-    if habit_keys:
-        await redis.delete(*habit_keys)
+    # Use SCAN instead of KEYS to avoid blocking Redis on large keyspaces.
+    habit_pattern = f"habit:reminder:{user_id_str}:*"
+    async for key in redis.scan_iter(match=habit_pattern, count=100):
+        await redis.delete(key)
 
     # Also clear snapshot store Redis pointers.
     await snapshot_store.delete_for_user(db_user.id)
@@ -1297,6 +1298,28 @@ async def handle_message(
                         "stream_final_edit_failed",
                         internal_user_id=user_id_str,
                     )
+                    # If this was the only chunk, the entire reply
+                    # (including any feedback ask) was never delivered.
+                    # Roll back the claim so the pending key doesn't
+                    # consume the user's next message as feedback.
+                    if len(chunks) == 1:
+                        try:
+                            from companion_bot_core.orchestrator.feedback import (
+                                is_feedback_pending,
+                                rollback_feedback_claim,
+                            )
+
+                            if await is_feedback_pending(redis, user_id_str):
+                                await rollback_feedback_claim(redis, user_id_str)
+                                log.info(
+                                    "feedback_claim_rolled_back_on_edit_failure",
+                                    internal_user_id=user_id_str,
+                                )
+                        except Exception:  # noqa: BLE001
+                            log.warning(
+                                "feedback_rollback_on_edit_failure_failed",
+                                internal_user_id=user_id_str,
+                            )
                 # Send overflow chunks as new messages.
                 for idx, chunk in enumerate(chunks[1:], start=1):
                     kb = confirm_kb if idx == len(chunks) - 1 else None
@@ -1317,6 +1340,26 @@ async def handle_message(
                 reply_length=len(reply),
                 error=str(exc),
             )
+            # If the reply contained a feedback ask that the user never
+            # received, roll back the claim so the cooldown doesn't block
+            # re-asking for 7 days.
+            try:
+                from companion_bot_core.orchestrator.feedback import (
+                    is_feedback_pending,
+                    rollback_feedback_claim,
+                )
+
+                if await is_feedback_pending(redis, user_id_str):
+                    await rollback_feedback_claim(redis, user_id_str)
+                    log.info(
+                        "feedback_claim_rolled_back_on_send_failure",
+                        internal_user_id=user_id_str,
+                    )
+            except Exception:  # noqa: BLE001
+                log.warning(
+                    "feedback_rollback_on_send_failure_failed",
+                    internal_user_id=user_id_str,
+                )
 
     elapsed_ms = round((time.perf_counter() - ingress_start) * 1000, 2)
     log.info(
@@ -1366,7 +1409,25 @@ async def cmd_mood(
 
     header = tr("mood.header", locale, days=days)
     timeline = format_mood_timeline(entries, locale=locale)
-    await message.answer(f"{header}{timeline}", parse_mode=None)
+    text = f"{header}{timeline}"
+    # Telegram message limit is 4096 chars; split at line boundaries.
+    tg_limit = 4000
+    if len(text) <= tg_limit:
+        await message.answer(text, parse_mode=None)
+    else:
+        lines = text.split("\n")
+        chunk: list[str] = []
+        chunk_len = 0
+        for line in lines:
+            line_len = len(line) + 1  # +1 for newline
+            if chunk_len + line_len > tg_limit and chunk:
+                await message.answer("\n".join(chunk), parse_mode=None)
+                chunk = []
+                chunk_len = 0
+            chunk.append(line)
+            chunk_len += line_len
+        if chunk:
+            await message.answer("\n".join(chunk), parse_mode=None)
     log.info("cmd_mood", internal_user_id=str(db_user.id), days=days, count=len(entries))
 
 
@@ -1548,10 +1609,10 @@ async def cmd_checkin(
                 profile.checkin_time = parsed
                 await db_session.flush()
 
-                from companion_bot_core.proactive.checkin import schedule_checkin
+                from companion_bot_core.proactive.checkin import defer_schedule
 
                 user_tz = _get_user_timezone(db_user)
-                await schedule_checkin(redis, str(db_user.id), parsed, user_tz)
+                defer_schedule(db_session, str(db_user.id), parsed, user_tz)
                 await message.answer(
                     tr("checkin.enabled", locale, time=time_str or parsed.strftime("%H:%M")),
                     parse_mode=None,
@@ -1570,9 +1631,9 @@ async def cmd_checkin(
                 profile.checkin_time = None
                 await db_session.flush()
 
-                from companion_bot_core.proactive.checkin import unschedule_checkin
+                from companion_bot_core.proactive.checkin import defer_unschedule
 
-                await unschedule_checkin(redis, str(db_user.id))
+                defer_unschedule(db_session, str(db_user.id))
                 await message.answer(tr("checkin.disabled", locale), parse_mode=None)
                 log.info("cmd_checkin_off", internal_user_id=str(db_user.id))
         except _ProfileLockBusyError:
@@ -2269,9 +2330,9 @@ async def cb_skill_toggle(
             await snapshot_store.save(rec, session=db_session)
             await snapshot_store.set_active(db_user.id, rec.id, session=db_session)
 
-            # Refresh the keyboard with updated state
-            snapshot = await snapshot_store.get_active(db_user.id)
-            new_active = snapshot.skill_prompts_json if snapshot else {}
+            # Use the just-saved record (get_active may read stale Redis cache
+            # since set_active defers the Redis pointer write).
+            new_active = rec.skill_prompts_json
             if callback.message is not None:
                 await callback.message.edit_text(  # type: ignore[union-attr]
                     msg,

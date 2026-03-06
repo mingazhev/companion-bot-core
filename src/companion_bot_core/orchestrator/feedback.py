@@ -23,6 +23,7 @@ Redis key schema
 
 from __future__ import annotations
 
+import contextlib
 import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -88,6 +89,67 @@ async def increment_session_counter(redis: Redis, user_id: str) -> None:
     await redis.incr(f"{_SESSION_COUNT_PREFIX}:{user_id}")
 
 
+async def try_claim_feedback_ask(
+    redis: Redis,
+    user_id: str,
+    *,
+    session_interval: int = 10,
+    cooldown_days: int = 7,
+) -> bool:
+    """Atomically check whether feedback should be asked and claim the slot.
+
+    Combines :func:`should_ask_feedback` with :func:`mark_feedback_asked`
+    using ``SET NX`` on the pending key to prevent duplicate prompts when
+    two concurrent farewell messages race through the pipeline.
+
+    Returns ``True`` if feedback should be asked (slot was claimed).
+    """
+    # Cheap checks first (no atomicity needed — false positives just mean
+    # we skip asking, which is fine).
+    last_asked = await redis.get(f"{_LAST_ASKED_PREFIX}:{user_id}")
+    if last_asked is not None:
+        return False
+
+    count_raw = await redis.get(f"{_SESSION_COUNT_PREFIX}:{user_id}")
+    count = int(count_raw) if count_raw is not None else 0
+    if count < session_interval:
+        return False
+
+    # Atomic guard: only one concurrent caller wins.
+    acquired = await redis.set(
+        f"{_PENDING_PREFIX}:{user_id}",
+        "1",
+        ex=_PENDING_TTL,
+        nx=True,
+    )
+    if not acquired:
+        return False
+
+    # Slot claimed — set cooldown and reset counter.
+    # If the pipeline fails, release the pending key so the next message
+    # is not mistakenly consumed as a feedback response.
+    cooldown_seconds = cooldown_days * 86400
+    pipe = redis.pipeline(transaction=False)
+    pipe.set(
+        f"{_LAST_ASKED_PREFIX}:{user_id}",
+        datetime.now(tz=UTC).isoformat(),
+        ex=cooldown_seconds,
+    )
+    pipe.delete(f"{_SESSION_COUNT_PREFIX}:{user_id}")
+    try:
+        await pipe.execute()
+    except Exception:
+        # With transaction=False, last_asked may have been set before the
+        # pipeline error.  Clean up both keys to avoid orphaned cooldown.
+        with contextlib.suppress(Exception):
+            await redis.delete(
+                f"{_PENDING_PREFIX}:{user_id}",
+                f"{_LAST_ASKED_PREFIX}:{user_id}",
+            )
+        raise
+    return True
+
+
 async def mark_feedback_asked(
     redis: Redis,
     user_id: str,
@@ -120,6 +182,26 @@ async def is_feedback_pending(redis: Redis, user_id: str) -> bool:
 async def clear_feedback_pending(redis: Redis, user_id: str) -> None:
     """Clear the pending feedback flag."""
     await redis.delete(f"{_PENDING_PREFIX}:{user_id}")
+
+
+async def rollback_feedback_claim(redis: Redis, user_id: str) -> None:
+    """Undo the side-effects of :func:`try_claim_feedback_ask`.
+
+    Called when the pipeline fails after a feedback ask was successfully
+    claimed but before the reply reached the user.  Removes both the
+    ``feedback:pending`` flag (so the next message is not consumed as a
+    feedback response) and the ``feedback:last_asked`` cooldown key (so the
+    bot can re-ask at the next eligible session instead of silently waiting
+    out the cooldown period).
+
+    The session counter is *not* restored because its previous value is
+    unknown; the only consequence is that the next feedback trigger may be
+    delayed by up to ``session_interval`` sessions.
+    """
+    pipe = redis.pipeline(transaction=True)
+    pipe.delete(f"{_PENDING_PREFIX}:{user_id}")
+    pipe.delete(f"{_LAST_ASKED_PREFIX}:{user_id}")
+    await pipe.execute()
 
 
 # ---------------------------------------------------------------------------

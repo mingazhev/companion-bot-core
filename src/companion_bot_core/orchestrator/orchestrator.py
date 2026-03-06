@@ -40,7 +40,11 @@ from companion_bot_core.behavior.extractor import (
     extract_skill_topic,
     extract_tone,
 )
-from companion_bot_core.db.models import BehaviorChangeEvent, ConversationMessage
+from companion_bot_core.db.models import (
+    BehaviorChangeEvent,
+    ConversationMessage,
+    ConversationSession,
+)
 from companion_bot_core.i18n import normalize_locale, tr
 from companion_bot_core.inference import generate_reply, generate_reply_stream
 from companion_bot_core.inference.circuit_breaker import CircuitBreakerOpen
@@ -77,9 +81,9 @@ from companion_bot_core.orchestrator.feedback import (
     clear_feedback_pending,
     increment_session_counter,
     is_feedback_pending,
-    mark_feedback_asked,
+    rollback_feedback_claim,
     save_feedback,
-    should_ask_feedback,
+    try_claim_feedback_ask,
 )
 from companion_bot_core.orchestrator.habits import (
     MAX_ACTIVE_HABITS,
@@ -342,7 +346,6 @@ async def _add_skill_to_snapshot(
 
     skill_key = topic.lower().replace(" ", "_")
     skill_packs[skill_key] = f"Assist the user with {topic}-related questions and tasks."
-    raw_skills = dict(skill_packs)
 
     components = PromptComponents(
         base_system_template=base_template,
@@ -357,7 +360,7 @@ async def _add_skill_to_snapshot(
         user_id=user_id,
         version=version,
         system_prompt=system_prompt,
-        skill_prompts_json=raw_skills,
+        skill_prompts_json=skill_packs,
         source="behavior_change",
     )
     await snapshot_store.save(record, session=session)
@@ -389,8 +392,6 @@ async def _remove_skill_from_snapshot(
         return False
     del skill_packs[skill_key]
 
-    raw_skills = dict(skill_packs)
-
     components = PromptComponents(
         base_system_template=base_template,
         persona_segment=persona_segment,
@@ -404,7 +405,7 @@ async def _remove_skill_from_snapshot(
         user_id=user_id,
         version=version,
         system_prompt=system_prompt,
-        skill_prompts_json=raw_skills,
+        skill_prompts_json=skill_packs,
         source="behavior_change",
     )
     await snapshot_store.save(record, session=session)
@@ -664,7 +665,22 @@ async def process_message(
         try:
             if await is_feedback_pending(redis, user_id_str):
                 score = classify_sentiment(message_text)
-                await save_feedback(session, user_id, message_text, score)
+                # Link feedback to the most recent conversation session.
+                from sqlalchemy import select  # noqa: PLC0415
+
+                latest_q = (
+                    select(ConversationSession.id)
+                    .where(ConversationSession.user_id == user_id)
+                    .order_by(ConversationSession.ended_at.desc())
+                    .limit(1)
+                )
+                latest_row = await session.execute(latest_q)
+                current_session_id = latest_row.scalar_one_or_none()
+                await save_feedback(
+                    session, user_id, message_text, score,
+                    session_id=current_session_id,
+                    encryptor=encryptor,
+                )
                 await clear_feedback_pending(redis, user_id_str)
                 USER_FEEDBACK_SCORE.observe(score)
                 log.info(
@@ -816,6 +832,7 @@ async def process_message(
         # ------------------------------------------------------------------
         # Wrap Steps 4-7 in try/finally so CHAT_LATENCY is always recorded,
         # even when an unhandled exception occurs mid-pipeline.
+        feedback_claimed = False
         try:
             async with span("prompt_manager.load_context", user_id=user_id_str):
                 user_context = await load_user_context(
@@ -864,6 +881,7 @@ async def process_message(
                         await save_mood_entry(
                             session, user_id, mood, intensity,
                             context_snippet=message_text[:50] if message_text else None,
+                            encryptor=encryptor,
                         )
                 except Exception:  # noqa: BLE001
                     log.warning("mood_save_failed", user_id=user_id_str)
@@ -915,6 +933,7 @@ async def process_message(
                         await save_bookmark(
                             session, user_id,
                             last_user_msg, last_bot_msg,
+                            encryptor=encryptor,
                         )
                         BOOKMARK_SAVED.inc()
                         bookmark_notice = tr("bookmark.saved", ui_locale)
@@ -1026,6 +1045,7 @@ async def process_message(
             # ------------------------------------------------------------------
             # Step 4e — Repetition guard: strip repeated phrases from response
             # ------------------------------------------------------------------
+            recall_usage = None  # track retry token usage for accounting
             recent_assistant = [
                 m.content
                 for m in user_context.conversation_history
@@ -1058,7 +1078,20 @@ async def process_message(
                             retry_reply = await generate_reply(
                                 chat_client, patched_ctx, message_text,
                             )
-                            reply_text = retry_reply.reply
+                            recall_usage = retry_reply.usage
+                            retry_sf = retry_reply.safety_flags
+                            if retry_sf.content_filtered or retry_sf.refusal:
+                                log.warning(
+                                    "repetition_guard_recall_safety_flag",
+                                    user_id=user_id_str,
+                                    content_filtered=retry_sf.content_filtered,
+                                    refusal=retry_sf.refusal,
+                                )
+                                reply_text = tr(
+                                    "orchestrator.safety_fallback", ui_locale,
+                                )
+                            else:
+                                reply_text = retry_reply.reply
                             REPETITION_GUARD_TRIGGERED.labels(action="recall").inc()
                             log.info(
                                 "repetition_guard_recall",
@@ -1078,15 +1111,18 @@ async def process_message(
                 reply_text = f"{notice}\n\n---\n\n{reply_text}"
 
             # Record token usage metrics (noqa: S106 — not a password, metric label)
+            extra_prompt = recall_usage.prompt_tokens if recall_usage else 0
+            extra_completion = recall_usage.completion_tokens if recall_usage else 0
+            extra_total = recall_usage.total_tokens if recall_usage else 0
             TOKENS_USED.labels(
                 provider="openai", model=model, token_type="prompt"  # noqa: S106
-            ).inc(inference_reply.usage.prompt_tokens)
+            ).inc(inference_reply.usage.prompt_tokens + extra_prompt)
             TOKENS_USED.labels(
                 provider="openai", model=model, token_type="completion"  # noqa: S106
-            ).inc(inference_reply.usage.completion_tokens)
+            ).inc(inference_reply.usage.completion_tokens + extra_completion)
             TOKENS_USED.labels(
                 provider="openai", model=model, token_type="total"  # noqa: S106
-            ).inc(inference_reply.usage.total_tokens)
+            ).inc(inference_reply.usage.total_tokens + extra_total)
 
             # ------------------------------------------------------------------
             # Step 5 — Record behavior event for auto-applied changes
@@ -1172,19 +1208,15 @@ async def process_message(
             if detected_farewell:
                 try:
                     await increment_session_counter(redis, user_id_str)
-                    if await should_ask_feedback(
+                    if await try_claim_feedback_ask(
                         redis,
                         user_id_str,
                         session_interval=feedback_session_interval,
                         cooldown_days=feedback_cooldown_days,
                     ):
+                        feedback_claimed = True
                         feedback_ask = tr("feedback.ask", ui_locale)
                         reply_text = f"{reply_text}\n\n{feedback_ask}"
-                        await mark_feedback_asked(
-                            redis,
-                            user_id_str,
-                            cooldown_days=feedback_cooldown_days,
-                        )
                         FEEDBACK_ASKED.inc()
                         log.info("feedback_asked", user_id=user_id_str)
                 except Exception:  # noqa: BLE001
@@ -1207,7 +1239,7 @@ async def process_message(
                     user_id=user_id,
                     user_text=message_text,
                     assistant_text=reply_text,
-                    tokens_used=inference_reply.usage.total_tokens,
+                    tokens_used=inference_reply.usage.total_tokens + extra_total,
                     model=model,
                     ttl_seconds=conversation_ttl_seconds,
                     encryptor=encryptor,
@@ -1231,6 +1263,16 @@ async def process_message(
             )
 
             return reply_text
+        except BaseException:
+            if feedback_claimed:
+                try:
+                    await rollback_feedback_claim(redis, user_id_str)
+                except Exception:  # noqa: BLE001
+                    log.warning(
+                        "feedback_claim_rollback_failed",
+                        user_id=user_id_str,
+                    )
+            raise
         finally:
             CHAT_LATENCY.labels(model=model).observe(
                 time.perf_counter() - pipeline_start
