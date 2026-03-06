@@ -6,6 +6,27 @@
 .env
 .env.local
 .env.*.local
+.env.vps
+.env.production
+.env.staging
+
+# Local secrets/certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.kdbx
+secrets.*
+credentials.*
+
+# Local databases/artifacts
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.tmp
+*.bak
 
 # Python
 __pycache__/
