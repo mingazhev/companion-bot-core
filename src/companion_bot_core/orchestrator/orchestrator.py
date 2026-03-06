@@ -664,6 +664,9 @@ async def process_message(
         # ------------------------------------------------------------------
         try:
             if await is_feedback_pending(redis, user_id_str):
+                # Clear the pending flag immediately so a failure below does
+                # not re-trigger feedback collection on the next message.
+                await clear_feedback_pending(redis, user_id_str)
                 score = classify_sentiment(message_text)
                 # Link feedback to the most recent conversation session.
                 from sqlalchemy import select  # noqa: PLC0415
@@ -681,7 +684,6 @@ async def process_message(
                     session_id=current_session_id,
                     encryptor=encryptor,
                 )
-                await clear_feedback_pending(redis, user_id_str)
                 USER_FEEDBACK_SCORE.observe(score)
                 log.info(
                     "feedback_collected",
@@ -694,6 +696,10 @@ async def process_message(
                 return tr("feedback.thanks", ui_locale)
         except Exception:  # noqa: BLE001
             log.warning("feedback_processing_failed", user_id=user_id_str)
+            CHAT_LATENCY.labels(model=model).observe(
+                time.perf_counter() - pipeline_start
+            )
+            return tr("feedback.thanks", ui_locale)
 
         # ------------------------------------------------------------------
         # Step 1 — Check for a pending medium-risk confirmation dialogue

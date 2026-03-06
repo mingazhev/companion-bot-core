@@ -586,7 +586,12 @@ async def test_delete_my_data_confirm_yes_deletes() -> None:
     redis = AsyncMock()
     redis.getdel = AsyncMock(return_value="1")
     redis.delete = AsyncMock()
-    redis.keys = AsyncMock(return_value=[])
+
+    async def _empty_scan_iter_del(*_a: object, **_kw: object):  # type: ignore[no-untyped-def]
+        return
+        yield  # noqa: RET504 — async generator with no items
+
+    redis.scan_iter = _empty_scan_iter_del
     snapshot_store = AsyncMock()
     callback = AsyncMock()
     callback.message = AsyncMock()
@@ -646,7 +651,12 @@ async def test_delete_my_data_cleans_correct_redis_keys() -> None:
     redis = AsyncMock()
     redis.getdel = AsyncMock(return_value="1")
     redis.delete = AsyncMock()
-    redis.keys = AsyncMock(return_value=[])
+
+    async def _empty_scan_iter_keys(*_a: object, **_kw: object):  # type: ignore[no-untyped-def]
+        return
+        yield  # noqa: RET504 — async generator with no items
+
+    redis.scan_iter = _empty_scan_iter_keys
     snapshot_store = AsyncMock()
     callback = AsyncMock()
     callback.message = AsyncMock()
