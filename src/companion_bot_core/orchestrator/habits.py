@@ -122,6 +122,13 @@ def _stem(word: str, min_len: int = 3) -> str:
     return word[:max(min_len, len(word) * 2 // 3)]
 
 
+_QUESTION_RE = re.compile(
+    r"\?\s*$"
+    r"|^\s*(?:как|что|можно|когда|где|зачем|почему|кто|сколько|какой|какая|какие|какое)\b",
+    re.IGNORECASE,
+)
+
+
 def check_habit_match(
     text: str,
     habits: list[Habit],
@@ -131,7 +138,14 @@ def check_habit_match(
     Uses word-boundary matching for the full title and prefix-based stem
     matching for individual words (handles conjugation like read/reading).
     Returns the first matched habit, or None.
+
+    To prevent false positives, questions are skipped and multi-word
+    habit titles require at least 2 matching words (a single shared stem
+    like "клиент" is not enough to trigger a check-in).
     """
+    if _QUESTION_RE.search(text):
+        return None
+
     lower = text.lower()
     text_words = [w for w in lower.split() if len(w) >= 3]  # noqa: PLR2004
     for habit in habits:
@@ -146,12 +160,21 @@ def check_habit_match(
         # Prefix-based stem matching: check if any title word stem is a
         # prefix of a message word stem or vice versa.  This handles
         # conjugation (read→reading, читать→читала).
+        matched_count = 0
         for tw in title_words:
             ts = _stem(tw)
             for mw in text_words:
                 ms = _stem(mw)
                 if ms.startswith(ts) or ts.startswith(ms):
-                    return habit
+                    matched_count += 1
+                    break
+        # Single-word titles: 1 match suffices.
+        # Multi-word titles (2+): require at least 2 matching words to avoid
+        # false positives from a single shared stem (e.g. "клиентов" matching
+        # habit "делать 3 звонка потенциальным клиентам").
+        min_matches = 1 if len(title_words) <= 1 else 2
+        if matched_count >= min_matches:
+            return habit
     return None
 
 

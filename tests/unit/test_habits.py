@@ -166,6 +166,25 @@ class TestCheckHabitMatch:
         habits = [self._make_habit("go")]
         assert check_habit_match("I need to go", habits) is habits[0]
 
+    def test_question_skipped(self) -> None:
+        """Questions should not trigger check-in."""
+        habits = [self._make_habit("звонить клиентам")]
+        assert check_habit_match("как удержать первых клиентов?", habits) is None
+
+    def test_question_word_at_start_skipped(self) -> None:
+        habits = [self._make_habit("читать")]
+        assert check_habit_match("что читать дальше", habits) is None
+
+    def test_multi_word_title_single_stem_no_match(self) -> None:
+        """A single shared stem should not match a multi-word habit title."""
+        habits = [self._make_habit("делать звонки потенциальным клиентам")]
+        assert check_habit_match("ещё момент -- как удержать первых клиентов", habits) is None
+
+    def test_multi_word_title_two_stems_match(self) -> None:
+        """Two matching stems should be enough for a multi-word title."""
+        habits = [self._make_habit("читать документацию")]
+        assert check_habit_match("сегодня читала документацию", habits) is habits[0]
+
 
 # ---------------------------------------------------------------------------
 # calculate_streak — streak calculation

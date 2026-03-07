@@ -32,23 +32,20 @@ _BOOKMARK_THRESHOLD: Final[float] = 0.4
 _BOOKMARK_SIGNALS: Final[list[Signal]] = compile_signals(
     [
         # Russian
-        (r"\bзапомни\s+(это|его|её|их|момент)\b", 0.9),
-        (r"\bсохрани\s+(это|его|её|их|момент|разговор)\b", 0.9),
+        (r"\bзапомни\s+(это|момент)\b", 0.9),
+        (r"\bсохрани\s+(это|момент|разговор)\b", 0.9),
         (r"\bэто\s+важно\b", 0.8),
         (r"\bзакладк[уа]\b", 0.7),
-        (r"\bне\s+забудь\s+(это|его|её|их|этот\s+момент)\b", 0.8),
-        (r"\bзапиши\s+(это|его|её|их|себе)\b", 0.7),
-        (r"\bзапомни\s+пожалуйста\b", 0.8),
-        (r"\bсохрани\s+пожалуйста\b", 0.8),
-        (r"\bпригодится\b", 0.3),
+        (r"\bне\s+забудь\s+(это|этот\s+момент)\b", 0.8),
+        (r"\bзапиши\s+(это|себе)\b", 0.7),
         # English
         (r"\bremember\s+this\b", 0.9),
-        (r"\bsave\s+(this|it)\b", 0.9),
+        (r"\bsave\s+this\b", 0.9),
         (r"\bthis\s+is\s+important\b", 0.8),
         (r"\bbookmark\s+(this|it)\b", 0.9),
-        (r"\bkeep\s+(this|it)\b", 0.7),
-        (r"\bnote\s+(this|it)\b", 0.7),
-        (r"\bdon'?t\s+forget\s+(this|it)\b", 0.8),
+        (r"\bkeep\s+this\b", 0.7),
+        (r"\bnote\s+this\b", 0.7),
+        (r"\bdon'?t\s+forget\s+this\b", 0.8),
     ],
     dotall=True,
 )
