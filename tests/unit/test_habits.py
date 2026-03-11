@@ -262,6 +262,14 @@ class TestExtractHabitTitleTailStrip:
         assert "чтобы" not in result
         assert "учиться" not in result
 
+    def test_strips_a_to_clause(self) -> None:
+        result = extract_habit_title(
+            "хочу каждый день читать хотя бы по часу, а то всё откладываю"
+        )
+        assert result is not None
+        assert "а то" not in result
+        assert "откладываю" not in result
+
 
 # ---------------------------------------------------------------------------
 # calculate_streak — streak calculation

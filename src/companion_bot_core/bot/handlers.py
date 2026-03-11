@@ -1215,6 +1215,10 @@ async def handle_message(
             )
         except Exception:
             _typing_task.cancel()
+            if _pending_edit is not None and not _pending_edit.done():
+                _pending_edit.cancel()
+                with suppress(asyncio.CancelledError, Exception):  # noqa: S110
+                    await _pending_edit
             log.exception(
                 "process_message_failed",
                 internal_user_id=user_id_str,
@@ -1233,10 +1237,6 @@ async def handle_message(
             raise
         finally:
             _typing_task.cancel()
-            if _pending_edit is not None and not _pending_edit.done():
-                _pending_edit.cancel()
-                with suppress(asyncio.CancelledError, Exception):  # noqa: S110
-                    await _pending_edit
 
         # Silently consume the refinement notice — profile updates are
         # applied without user-facing notifications.  The user can always
