@@ -84,6 +84,13 @@ async def get_or_create_profile(
     return result.scalar_one()
 
 
+_TONE_HINTS: dict[str, str] = {
+    "concise": "Отвечай максимально кратко: 1-3 предложения. Без списков, без вводных слов.",
+    "casual": "Пиши разговорно и коротко, как в переписке: 2-4 предложения.",
+    "playful": "Пиши легко и коротко, как подруга в чате: 2-3 предложения.",
+}
+
+
 def build_persona_segment(
     persona_name: str | None,
     tone: str | None,
@@ -94,6 +101,9 @@ def build_persona_segment(
         parts.append(f"Имя пользователя: {persona_name}")
     if tone:
         parts.append(f"Tone: {tone}")
+        hint = _TONE_HINTS.get(tone)
+        if hint:
+            parts.append(hint)
     return "\n".join(parts)
 
 

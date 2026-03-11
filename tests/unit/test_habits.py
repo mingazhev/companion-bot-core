@@ -205,6 +205,16 @@ class TestCheckHabitMatch:
         habits = [self._make_habit("бегать")]
         assert check_habit_match("пообедал вкусно", habits) is None
 
+    def test_irregular_verb_snyala_matches_snimat(self) -> None:
+        """Irregular verb: 'сняла' should match 'снимать' via stem mapping."""
+        habits = [self._make_habit("снимать рилсы")]
+        assert check_habit_match("сегодня сняла рилс про закат", habits) is habits[0]
+
+    def test_irregular_verb_zanyalas_matches_zanimatsya(self) -> None:
+        """Irregular verb: 'занялась' should match 'заниматься'."""
+        habits = [self._make_habit("заниматься спортом")]
+        assert check_habit_match("занялась спортом утром", habits) is habits[0]
+
 
 # ---------------------------------------------------------------------------
 # extract_habit_title — frequency stripping

@@ -103,6 +103,18 @@ _RU_VERB_PREFIXES = (
     "об", "от", "по", "со", "уд", "у", "с",
 )
 
+# Irregular Russian verb stems: maps alternative stem prefixes to base stems.
+# Used when prefix stripping alone can't relate conjugated forms to the
+# infinitive (e.g., "сняла" → stem "сня" vs "снимать" → stem "сним").
+_IRREGULAR_STEMS: dict[str, str] = {
+    "сня": "сним",   # снять/сняла ↔ снимать
+    "взя": "бер",    # взять/взяла ↔ брать/берёт
+    "нача": "начин", # начать/начала ↔ начинать
+    "поня": "поним", # понять/поняла ↔ понимать
+    "приня": "приним",  # принять ↔ принимать
+    "заня": "заним", # заняться ↔ заниматься
+}
+
 # Max active habits per user
 MAX_ACTIVE_HABITS: Final[int] = 20
 DEFAULT_LIMIT: Final[int] = 20
@@ -149,21 +161,39 @@ def _strip_prefix(word: str) -> str | None:
     return None
 
 
+def _irregular_alternatives(stem: str) -> set[str]:
+    """Return alternative stems for irregular verbs (both directions)."""
+    alts: set[str] = set()
+    for irregular, base in _IRREGULAR_STEMS.items():
+        if stem.startswith(irregular):
+            alts.add(base)
+        if stem.startswith(base):
+            alts.add(irregular)
+    return alts
+
+
 def _stems_match(
     ts: str, ms: str,
     ts_stripped: str | None, ms_stripped: str | None,
 ) -> bool:
-    """Check if two stems match, also considering prefix-stripped variants."""
-    if ms.startswith(ts) or ts.startswith(ms):
-        return True
-    # Try with prefix-stripped forms (e.g. "прочитал" stripped → "читал")
-    if ts_stripped and (ms.startswith(ts_stripped) or ts_stripped.startswith(ms)):
-        return True
-    if ms_stripped and (ms_stripped.startswith(ts) or ts.startswith(ms_stripped)):
-        return True
-    return bool(
-        ts_stripped and ms_stripped
-        and (ms_stripped.startswith(ts_stripped) or ts_stripped.startswith(ms_stripped))
+    """Check if two stems match, also considering prefix-stripped and irregular variants."""
+    # Collect all candidate stems for each side
+    t_candidates = {ts}
+    m_candidates = {ms}
+    if ts_stripped:
+        t_candidates.add(ts_stripped)
+    if ms_stripped:
+        m_candidates.add(ms_stripped)
+    # Add irregular verb alternatives (both directions)
+    for s in list(t_candidates):
+        t_candidates |= _irregular_alternatives(s)
+    for s in list(m_candidates):
+        m_candidates |= _irregular_alternatives(s)
+
+    return any(
+        mc.startswith(tc) or tc.startswith(mc)
+        for tc in t_candidates
+        for mc in m_candidates
     )
 
 
