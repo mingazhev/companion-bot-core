@@ -88,6 +88,21 @@ _STRIP_WORDS = re.compile(
     re.IGNORECASE,
 )
 
+# Frequency phrases to strip from extracted titles
+_STRIP_FREQUENCY = re.compile(
+    r"\s*\b(каждый\s+день|каждую\s+неделю|ежедневно|еженедельно"
+    r"|every\s+day|every\s+week|daily|weekly)\b\s*",
+    re.IGNORECASE,
+)
+
+# Common Russian perfectivizing prefixes (used to match prefixed verb forms
+# like "прочитал" → "читал" against base forms like "читать").
+_RU_VERB_PREFIXES = (
+    "пере", "пред", "при", "про", "под", "над", "рас", "раз",
+    "вос", "воз", "обо", "ото", "вы", "до", "за", "из", "на",
+    "об", "от", "по", "со", "уд", "у", "с",
+)
+
 # Max active habits per user
 MAX_ACTIVE_HABITS: Final[int] = 20
 DEFAULT_LIMIT: Final[int] = 20
@@ -108,6 +123,7 @@ def extract_habit_title(text: str) -> str | None:
         if match:
             title = match.group(1).strip().rstrip(".,!?;:")
             title = _STRIP_WORDS.sub("", title).strip()
+            title = _STRIP_FREQUENCY.sub(" ", title).strip()
             if title and len(title) <= 256:  # noqa: PLR2004
                 return title
     return None
@@ -120,6 +136,35 @@ def _stem(word: str, min_len: int = 3) -> str:
     habit matching (e.g., "читать" → "чита", "читала" → "чита").
     """
     return word[:max(min_len, len(word) * 2 // 3)]
+
+
+def _strip_prefix(word: str) -> str | None:
+    """Strip a common Russian verb prefix if the remainder is 3+ chars.
+
+    Returns the stripped form or None if no prefix matched.
+    """
+    for prefix in _RU_VERB_PREFIXES:
+        if word.startswith(prefix) and len(word) - len(prefix) >= 3:  # noqa: PLR2004
+            return word[len(prefix):]
+    return None
+
+
+def _stems_match(
+    ts: str, ms: str,
+    ts_stripped: str | None, ms_stripped: str | None,
+) -> bool:
+    """Check if two stems match, also considering prefix-stripped variants."""
+    if ms.startswith(ts) or ts.startswith(ms):
+        return True
+    # Try with prefix-stripped forms (e.g. "прочитал" stripped → "читал")
+    if ts_stripped and (ms.startswith(ts_stripped) or ts_stripped.startswith(ms)):
+        return True
+    if ms_stripped and (ms_stripped.startswith(ts) or ts.startswith(ms_stripped)):
+        return True
+    return bool(
+        ts_stripped and ms_stripped
+        and (ms_stripped.startswith(ts_stripped) or ts_stripped.startswith(ms_stripped))
+    )
 
 
 _QUESTION_RE = re.compile(
@@ -159,13 +204,18 @@ def check_habit_match(
             return habit
         # Prefix-based stem matching: check if any title word stem is a
         # prefix of a message word stem or vice versa.  This handles
-        # conjugation (read→reading, читать→читала).
+        # conjugation (read→reading, читать→читала) and Russian
+        # perfectivizing prefixes (прочитал→читать, написала→писать).
         matched_count = 0
         for tw in title_words:
             ts = _stem(tw)
+            tw_stripped = _strip_prefix(tw)
+            ts_stripped = _stem(tw_stripped) if tw_stripped else None
             for mw in text_words:
                 ms = _stem(mw)
-                if ms.startswith(ts) or ts.startswith(ms):
+                mw_stripped = _strip_prefix(mw)
+                ms_stripped = _stem(mw_stripped) if mw_stripped else None
+                if _stems_match(ts, ms, ts_stripped, ms_stripped):
                     matched_count += 1
                     break
         # Single-word titles: 1 match suffices.

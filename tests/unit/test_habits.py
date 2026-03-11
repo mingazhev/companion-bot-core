@@ -185,6 +185,45 @@ class TestCheckHabitMatch:
         habits = [self._make_habit("читать документацию")]
         assert check_habit_match("сегодня читала документацию", habits) is habits[0]
 
+    def test_prefixed_verb_prochital_matches_chitat(self) -> None:
+        """Russian prefixed verb 'прочитал' should match 'читать'."""
+        habits = [self._make_habit("читать")]
+        assert check_habit_match("сегодня прочитал статью", habits) is habits[0]
+
+    def test_prefixed_verb_napisala_matches_pisat(self) -> None:
+        """Russian prefixed verb 'написала' should match 'писать'."""
+        habits = [self._make_habit("писать")]
+        assert check_habit_match("написала 30 минут", habits) is habits[0]
+
+    def test_prefixed_verb_multi_word_title(self) -> None:
+        """Prefixed verb in multi-word title: 'прочитал документацию'."""
+        habits = [self._make_habit("читать документацию")]
+        assert check_habit_match("прочитал документацию по React", habits) is habits[0]
+
+    def test_prefix_strip_no_false_positive(self) -> None:
+        """Prefix stripping should not cause false positives on short words."""
+        habits = [self._make_habit("бегать")]
+        assert check_habit_match("пообедал вкусно", habits) is None
+
+
+# ---------------------------------------------------------------------------
+# extract_habit_title — frequency stripping
+# ---------------------------------------------------------------------------
+
+
+class TestExtractHabitTitleFrequencyStrip:
+    def test_strips_kazhdyj_den(self) -> None:
+        result = extract_habit_title("хочу привычку читать документацию каждый день")
+        assert result == "читать документацию"
+
+    def test_strips_every_day_en(self) -> None:
+        result = extract_habit_title("create habit exercise every day")
+        assert result == "exercise"
+
+    def test_keeps_title_without_frequency(self) -> None:
+        result = extract_habit_title("привычка: пить воду")
+        assert result == "пить воду"
+
 
 # ---------------------------------------------------------------------------
 # calculate_streak — streak calculation
