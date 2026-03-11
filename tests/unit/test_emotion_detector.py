@@ -34,6 +34,10 @@ class TestVentingDetection:
             "Чувствую себя самозванцем на работе",
             "Я ничего не умею, все знают больше меня",
             "Кажется я плохая мама",
+            "Просто скучно, сижу одна дома",
+            "Давит что я ничего не делаю для себя",
+            "Скучаю по старой жизни",
+            "Надоело всё, хочу перемен",
         ],
     )
     def test_detects_venting(self, text: str) -> None:
@@ -223,6 +227,7 @@ class TestThresholdBoundary:
         [
             "Мне плохо видно экран",  # плохо = 0.3, below 0.35 threshold
             "Пойду в магазин",  # пойду = 0.3, below 0.35 threshold
+            "Мне скучно ждать автобус",  # скучно = 0.3, below threshold
         ],
     )
     def test_below_threshold_is_neutral(self, text: str) -> None:

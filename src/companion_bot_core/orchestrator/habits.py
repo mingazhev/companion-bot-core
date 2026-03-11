@@ -95,6 +95,20 @@ _STRIP_FREQUENCY = re.compile(
     re.IGNORECASE,
 )
 
+# Trailing noise phrases to strip from extracted titles
+# Catches "— заведи привычку", ", типа как привычка", "чтобы самому учиться ..."
+_STRIP_TAIL = re.compile(
+    r"\s*[,—–\-]\s*(заведи\s+привычку|типа\s+как\s+привычк\w*"
+    r"|чтобы\s+.+)$",
+    re.IGNORECASE,
+)
+
+# Standalone trailing filler phrases
+_STRIP_FILLER = re.compile(
+    r",?\s*типа\s+как\s+привычк\w*\s*$",
+    re.IGNORECASE,
+)
+
 # Common Russian perfectivizing prefixes (used to match prefixed verb forms
 # like "прочитал" → "читал" against base forms like "читать").
 _RU_VERB_PREFIXES = (
@@ -136,6 +150,8 @@ def extract_habit_title(text: str) -> str | None:
             title = match.group(1).strip().rstrip(".,!?;:")
             title = _STRIP_WORDS.sub("", title).strip()
             title = _STRIP_FREQUENCY.sub(" ", title).strip()
+            title = _STRIP_TAIL.sub("", title).strip()
+            title = _STRIP_FILLER.sub("", title).strip()
             if title and len(title) <= 256:  # noqa: PLR2004
                 return title
     return None

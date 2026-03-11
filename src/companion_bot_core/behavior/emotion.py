@@ -67,6 +67,14 @@ _VENTING_SIGNALS = compile_signals([
     (r"\bплохой\s+(отец|папа)\b", 0.5),
     (r"\bникчём\w*\b", 0.5),
     (r"\bничтожн\w*\b", 0.5),
+    # Situational venting (loneliness, boredom, pressure)
+    (r"\bскучно\b", 0.3),
+    (r"\bскучаю\b", 0.4),
+    (r"\bдавит\b", 0.4),
+    (r"\bнадоело\b", 0.5),
+    (r"\bсижу\s+одн[аой]\b", 0.5),
+    (r"\bне\s+для\s+себя\b", 0.4),
+    (r"\bничего\s+не\s+дела\w+\s+для\s+себя\b", 0.5),
 ])
 
 _VALIDATION_SIGNALS = compile_signals([

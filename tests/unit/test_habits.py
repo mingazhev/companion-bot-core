@@ -235,6 +235,34 @@ class TestExtractHabitTitleFrequencyStrip:
         assert result == "пить воду"
 
 
+class TestExtractHabitTitleTailStrip:
+    """Verify trailing noise phrases are stripped from titles."""
+
+    def test_strips_tipa_kak_privychka(self) -> None:
+        result = extract_habit_title(
+            "хочу каждый день снимать по одному рилсу, типа как привычка"
+        )
+        assert result is not None
+        assert "типа" not in result
+        assert "привычка" not in result
+
+    def test_strips_zavedi_privychku(self) -> None:
+        result = extract_habit_title(
+            "хочу каждый день делать 5 cold звонков — заведи привычку"
+        )
+        assert result is not None
+        assert "заведи" not in result
+        assert "привычку" not in result
+
+    def test_strips_chtoby_clause(self) -> None:
+        result = extract_habit_title(
+            "хочу каждый день ревьюить 1 PR коллег — чтобы самому учиться читать код"
+        )
+        assert result is not None
+        assert "чтобы" not in result
+        assert "учиться" not in result
+
+
 # ---------------------------------------------------------------------------
 # calculate_streak — streak calculation
 # ---------------------------------------------------------------------------
