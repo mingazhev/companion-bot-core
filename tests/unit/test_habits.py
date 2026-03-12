@@ -93,6 +93,18 @@ class TestIsHabitCreateRequest:
     def test_unrelated_message_not_detected(self) -> None:
         assert is_habit_create_request("я сегодня читала книгу") is False
 
+    def test_help_request_not_detected(self) -> None:
+        """'хочу каждую неделю X. Помоги составить' is a help request, not a habit."""
+        text = (
+            "хочу каждую неделю анализировать финансовые показатели "
+            "по каждой точке. Помоги составить шаблон отчёта"
+        )
+        assert is_habit_create_request(text) is False
+
+    def test_help_request_with_explicit_privychku(self) -> None:
+        """'помоги заведи привычку' — explicit 'привычку' overrides help-request block."""
+        assert is_habit_create_request("помоги заведи привычку медитировать") is True
+
 
 # ---------------------------------------------------------------------------
 # extract_habit_title — title extraction
@@ -232,6 +244,21 @@ class TestCheckHabitMatch:
         habits = [self._make_habit("заниматься спортом")]
         assert check_habit_match("занялась спортом утром", habits) is habits[0]
 
+    def test_request_message_no_checkin(self) -> None:
+        """'давай чеклист для ревью' is a request, not a check-in report."""
+        habits = [self._make_habit("ревьюить 1 PR")]
+        assert check_habit_match("давай чеклист для ревью, пригодится", habits) is None
+
+    def test_pomogi_no_checkin(self) -> None:
+        """'помоги с ревью' is a request, not a check-in."""
+        habits = [self._make_habit("ревьюить 1 PR")]
+        assert check_habit_match("помоги с ревью кода", habits) is None
+
+    def test_filler_words_no_false_checkin(self) -> None:
+        """Common words like 'мне'/'это' should not trigger check-in."""
+        habits = [self._make_habit("медитировать каждое утро, мне кажется это поможет")]
+        assert check_habit_match("мне стало немного легче от этого", habits) is None
+
 
 # ---------------------------------------------------------------------------
 # extract_habit_title — frequency stripping
@@ -295,6 +322,38 @@ class TestExtractHabitTitleTailStrip:
         assert result is not None
         assert "а то" not in result
         assert "откладываю" not in result
+
+    def test_strips_no_clause(self) -> None:
+        result = extract_habit_title(
+            "хочу каждый день медитировать но постоянно отвлекаюсь"
+        )
+        assert result is not None
+        assert "но" not in result
+        assert "отвлекаюсь" not in result
+        assert "медитировать" in result
+
+    def test_strips_mne_kazhetsya(self) -> None:
+        result = extract_habit_title(
+            "хочу привычку медитировать, мне кажется это поможет с тревожностью"
+        )
+        assert result is not None
+        assert "мне кажется" not in result
+        assert "тревожностью" not in result
+        assert "медитировать" in result
+
+    def test_strips_sentence_boundary(self) -> None:
+        result = extract_habit_title(
+            "хочу каждую неделю анализировать показатели. Помоги составить шаблон"
+        )
+        assert result is not None
+        assert "Помоги" not in result
+        assert "анализировать" in result
+
+    def test_strips_kazhdoe_utro_frequency(self) -> None:
+        result = extract_habit_title(
+            "заведи привычку медитировать каждое утро"
+        )
+        assert result == "медитировать"
 
 
 # ---------------------------------------------------------------------------

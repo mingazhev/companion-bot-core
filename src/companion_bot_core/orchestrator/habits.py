@@ -96,8 +96,8 @@ _STRIP_WORDS = re.compile(
 
 # Frequency phrases to strip from extracted titles
 _STRIP_FREQUENCY = re.compile(
-    r"\s*\b(каждый\s+день|каждую\s+неделю|ежедневно|еженедельно"
-    r"|every\s+day|every\s+week|daily|weekly)\b\s*",
+    r"\s*\b(каждый\s+день|каждое\s+утро|каждую\s+неделю|ежедневно|еженедельно"
+    r"|every\s+day|every\s+morning|every\s+week|daily|weekly)\b\s*",
     re.IGNORECASE,
 )
 
@@ -114,6 +114,23 @@ _STRIP_TAIL = re.compile(
 _STRIP_CHTOBY = re.compile(
     r"\s+чтобы\s+.+$",
     re.IGNORECASE,
+)
+
+# "но ..." clause at the end
+_STRIP_NO_CLAUSE = re.compile(
+    r",?\s+но\s+.+$",
+    re.IGNORECASE,
+)
+
+# "мне кажется ..." at the end
+_STRIP_MNE_KAZHETSYA = re.compile(
+    r",?\s*мне\s+кажется\s+.+$",
+    re.IGNORECASE,
+)
+
+# Sentence boundary: ". <Capital letter>..." — a new sentence appended to the title
+_STRIP_SENTENCE = re.compile(
+    r"\.\s+[А-ЯA-Z].+$",
 )
 
 # Standalone trailing filler phrases
@@ -147,9 +164,29 @@ MAX_ACTIVE_HABITS: Final[int] = 20
 DEFAULT_LIMIT: Final[int] = 20
 
 
+# Help-request verbs that indicate the user is asking for assistance,
+# not creating a habit (e.g., "хочу каждую неделю ... Помоги составить").
+_HELP_REQUEST_RE = re.compile(
+    r"\b(помоги|подскажи|составь|сделай|напиши|расскажи|покажи|объясни"
+    r"|help\s+me|show\s+me|write\s+me)\b",
+    re.IGNORECASE,
+)
+
+
 def is_habit_create_request(text: str) -> bool:
-    """Return True if *text* looks like a request to create a habit."""
-    return score_signals(text, _HABIT_CREATE_SIGNALS) >= _HABIT_CREATE_THRESHOLD
+    """Return True if *text* looks like a request to create a habit.
+
+    Suppresses detection when the message contains help-request verbs
+    but does NOT explicitly mention "привычк*" or "habit" — in that case
+    the user is asking for help, not creating a habit.
+    """
+    if score_signals(text, _HABIT_CREATE_SIGNALS) < _HABIT_CREATE_THRESHOLD:
+        return False
+    if _HELP_REQUEST_RE.search(text):
+        lower = text.lower()
+        if "привычк" not in lower and "habit" not in lower:
+            return False
+    return True
 
 
 def extract_habit_title(text: str) -> str | None:
@@ -163,8 +200,11 @@ def extract_habit_title(text: str) -> str | None:
             title = match.group(1).strip().rstrip(".,!?;:")
             title = _STRIP_WORDS.sub("", title).strip()
             title = _STRIP_FREQUENCY.sub(" ", title).strip()
+            title = _STRIP_SENTENCE.sub("", title).strip()
             title = _STRIP_TAIL.sub("", title).strip()
             title = _STRIP_CHTOBY.sub("", title).strip()
+            title = _STRIP_NO_CLAUSE.sub("", title).strip()
+            title = _STRIP_MNE_KAZHETSYA.sub("", title).strip()
             title = _STRIP_FILLER.sub("", title).strip()
             if title and len(title) <= 256:  # noqa: PLR2004
                 return title
@@ -227,9 +267,30 @@ def _stems_match(
     )
 
 
+# Common function words / pronouns excluded from stem matching to prevent
+# false check-ins on filler-word overlaps (e.g. "мне"/"это" in both title
+# and message).
+_STOP_WORDS: Final[frozenset[str]] = frozenset({
+    # Russian function words / pronouns / particles
+    "мне", "мой", "моя", "моё", "мои", "это", "эта", "эти", "этот",
+    "его", "её", "них", "нас", "вас", "для", "что", "как", "так",
+    "она", "они", "все", "всё", "уже", "ещё", "тоже", "ведь",
+    "буду", "будет", "будем", "очень", "просто", "можно",
+    # English function words
+    "the", "this", "that", "for", "with", "and", "but", "not",
+})
+
 _QUESTION_RE = re.compile(
     r"\?\s*$"
     r"|^\s*(?:как|что|можно|когда|где|зачем|почему|кто|сколько|какой|какая|какие|какое)\b",
+    re.IGNORECASE,
+)
+
+# Request verbs directed at the bot — suppress check-in when the user
+# is asking for something rather than reporting they did something.
+_REQUEST_RE = re.compile(
+    r"\b(давай|помоги|подскажи|составь|сделай|напиши|расскажи|покажи)\b"
+    r"|\b(help\s+me|give\s+me|show\s+me|let'?s)\b",
     re.IGNORECASE,
 )
 
@@ -250,12 +311,14 @@ def check_habit_match(
     """
     if _QUESTION_RE.search(text):
         return None
+    if _REQUEST_RE.search(text):
+        return None
 
     lower = text.lower()
-    text_words = [w for w in lower.split() if len(w) >= 3]  # noqa: PLR2004
+    text_words = [w for w in lower.split() if len(w) >= 3 and w not in _STOP_WORDS]  # noqa: PLR2004
     for habit in habits:
         title_lower = habit.title.lower()
-        title_words = [w for w in title_lower.split() if len(w) >= 3]  # noqa: PLR2004
+        title_words = [w for w in title_lower.split() if len(w) >= 3 and w not in _STOP_WORDS]  # noqa: PLR2004
         if not title_words:
             title_words = title_lower.split()
         # Word-boundary check for the full title to avoid matching substrings
