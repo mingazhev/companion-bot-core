@@ -47,7 +47,9 @@ _HABIT_CREATE_SIGNALS: Final[list[Signal]] = compile_signals(
         (r"\bновая\s+привычка\b", 0.9),
         (r"\bдобав\w*\s+привычку\b", 0.9),
         (r"\bзавес\w*\s+привычку\b", 0.9),
+        (r"\bзавед\w*\s+привычку\b", 0.9),
         (r"\bначн\w*\s+(каждый\s+день|ежедневно)\b", 0.7),
+        (r"\bхочу\s+начать\b.{0,40}\b(каждый\s+день|ежедневно)\b", 0.8),
         (r"\bтрекать\b.{0,20}\bпривычк\w*\b", 0.8),
         (r"\bотслеживать\b.{0,20}\bпривычк\w*\b", 0.8),
         # English
@@ -66,6 +68,10 @@ _HABIT_CREATE_SIGNALS: Final[list[Signal]] = compile_signals(
 _TITLE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(
         r"(?:хочу\s+каждый\s+день|хочу\s+каждую\s+неделю|начну\s+каждый\s+день)\s+(.+)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"хочу\s+начать\s+(.+)",
         re.IGNORECASE,
     ),
     re.compile(
@@ -101,6 +107,12 @@ _STRIP_TAIL = re.compile(
     r"\s*[,—–\-]\s*(заведи\s+привычку|типа\s+как\s+привычк\w*"
     r"|чтобы\s+.+"
     r"|а\s+то\s+.+)$",
+    re.IGNORECASE,
+)
+
+# Standalone "чтобы ..." at end (no delimiter required)
+_STRIP_CHTOBY = re.compile(
+    r"\s+чтобы\s+.+$",
     re.IGNORECASE,
 )
 
@@ -152,6 +164,7 @@ def extract_habit_title(text: str) -> str | None:
             title = _STRIP_WORDS.sub("", title).strip()
             title = _STRIP_FREQUENCY.sub(" ", title).strip()
             title = _STRIP_TAIL.sub("", title).strip()
+            title = _STRIP_CHTOBY.sub("", title).strip()
             title = _STRIP_FILLER.sub("", title).strip()
             if title and len(title) <= 256:  # noqa: PLR2004
                 return title

@@ -53,6 +53,15 @@ class TestIsHabitCreateRequest:
     def test_zavesti_privychku(self) -> None:
         assert is_habit_create_request("завести привычку медитировать") is True
 
+    def test_zavedi_privychku(self) -> None:
+        assert is_habit_create_request("заведи привычку медитировать") is True
+
+    def test_hochu_nachat_kazhdyj_den(self) -> None:
+        assert is_habit_create_request("хочу начать медитировать каждый день") is True
+
+    def test_hochu_nachat_ezhednevno(self) -> None:
+        assert is_habit_create_request("хочу начать читать ежедневно") is True
+
     def test_new_habit_en(self) -> None:
         assert is_habit_create_request("new habit") is True
 
@@ -118,6 +127,14 @@ class TestExtractHabitTitle:
     def test_strips_trailing_punctuation(self) -> None:
         result = extract_habit_title("new habit: read.")
         assert result == "read"
+
+    def test_extract_from_hochu_nachat(self) -> None:
+        result = extract_habit_title("хочу начать медитировать каждый день")
+        assert result == "медитировать"
+
+    def test_extract_from_zavedi_privychku(self) -> None:
+        result = extract_habit_title("заведи привычку медитировать")
+        assert result == "медитировать"
 
     def test_returns_none_for_empty(self) -> None:
         result = extract_habit_title("привет мир")
@@ -261,6 +278,15 @@ class TestExtractHabitTitleTailStrip:
         assert result is not None
         assert "чтобы" not in result
         assert "учиться" not in result
+
+    def test_strips_chtoby_without_delimiter(self) -> None:
+        result = extract_habit_title(
+            "хочу привычку ревьюить 1 PR коллег чтобы расти"
+        )
+        assert result is not None
+        assert "чтобы" not in result
+        assert "расти" not in result
+        assert "ревьюить" in result
 
     def test_strips_a_to_clause(self) -> None:
         result = extract_habit_title(

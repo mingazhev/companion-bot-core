@@ -67,6 +67,18 @@ class TestIsBookmarkRequest:
     def test_dont_forget_this_en(self) -> None:
         assert is_bookmark_request("don't forget this") is True
 
+    def test_zapomni_etot_plan(self) -> None:
+        assert is_bookmark_request("запомни этот план") is True
+
+    def test_sohrani_etot_cheklist(self) -> None:
+        assert is_bookmark_request("сохрани этот чеклист") is True
+
+    def test_zapomni_etu_ideyu(self) -> None:
+        assert is_bookmark_request("запомни эту идею") is True
+
+    def test_sohrani_eti_orientipy(self) -> None:
+        assert is_bookmark_request("сохрани эти ориентиры") is True
+
     def test_case_insensitive(self) -> None:
         assert is_bookmark_request("ЗАПОМНИ ЭТО") is True
         assert is_bookmark_request("Remember This") is True
