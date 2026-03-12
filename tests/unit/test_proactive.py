@@ -616,8 +616,10 @@ class TestReconcileSchedule:
         user_id = uuid.uuid4()
         engine = AsyncMock()
 
-        # Return a zscore that matches the expected fire time (within tolerance).
-        expected_fire = 1772874000.0
+        # Use a future timestamp so the "score <= now_ts → continue" guard
+        # does not short-circuit the tolerance comparison.
+        now_ts = datetime.now(tz=UTC).timestamp()
+        expected_fire = now_ts + 7200  # 2 hours from now
         redis.zscore = AsyncMock(return_value=expected_fire)
 
         mock_result = MagicMock()
@@ -655,9 +657,12 @@ class TestReconcileSchedule:
         user_id = uuid.uuid4()
         engine = AsyncMock()
 
-        # Stale score differs from expected by more than 120 seconds.
-        stale_fire = 1772870000.0
-        expected_fire = 1772874000.0
+        # Use future timestamps so the "score <= now_ts → continue" guard
+        # does not short-circuit.  Stale score differs from expected by
+        # more than the 120-second tolerance.
+        now_ts = datetime.now(tz=UTC).timestamp()
+        expected_fire = now_ts + 7200    # 2 hours from now
+        stale_fire = expected_fire - 4000  # ~1h behind expected (> 120s)
         redis.zscore = AsyncMock(return_value=stale_fire)
 
         mock_result = MagicMock()
